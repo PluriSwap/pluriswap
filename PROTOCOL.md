@@ -252,7 +252,7 @@ An implementation MAY support any of the following independently. Each attaches 
 | BONDS | Reserved role collateral and predetermined consequences | Activation reservation / terminal side-effects |
 | REPUTATION | Deterministic event-derived reputation and future deal limits | Future admission only |
 | HUMANITY | Authenticated credential-based uniqueness or eligibility | Future admission only |
-| CROWDFUNDED_POOL | Multi-funder pool shares, withdrawal epochs, recapitalization, default, and wind-down | Pool funding and NAV (Section 15) |
+| CROWDFUNDED_POOL | Multi-funder pool shares, withdrawal epochs, recapitalization, default, and wind-down (Section 15; not ratified for initial V2 — OUT_OF_SCOPE until CF-GATE) | Pool funding and NAV |
 | RATE_POLICY | Optional EXTERNAL or package-defined MANUAL quote validation for pool-origin acceptance | Pool acceptance; not required for every POOL |
 
 **PROFILE-001 — Explicit opt-in.** A deal depends only on extension profiles selected in its signed terms or accepted pool policy.
@@ -1024,15 +1024,19 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 
 ## 15. Crowdfunded-pool extension
 
+**Ratification status of this section.** Section 15 retains the full intended `CROWDFUNDED_POOL` business design for later enablement. It is **not ratified** as part of the initial V2 Mandatory Core or owned-POOL production scope. Until every CF-GATE below is satisfied and the profile is explicitly enabled in a deployment's conformance record, this entire section is **OUT_OF_SCOPE** for initial V2 qualification: no deployment may claim `conformanceStatus = CONFORMING` for crowdfunding rules or cases, and owned-POOL or Core QUALIFIED status MUST NOT be read as crowdfunding readiness. The text is normative **only** for a future release that enables `CROWDFUNDED_POOL` after the gates clear; it does not change Core or owned-pool behavior today.
+
 ### 15.1 Independent release gate
 
-**CF-GATE-001.** Crowdfunded pools are not part of the initial production pool release.
+**CF-GATE-001.** Crowdfunded pools are not part of the initial production pool release and are OUT_OF_SCOPE for that release's conformance and `releaseClass` claims.
 
-**CF-GATE-002.** They require a separately approved subordinate economic conformance specification implementing this section, complete stateful accounting invariants, adversarial withdrawal and wind-down tests, and independent audit. That specification cannot change these business outcomes without a new charter and extension version.
+**CF-GATE-002.** Enabling `CROWDFUNDED_POOL` requires a separately approved subordinate economic conformance specification implementing this section, complete stateful accounting invariants, adversarial withdrawal and wind-down tests, and independent audit. That specification cannot change these business outcomes without a new charter and extension version. Until then, Section 15 remains design-complete but non-ratified for production.
 
-**CF-GATE-003.** Owned-pool production readiness does not imply crowdfunding production readiness.
+**CF-GATE-003.** Owned-pool production readiness does not imply crowdfunding production readiness. Initial V2 Core and owned-POOL qualification ignore Section 15 for evidence matrices except to record `OUT_OF_SCOPE` / `DISABLED` for the profile.
 
 **CF-GATE-004.** A reference crowdfunded pool is an independent immutable pool system, not an owned pool with extra depositors. Its constitution or coordinator, pool vault, internal share and NAV journal, withdrawal-epoch ledger, recapitalization and default ledger, standing-bond custody, withdrawal-liability custody, and wind-down recovery ledger are identified separately. It integrates with mandatory core only through the ordinary exact pool-reservation boundary and canonical terminal records.
+
+**CF-GATE-005.** Clients, READMEs, and release metadata MUST NOT describe crowdfunding as production-ready, decentralized, or conforming while this section remains gated. The profile may appear in the closed profile registry only as absent, `DISABLED`, or `OUT_OF_SCOPE` until CF-GATE-002 evidence exists.
 
 ### 15.2 Lifecycle, participants, and shares
 
