@@ -112,6 +112,8 @@ PluriSwap does not:
 
 **Core silence default.** Mandatory Core treats holder silence after `FIAT_SENT` as non-contest: permissionless claim allocates full principal (and success fees) to the provider without authenticating that fiat was sent. That is the intentional provider-liveness tradeoff. It is not a guarantee of honest fiat performance. Holders who need a unilateral contest path MUST select ARBITRATION (and, for bilateral economic protection on unresolved disputes, BONDS) through an assured-trade or other explicit package under PROFILE-008—not through Core alone.
 
+**Fiat-timeout active exit.** While a deal remains `FUNDED`, `fiatDeadline` enables a permissionless cancel that returns principal holder-side. That exit is intentional and holder-favorable, but it is **active**, not passive: Core does not auto-cancel and does not freeze provider mark-fiat at the clock. At and after the deadline, timeout cancel and mark-fiat race; the first successful transition wins. A holder who wants the timeout outcome submits it—or relies on any address executing that predetermined cancel—before mark-fiat succeeds. Leaving the deal idle after the deadline is holder non-execution of that exit, not a protocol loophole (TIME-005, CASE-CORE-005, CASE-RACE-001).
+
 Core remains usable and complete on its own. Packages minimize trade-offs against permissionlessness by concentrating friction in voluntary venues rather than in base escrow.
 
 ---
@@ -182,7 +184,7 @@ PluriSwap is not universally trustless. Fiat payment, token behavior, identity c
 
 | Actor | Business role | Powers | Prohibited powers |
 | --- | --- | --- | --- |
-| Holder | Supplies crypto principal in a direct deal | Signs terms, funds, releases, co-signs cancellation or split; opens selected arbitration when that profile is enabled | Cannot rewrite terms after activation; cannot unilaterally dispute in Core |
+| Holder | Supplies crypto principal in a direct deal | Signs terms, funds, releases, co-signs cancellation or split; opens selected arbitration when that profile is enabled; may execute or rely on permissionless fiat-timeout cancel after `fiatDeadline` while `FUNDED` | Cannot rewrite terms after activation; cannot unilaterally dispute in Core; fiat-timeout is an active exit, not auto-cancel (TIME-005) |
 | Provider | Sends fiat and receives crypto on a provider-positive outcome | Signs terms, marks fiat sent, cancels before fiat, co-signs cancellation or split, claims after deadline | Cannot unilaterally claim before the signed deadline |
 | Pool | Supplies and receives holder-side liquidity in a pool-origin deal | Funds principal, receives holder-positive returns, accounts for its beneficiaries | Cannot create escrow liability without exact funding |
 | Pool controller | Configures a pool and appoints operators under its constitution | Sets future pool policy and mandates | Does not personally own active pool-origin principal unless it is also the pool beneficiary under the pool constitution |
@@ -233,7 +235,7 @@ Every conforming PluriSwap deployment MUST support:
 - the Core state machine and Core-only success path in Section 8;
 - voluntary release;
 - provider cancellation before fiat is marked;
-- permissionless fiat-timeout cancellation;
+- permissionless fiat-timeout cancellation from `FUNDED` at or after `fiatDeadline` (active holder-favorable exit that races mark-fiat by design under TIME-005);
 - permissionless claim after the release deadline, treating holder silence after `FIAT_SENT` as non-contest of the fiat-sent assertion under the signed timeouts;
 - mutually signed cancellation;
 - mutually signed split;
@@ -327,7 +329,7 @@ The signature domain MUST prevent replay across chains, deployments, and protoco
 
 **TIME-004 — Immutable timestamps.** Each origin and derived absolute deadline is recorded once. A later block timestamp, policy change, or external-service delay cannot rewrite it.
 
-**TIME-005 — Fiat-timeout threshold.** `fiatDeadline` enables permissionless timeout cancellation; it does not independently expire provider mark-fiat or an otherwise valid authenticated payment-proof transition. At and after the boundary, those actions race timeout cancellation from the still-current state, and the first successful transition wins.
+**TIME-005 — Fiat-timeout threshold.** `fiatDeadline` enables a permissionless, holder-favorable timeout cancellation from `FUNDED`: any address may cancel and return principal holder-side at or after that deadline (`CASE-CORE-005`). This is Core's intentional **active** holder exit when the provider has not yet marked fiat sent. It is not a passive auto-cancel, and it does not independently expire provider mark-fiat or an otherwise valid authenticated payment-proof transition. At and after the boundary, mark-fiat (and payment-proof when enabled) remain eligible and race timeout cancellation from the still-current `FUNDED` state; the first successful transition wins (`CASE-RACE-001`). A holder who wants the timeout outcome MUST submit it—or rely on any address executing that predetermined cancel—before mark-fiat succeeds. Choosing not to execute timeout after the deadline, or losing that race, leaves mark-fiat available **by design**; that is not a silent loophole or defect.
 
 ### 6.3 Pool-origin consent
 
@@ -438,6 +440,8 @@ stateDiagram-v2
 
 **Core-only success path.** activate → FUNDED → FIAT_SENT → holder RELEASE, permissionless CLAIM after release deadline (silence = non-contest under signed timeouts), mutual cancel, or mutual split.
 
+**Fiat timeout while FUNDED.** At or after `fiatDeadline`, any address may cancel and return principal holder-side. That path is Core's intentional active holder-favorable exit before mark-fiat. It races mark-fiat rather than auto-disabling it; see TIME-005 and CASE-RACE-001.
+
 **Silence after FIAT_SENT.** When the provider has marked fiat sent and the holder neither releases nor opens selected arbitration before the release deadline, permissionless claim allocates principal to the provider side. The parties agreed to that clock in signed terms. Claim does not authenticate that fiat was actually sent.
 
 ### 8.3 Valid transition cases
@@ -447,9 +451,9 @@ stateDiagram-v2
 | Case | Start | Trigger and authority | Timing | Result |
 | --- | --- | --- | --- | --- |
 | CASE-CORE-001 | No deal | Anyone relays valid bilateral terms and funding | Before creation expiry | Activate in FUNDED |
-| CASE-CORE-002 | FUNDED | Provider marks fiat sent | Before another transition wins | Enter FIAT_SENT and start release deadline |
+| CASE-CORE-002 | FUNDED | Provider marks fiat sent | While FUNDED remains current; eligible before or after fiatDeadline if timeout or another transition has not already won | Enter FIAT_SENT and start release deadline |
 | CASE-CORE-004 | FUNDED | Provider cancels | Before fiat is marked | Return principal holder-side; cancel |
-| CASE-CORE-005 | FUNDED | Anyone executes fiat timeout | At or after fiat deadline | Return principal holder-side; cancel |
+| CASE-CORE-005 | FUNDED | Anyone executes fiat timeout | At or after fiatDeadline | Return principal holder-side; cancel (intentional active holder-favorable exit; races mark-fiat under TIME-005) |
 | CASE-CORE-006 | FUNDED | Anyone relays fresh two-sided authorization under RES-001 through RES-005 | Before cancellation payload expiry | Return principal holder-side; mutual cancel |
 | CASE-CORE-007 | FIAT_SENT | Holder releases | Before another terminal action wins | Release to provider side |
 | CASE-CORE-009 | FIAT_SENT | Anyone claims | At or after release deadline | Release to provider side with CLAIMED outcome (non-contest under signed timeouts) |
@@ -492,6 +496,8 @@ Enabled only when the deal selects ARBITRATION (adapter and policy bound in term
 | CASE-RACE-007 | Duplicate relays | Every state-changing transition call submitted after its transition already succeeded MUST reject without economic effect; read-only queries are outside the transition catalog |
 
 Timeout rights do not expire merely because no keeper acted immediately. They remain executable until another valid transition wins.
+
+**Fiat-deadline race (intentional).** At or after `fiatDeadline` while still `FUNDED`, timeout cancel and provider mark-fiat are simultaneously eligible. Timeout is the holder-favorable path and returns principal holder-side if it wins; mark-fiat enters `FIAT_SENT` and starts the release clock if it wins first. Core does not auto-cancel at the deadline and does not freeze mark-fiat. Holder protection after `fiatDeadline` is therefore active execution of timeout (by the holder or any address), not passive clock expiry. See TIME-005 and Section 2.3.
 
 ---
 
@@ -1799,7 +1805,7 @@ The cases below apply in addition to the feature-specific cases above.
 
 | Case | Situation | Required behavior |
 | --- | --- | --- |
-| CASE-FAIL-020 | Provider never sends or reports fiat | Permit fiat-timeout cancellation by anyone |
+| CASE-FAIL-020 | Provider never sends or reports fiat while deal remains FUNDED | Permit permissionless fiat-timeout cancellation by anyone at or after fiatDeadline (intentional active holder-favorable exit under TIME-005); mark-fiat remains eligible until timeout or another transition wins |
 | CASE-FAIL-021 | Provider falsely reports fiat sent | Without ARBITRATION: holder must release, mutual-resolve, or allow claim (Core retains this risk; disclose per PROFILE-008); with ARBITRATION: holder-side may open the selected arbitration before release deadline |
 | CASE-FAIL-022 | Holder refuses to release and does not open arbitration | Permit claim by anyone after release deadline (non-contest under signed timeouts); full provider-positive fee economics unchanged |
 | CASE-FAIL-022A | Package claims assured-trade (or equivalent) but omits ARBITRATION or required BONDS stalemate fields | Reject activation / refuse to label the package assured-trade; Core-only path remains available without that label |
@@ -1816,7 +1822,7 @@ The cases below apply in addition to the feature-specific cases above.
 | CASE-FAIL-033 | Selected token blocks withdrawal to signed receiver | Preserve matured credit; allow retry or beneficiary-authorized redirection |
 | CASE-FAIL-034 | Token issuer pauses all transfers | Preserve liabilities and attribution; do not grant governance seizure power |
 | CASE-FAIL-035 | Party loses a key | Use only already-signed, proof, arbitration, or permissionless timeout paths; no admin replacement |
-| CASE-FAIL-036 | Nobody submits an eligible timeout | State remains until any address submits it; deadline eligibility does not expire |
+| CASE-FAIL-036 | Nobody submits an eligible timeout | State remains until any address submits it; deadline eligibility does not expire. After fiatDeadline, leaving FUNDED idle is holder non-execution of the active cancel exit and leaves mark-fiat racing by design (TIME-005)—not an automatic cancel and not a defect |
 | CASE-FAIL-037 | Frontend, matcher, relayer, RPC provider, or backend is offline or censoring | Permit direct interaction through any alternative public path |
 | CASE-FAIL-038 | Chain reorganizes recent transactions | Canonical chain state controls; indexers roll back and replay idempotently |
 | CASE-FAIL-039 | MEV actor submits an already-public eligible transition first | Accept only the predetermined outcome and receivers; executor gains no principal discretion |
@@ -1908,7 +1914,7 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-STATE-004.** Every active state has a bounded path to a terminal result without governance or proprietary infrastructure.
 
-**INV-STATE-005.** Every eligible timeout remains permissionlessly executable.
+**INV-STATE-005.** Every eligible timeout remains permissionlessly executable until another valid transition wins. Fiat-timeout eligibility at or after `fiatDeadline` does not auto-cancel the deal or freeze mark-fiat; the intentional race in TIME-005 and CASE-RACE-001 remains.
 
 **INV-STATE-006.** An anyone-callable action has predetermined receivers and economics.
 
@@ -2201,6 +2207,7 @@ The current repository and Arbitrum Sepolia deployment are evaluated separately 
 | Extension point | Named attachment on the Core state machine or accounting path where an optional profile adds transitions or side-effects |
 | Extension profile | Optional versioned protocol capability selected by participants |
 | Fiat-sent assertion | Provider's onchain statement that fiat was sent; not cryptographic payment proof |
+| Fiat-timeout cancellation | Permissionless `FUNDED` → `CANCELLED` exit at or after `fiatDeadline` that returns principal holder-side; intentional **active** holder-favorable exit that races mark-fiat rather than auto-expiring it (TIME-005, CASE-CORE-005, CASE-RACE-001) |
 | Liability | Nominal token amount attributed by protocol accounting to an active deal, matured credit, fee recipient, bond recipient, or pool; actual recovery is conditional under a deficit boundary |
 | Permissionless execution | Ability of any address to submit a valid action when public signed, state, proof, ruling, or deadline conditions hold |
 | Permissionless participation | Ability to use compatible public protocol functions without discretionary identity or commercial approval |
