@@ -204,7 +204,7 @@ Legacy coordinator-held pools (Section 14.2) are migration infrastructure in whi
 ### 4.2 Assets and accounting terms
 
 - **Principal:** crypto amount held for the trade. Principal excludes all fees and bonds.
-- **Activation fee (holder fee):** optional Core fee charged for creating an active escrow at FUNDED. It is paid at activation and is non-refundable. Amount MAY be zero.
+- **Activation fee (holder fee):** optional Core fee for creating an active escrow at FUNDED. On a direct deal it is paid at activation and is non-refundable. On a pool-origin deal it is pulled into deal-scoped custody at activation and paid to its recipient only on a fee-predicate provider-positive terminal (otherwise unlocked to the funding pool). Amount MAY be zero.
 - **Completion fee (provider fee):** optional Core fee charged from the provider's gross crypto share on a provider-positive terminal settlement (Section 9.1). Amount MAY be zero.
 - **Operator acceptance fee:** pool-funded fee reserved at activation for an enabled operator role and paid only on eligible provider-positive outcomes without authenticated operator fault. "Reserved," "eligible," and "paid" are statuses of this same fee. Cancellation and protocol stalemate are never provider-positive for this fee.
 - **Provider-positive outcome:** a terminal path that is fee-bearing under Section 9.1: voluntary release, authenticated payment-proof release, timeout claim, mutually signed split that satisfies split fee-coverage, or arbitration provider win. Cancellation and protocol stalemate are not provider-positive for fee predicates, even when stalemate assigns a positive provider principal share.
@@ -212,7 +212,7 @@ Legacy coordinator-held pools (Section 14.2) are migration infrastructure in whi
 - **Bond:** collateral reserved separately from principal and fees to secure a defined role.
 - **Pool available liquidity:** pool assets not consumed, reserved, queued for an earlier obligation, or required for active exposure.
 - **Pool locked exposure:** principal and fee exposure reserved for active deals.
-- **Pool consumed exposure:** pool assets that permanently left pool availability through fees, principal allocated to the provider side (including stalemate provider gross), paid operator fees, or realized loss.
+- **Pool consumed exposure:** pool assets that permanently left pool availability through principal allocated to the provider side (including stalemate provider gross), holder or operator fees actually paid to their recipients, or realized loss. Unlocked fee reserves are not consumed.
 - **Liability:** an amount the protocol owes to a deal, receiver credit, fee credit, bond recipient, or pool.
 - **Active deal:** a deal that has activated and has not yet reached a terminal state. Matured credits after a terminal state are open liabilities, not active deals.
 
@@ -366,7 +366,7 @@ For a pool-origin deal:
 
 **ECON-005 — Fee separation.** Activation, completion, and operator acceptance fees are separate from principal and from one another.
 
-**ECON-006 — Activation fee once.** A nonzero activation fee is charged exactly once at activation and is not refunded by a later outcome.
+**ECON-006 — Activation fee once.** A nonzero activation fee is assessed at most once per deal. On a direct deal it is paid at successful activation and is not refunded. On a pool-origin deal it is reserved into deal-scoped custody at successful activation and is paid or unlocked exactly once at terminal settlement under FEE-H-008.
 
 **ECON-007 — Completion fee cap.** The completion fee is charged at most once and never exceeds provider gross.
 
@@ -518,7 +518,7 @@ Operator bond releases on stalemate absent authenticated operator fault. Activat
 
 ### 9.2 Complete outcome matrix
 
-This matrix is the authoritative terminal settlement table. Section 11.2 is the bond-focused view of the same outcomes and MUST NOT disagree. When BONDS is not enabled, every bond cell is a no-op. When no operator role exists, every operator-acceptance-fee cell is a no-op. CASE-OUT-002 and CASE-OUT-009 through CASE-OUT-012 apply only when the corresponding PAYMENT_PROOF or ARBITRATION profile is enabled. CASE-OUT-008 (former Core dispute stalemate) is reserved and superseded; stalemate exists only on the ARBITRATION path.
+This matrix is the authoritative terminal settlement table. Section 11.2 is the bond-focused view of the same outcomes and MUST NOT disagree. When BONDS is not enabled, every bond cell is a no-op. When no operator role exists, every operator-acceptance-fee cell is a no-op. Pool-origin holder-fee escrow is not a separate matrix column: it pays on every fee-predicate provider-positive row and unlocks to the funding pool on every other row under FEE-H-008 / OUT-010. Direct-deal holder fees are already paid at activation and do not reappear here. CASE-OUT-002 and CASE-OUT-009 through CASE-OUT-012 apply only when the corresponding PAYMENT_PROOF or ARBITRATION profile is enabled. CASE-OUT-008 (former Core dispute stalemate) is reserved and superseded; stalemate exists only on the ARBITRATION path.
 
 | Case | Outcome | Principal allocation | Completion fee (provider fee) | Operator acceptance fee | Party bonds | Operator bond |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -556,6 +556,8 @@ This matrix is the authoritative terminal settlement table. Section 11.2 is the 
 
 **OUT-009 — Split fees are undiscounted.** Mutual split MUST NOT be used to shrink completion or operator acceptance fees below the snapshotted full amounts. Below-coverage provider shares reject; holder-full no-fee returns use mutual cancel.
 
+**OUT-010 — Pool-origin holder-fee escrow.** On pool-origin deals, the snapshotted holder fee remains in deal-scoped custody until terminal settlement. It is credited to its snapshotted recipient on fee-predicate provider-positive outcomes and unlocked to the funding pool or pool credit on cancel, mutual cancel, arbitration holder-win, and protocol stalemate. It MUST NOT be paid at activation to the recipient on the pool-origin path.
+
 ---
 
 ## 10. Fee policy
@@ -564,19 +566,26 @@ Core defines two optional fee channels. Amounts MAY be zero. Recipients are what
 
 ### 10.1 Activation fee (holder fee)
 
-**FEE-H-001.** The activation fee pays for successful activation of an escrow at FUNDED, not for a favorable terminal outcome.
+**FEE-H-001.** The activation fee is compensation tied to creating an active escrow at FUNDED. On a direct deal it is earned at successful activation. On a pool-origin deal it is earned only if the deal later reaches a fee-predicate provider-positive terminal (Section 9.1), so cancel-spam cannot drain pool liquidity into the fee recipient.
 
-**FEE-H-002.** When nonzero, it is transferred or credited to the snapshotted signed recipient exactly once during activation.
+**FEE-H-002.** On a direct deal, when nonzero, it is transferred or credited to the snapshotted signed recipient exactly once during activation.
 
-**FEE-H-003.** It is non-refundable after successful activation, including cancellation, stalemate, and holder-win outcomes.
+**FEE-H-003.** On a direct deal, it is non-refundable after successful activation, including cancellation, stalemate, and holder-win outcomes.
 
-**FEE-H-004.** If activation reverts, no activation fee remains charged.
+**FEE-H-004.** If activation reverts, no activation fee remains charged or reserved.
 
 **FEE-H-005.** The base protocol imposes no governance-selected activation-fee schedule or global cap and does not require a DAO recipient. The exact nonnegative amount and recipient are part of explicit consent; conforming clients MUST display both before signing. Pool-origin terms additionally enforce the pool's accepted cap and recipient policy. A zero amount is a valid Core-only configuration.
 
 **FEE-H-006.** A DAO-sponsored reference package that charges an activation fee MUST bind the disclosed DAO legal wrapper as its signed recipient under PROFILE-006. An independently published package may select its own disclosed recipient or zero fee. Endorsement or recommended status never creates a protocol-wide DAO tax, changes a signed recipient, or prevents a competing zero-fee deployment.
 
 **FEE-H-007.** Activation-fee routing does not subsume completion fees, arbitration fees, operator acceptance fees, bond movements, or other separately defined economics. No hidden or automatic onchain split to PluriSwap, the DAO, a frontend, or an infrastructure provider is permitted.
+
+**FEE-H-008 — Pool-origin escrow.** In the initial V2 pool profiles, activation pulls the exact holder fee from the pool into deal-scoped protocol-controlled custody together with principal and maximum operator-fee exposure. The fee is not credited to its recipient at activation. At terminal settlement exactly one of the following occurs once:
+
+- on a fee-predicate provider-positive outcome: credit the full snapshotted holder fee to its snapshotted recipient;
+- otherwise (cancel, fiat-timeout, mutual cancel, arbitration holder-win, protocol stalemate): unlock the full reserved holder fee to the funding pool or its pool credit.
+
+Partial payment or share-proportional holder-fee discounting is unsupported. A zero snapshotted holder fee is a no-op.
 
 ### 10.2 Completion fee (provider fee)
 
@@ -890,7 +899,7 @@ Legacy coordinator-held pools are migration infrastructure, not the target proto
 
 **POOL-FUND-001.** Idle modular-pool liquidity remains isolated in the pool or its pool-specific vault.
 
-**POOL-FUND-002.** In the initial V2 pool profiles, the economic pool is the `holderFeePayer`. Activation atomically moves or assigns principal, the exact holder fee, and the complete maximum operator-fee exposure from that pool into deal-scoped protocol-controlled custody; credits the holder fee to its snapshotted recipient; reserves required bonds; and activates the deal. The canonical activation delta records every component and the holder fee's non-refundable consumption. A custom pool's promise, balance, or revocable allowance is not a reservation.
+**POOL-FUND-002.** In the initial V2 pool profiles, the economic pool is the `holderFeePayer`. Activation atomically moves or assigns principal, the exact holder fee, and the complete maximum operator-fee exposure from that pool into deal-scoped protocol-controlled custody; reserves required bonds; and activates the deal. The holder fee remains deal-scoped escrow under FEE-H-008 and is not paid to its recipient at activation. The canonical activation delta records every reserved component. A custom pool's promise, balance, or revocable allowance is not a reservation.
 
 **POOL-FUND-003.** Escrow MUST independently observe an exact same-transaction token pull from the bound pool or an exact same-custody allocation from an already attributed pool credit before creating a principal or operator-fee liability. A canonical pool vault may satisfy the pull only through its immutable purpose-bound callback from the paired escrow vault, with both source and destination deltas verified in the same transaction. A pre-transfer, unsolicited surplus, concurrent transfer, arbitrary callback or callback return value, allowance alone, or self-reported value is insufficient.
 
@@ -930,13 +939,13 @@ After activation, pool-origin deals use the complete core state machine in Secti
 
 ### 14.8 Pool terminal accounting
 
-**POOL-SET-001.** Each deal produces exactly one immutable pool terminal delta reconciling principal, holder return, provider gross, provider fee, paid operator fee, unlocked operator fee, and realized pool consumption.
+**POOL-SET-001.** Each deal produces exactly one immutable pool terminal delta reconciling principal, holder return, provider gross, provider fee, paid holder fee, unlocked holder fee, paid operator fee, unlocked operator fee, and realized pool consumption.
 
 **POOL-SET-002.** Holder-side principal returns to the funding pool or pool-specific credit.
 
-**POOL-SET-003.** Principal allocated to the provider side—including stalemate provider gross—and paid operator fees become consumed pool exposure. Fee-predicate “provider-positive” (Section 9.1) does not gate this consumption: stalemate consumes provider gross even though it pays no completion or operator acceptance fee.
+**POOL-SET-003.** Principal allocated to the provider side—including stalemate provider gross—and holder or operator fees actually paid to their recipients become consumed pool exposure. Fee-predicate “provider-positive” (Section 9.1) does not gate principal consumption: stalemate consumes provider gross even though it pays no completion fee, operator acceptance fee, or pool-origin holder fee.
 
-**POOL-SET-004.** Cancellation unlocks returned principal and every unpaid operator-fee amount. Protocol stalemate returns holder gross and unlocks unpaid operator-fee exposure while consuming provider gross under POOL-SET-003.
+**POOL-SET-004.** Cancellation unlocks returned principal, the reserved pool-origin holder fee, and every unpaid operator-fee amount. Protocol stalemate returns holder gross and unlocks the reserved pool-origin holder fee and unpaid operator-fee exposure while consuming provider gross under POOL-SET-003.
 
 **POOL-SET-005.** Core settlement atomically commits the canonical pool terminal record and all protocol-controlled value and liability changes. A custom-pool callback or pool-local journal is not part of canonical custody correctness and MUST NOT run on the core settlement path. Its failure cannot reverse provider payment, change the terminal outcome, consume the canonical record, or block another deal.
 
@@ -984,17 +993,39 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 
 **RATE-002 — Canonical representation.** A rate is a positive integer count of quote-currency minor units per one whole settlement token. The policy binds base token and decimals, quote currency and minor-unit decimals, pair direction, source chain and address, source interface plus signer or code identity as applicable, round or observation identity, scale conversion, maximum age, maximum deviation basis points, and policy semantic hash.
 
-**RATE-003 — Deal-implied rate.** For positive principal in token smallest units, `dealRate = floor(fiatMinorAmount × 10^tokenDecimals ÷ principal)`. The signed fiat amount, currency, principal, token decimals, and rounding rule are part of consent; a caller cannot submit a substitute rate.
+**RATE-003 — Gross deal-implied rate.** For positive principal in token smallest units, `dealRateGross = floor(fiatMinorAmount × 10^tokenDecimals ÷ principal)`. The signed fiat amount, currency, principal, token decimals, and rounding rule are part of consent; a caller cannot submit a substitute rate. `dealRateGross` is the face escrow rate and the compatibility alias of the former unqualified `dealRate`.
+
+**RATE-003A — All-in deal-implied rates.** When RATE_POLICY is enabled, acceptance also derives provider- and pool-all-in rates from the same signed economics so fees cannot hide outside the quote check. With `BPS = 10_000` and floor division:
+
+- Reject if `signedCompletionFee >= principal` (provider-net rate undefined / zero-net success path).
+- `providerNet = principal - signedCompletionFee` (always positive after the reject above).
+- `dealRateProvider = floor(fiatMinorAmount × 10^tokenDecimals ÷ providerNet)`.
+- `poolOutlay = principal + signedHolderFee + reservedOperatorAcceptanceFee`, using checked addition; reject on overflow. For a pool with no operator fee, the reserved operator term is zero.
+- Reject if `poolOutlay == 0`.
+- `dealRatePool = floor(fiatMinorAmount × 10^tokenDecimals ÷ poolOutlay)`.
+
+Bonds and arbitration fees are out of scope for these rates (different custody moments and often different tokens). When all three fee terms are zero, `dealRateGross`, `dealRateProvider`, and `dealRatePool` are equal.
 
 **RATE-004 — Authenticated observation.** An external observation MUST authenticate the selected source and observation identity, have positive value, have an observation timestamp no later than the activation transaction's chain timestamp, and have age no greater than the signed maximum. Zero, negative, future, stale, missing, or unauthenticated observations reject. Initial V2 observations are detached signed evidence: multiple observations may remain concurrently valid within their signed age and expiry bounds, and publishing a newer observation does not silently supersede an older one.
 
-**RATE-005 — Deviation.** After exact scale normalization, acceptance requires `abs(dealRate - referenceRate) × 10,000 <= referenceRate × maxDeviationBps`. Equality at the boundary passes. A zero reference rate rejects before this calculation.
+**RATE-005 — Gross deviation.** After exact scale normalization, EXTERNAL acceptance requires `abs(dealRateGross - referenceRate) × 10_000 <= referenceRate × maxDeviationBps`. Equality at the boundary passes. A zero reference rate rejects before this calculation.
+
+**RATE-005A — All-in deviation.** EXTERNAL acceptance also requires the same band against the same normalized `referenceRate` for both all-in rates:
+
+- `abs(dealRateProvider - referenceRate) × 10_000 <= referenceRate × maxDeviationBps`
+- `abs(dealRatePool - referenceRate) × 10_000 <= referenceRate × maxDeviationBps`
+
+Equality at each boundary passes. MANUAL mode does not apply RATE-005 or RATE-005A but still computes and snapshots RATE-003 / RATE-003A and enforces the undefined-rate rejects in RATE-003A.
+
+Nonzero completion, holder, or operator fees create a wedge among the three rates. Pool terms MUST choose fee amounts and `maxDeviationBps` so at least one feasible fiat/principal quote can satisfy RATE-005 and RATE-005A together; an infeasible signed quote rejects at acceptance rather than silently checking only the gross rate.
 
 **RATE-006 — Arithmetic.** Rate multiplication, absolute difference, scale conversion, and mul-div use full-precision checked arithmetic. Overflow, underflow, precision loss outside the specified floor, or unsupported decimals rejects rather than truncating silently.
 
-**RATE-007 — Immutable snapshot.** Activation records source, observation identity, value, timestamp, normalized reference rate, deal rate, deviation, and policy hash. Later source updates cannot change the active deal.
+**RATE-007 — Immutable snapshot.** Activation records source, observation identity, value, timestamp, normalized reference rate, `dealRateGross`, `dealRateProvider`, `dealRatePool`, `providerNet`, `poolOutlay`, each checked deviation, and policy hash. Later source updates cannot change the active deal.
 
 **RATE-008 — Optional fallback.** If pool terms permit MANUAL mode, a provider may accept exact manual economics without an external source. Failure or deactivation of EXTERNAL mode does not silently switch a signed acceptance to MANUAL; a new acceptance is required.
+
+**RATE-009 — Consent display.** Conforming clients that construct RATE_POLICY acceptances MUST display gross, provider-all-in, and pool-all-in rates (and the fee inputs that distinguish them) before signing, including in MANUAL mode.
 
 ### 14.11 Pool and rate cases
 
@@ -1015,8 +1046,8 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 | CASE-POOL-013 | Pool or implementation loses endorsement | Affect recommendations or future exposure only; preserve active deals |
 | CASE-POOL-014 | Owned or custom pool is deficient, closing, or closed; or crowdfunded pool is defaulted, closing, or closed | Reject new exposure even if an old signature remains unexpired |
 | CASE-POOL-015 | Controller transfer is attempted under an existing pool identity | Reject without changing authority, nonces, collateral, terms, or exposure; a different controller requires a new pool identity |
-| CASE-POOL-016 | Optional rate is fresh and within deviation | Permit acceptance when every other condition passes |
-| CASE-POOL-017 | Rate is stale, missing, or outside enforced deviation | Reject acceptance |
+| CASE-POOL-016 | Optional EXTERNAL rate is fresh and gross plus both all-in rates are within deviation | Permit acceptance when every other condition passes |
+| CASE-POOL-017 | Rate is stale, missing, or any of gross/provider/pool rates is outside enforced deviation | Reject acceptance |
 | CASE-POOL-018 | Rate publisher tries a custody or operator action | Reject; rate publication grants no other role |
 | CASE-POOL-019 | External rate policy is disabled before activation | Reject its acceptance; permit a new provider-signed MANUAL acceptance only when pool terms allow it |
 | CASE-POOL-020 | Closure begins with active deals | Stop new exposure; allow all valid active exits and final accounting |
@@ -1047,16 +1078,22 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 | CASE-POOL-045 | Compatible custom pool publishes no conforming deployment descriptor | Preserve permissionless base compatibility; mark its POOL-DEPLOY requirements non-CONFORMING and forbid a full conforming pool-release claim |
 | CASE-POOL-046 | Post-deployment bytecode, configuration, address, chain, or transaction differs from expected intent | Fail verification and publish no successful-deployment claim |
 | CASE-POOL-047 | Pool cannot exactly fund principal, signed holder fee, and maximum reserved operator fee in the same activation boundary | Reject atomically without charging a fee, reserving exposure, or activating the deal |
+| CASE-POOL-053 | Pool-origin provider-positive terminal with nonzero holder-fee escrow | Pay full snapshotted holder fee to its recipient once; record paid holder fee as consumed exposure |
+| CASE-POOL-054 | Pool-origin cancel, holder-win, or stalemate with nonzero holder-fee escrow | Unlock full reserved holder fee to the funding pool or pool credit; pay the recipient nothing |
 | CASE-POOL-048 | Crowdfunding controller and sponsor are the same address but only one deployment-role authorization is supplied | Reject; require separate controller/deployer and sponsor typed consents with independent nonce namespaces |
 | CASE-POOL-049 | Positive initial funding has an allowance but lacks the exact payer's funding authorization | Reject before component creation, nonce consumption, or token movement |
 | CASE-POOL-050 | A new target is shown with a `releaseClass`, `conformanceStatus`, deployed address, or verification result before its immutable manifest exists | Reject the claim and display the target as `UNDEPLOYED`; show separately attributed template or existing-deployment opinions only as advisory context |
 | CASE-POOL-051 | A recommended-token list, template endorsement, or another deployment's qualification is offered instead of the exact target/token acknowledgements | Reject; require the closed acknowledgement set derived from the canonical intent |
 | CASE-POOL-052 | An acknowledgement is missing, extra, duplicated, out of canonical order, signed by another role, or bound to a substituted subject | Reject before any deployment-role or funding nonce, component creation, or token movement |
-| CASE-RATE-001 | Authenticated positive observation matches pair, direction, scale, freshness, and deviation | Record the exact snapshot and permit acceptance when every other condition passes |
+| CASE-RATE-001 | Authenticated positive observation matches pair, direction, scale, freshness, and gross plus both all-in deviations | Record the exact snapshot (including `dealRateGross`, `dealRateProvider`, `dealRatePool`) and permit acceptance when every other condition passes |
 | CASE-RATE-002 | Observation is zero, negative, future, stale, missing, has the wrong observation identity, pair, or direction, or is unauthenticated | Reject acceptance |
-| CASE-RATE-003 | Decimal normalization, deal-rate calculation, or deviation arithmetic overflows or loses unsupported precision | Reject acceptance |
-| CASE-RATE-004 | Deal rate is exactly at maximum deviation | Accept the rate boundary |
+| CASE-RATE-003 | Decimal normalization, deal-rate calculation, poolOutlay addition, or deviation arithmetic overflows or loses unsupported precision | Reject acceptance |
+| CASE-RATE-004 | Any checked rate is exactly at maximum deviation | Accept that rate boundary |
 | CASE-RATE-005 | Existing active deal's source later changes | Preserve its recorded rate snapshot and deal economics |
+| CASE-RATE-006 | `signedCompletionFee >= principal` under RATE_POLICY | Reject acceptance (provider-net rate undefined) |
+| CASE-RATE-007 | Gross rate is inside band but provider-all-in or pool-all-in is outside band | Reject acceptance |
+| CASE-RATE-008 | MANUAL RATE_POLICY acceptance with valid all-in inputs | Snapshot gross and all-in rates without reference deviation checks; still enforce RATE-003A rejects |
+| CASE-RATE-009 | Fee wedge makes no fiat/principal quote satisfy gross and both all-in bands for the snapshotted fees and `maxDeviationBps` | Reject that infeasible acceptance; require new terms, fees, fiat, or wider band |
 
 ---
 
@@ -1080,7 +1117,7 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 
 **CF-LIFE-001 — Closed lifecycle.** The only crowdfunding lifecycle states are ACTIVE, WITHDRAWAL_RUNOFF, DEFAULTED, WINDING_DOWN, and CLOSED. ACTIVE enters WITHDRAWAL_RUNOFF at a withdrawal cutoff and may return to ACTIVE only after a valid finalization-generation commit and every activation condition is restored. ACTIVE or WITHDRAWAL_RUNOFF may enter WINDING_DOWN under CF-WIND-001. Objective default takes precedence over a normal finalization-generation commit and enters DEFAULTED; DEFAULTED proceeds only to WINDING_DOWN and then CLOSED. DEFAULTED, WINDING_DOWN, and CLOSED never return to ACTIVE.
 
-**CF-LIFE-002 — Custody domains.** Idle and otherwise controlled pool assets remain in the pool's dedicated vault. Core-funded active principal and maximum operator-fee exposure are pool receivables held in their protocol custody boundaries. The standing bond and finalized withdrawal liabilities remain in separate dedicated custody and are excluded from available pool liquidity. A raw token balance is never, by itself, authoritative share, NAV, liability, bond, or recovery accounting.
+**CF-LIFE-002 — Custody domains.** Idle and otherwise controlled pool assets remain in the pool's dedicated vault. Core-funded active principal, reserved pool-origin holder-fee escrow, and maximum operator-fee exposure are pool receivables held in their protocol custody boundaries. The standing bond and finalized withdrawal liabilities remain in separate dedicated custody and are excluded from available pool liquidity. A raw token balance is never, by itself, authoritative share, NAV, liability, bond, or recovery accounting.
 
 **CF-LIFE-003 — Canonical journal gate.** Every controlled asset, receivable, terminal delta, liability, recapitalization receipt, slash, and recovery is attributed exactly once in the canonical journal. Before any deposit, withdrawal request or finalization, new exposure, sponsor-minimum decision, default, wind-down, claim checkpoint, or closure action, every relevant canonical terminal record MUST be reconciled. A mismatch or pending required record rejects the NAV-changing action without blocking core settlement or fixed-beneficiary withdrawal.
 
@@ -1098,13 +1135,13 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 
 **CF-SHARE-006.** Deposits reject above maximum pool size, during default, wind-down, or closure, and whenever post-deposit share minting would place sponsor capital or ownership below its minimum.
 
-**CF-SHARE-007.** Share NAV is `controlled idle and vault assets + active principal and operator-fee-reserve receivables at snapshotted carrying value + matured pool credits - fixed withdrawal liabilities - other external pool liabilities`. These categories are mutually exclusive. Standing bonds are excluded until slashed into the pool; expected fiat and expected recapitalization are excluded. Exact received recapitalization becomes a controlled asset once.
+**CF-SHARE-007.** Share NAV is `controlled idle and vault assets + active principal, reserved pool-origin holder-fee, and operator-fee-reserve receivables at snapshotted carrying value + matured pool credits - fixed withdrawal liabilities - other external pool liabilities`. These categories are mutually exclusive. Standing bonds are excluded until slashed into the pool; expected fiat and expected recapitalization are excluded. Exact received recapitalization becomes a controlled asset once.
 
 **CF-SHARE-008.** Expected fiat, invoices, reports, quotes, or unverified offchain balances never increase NAV.
 
 **CF-SHARE-009.** Profits and losses accrue pro rata unless a separately versioned and explicitly accepted waterfall defines otherwise.
 
-**CF-SHARE-010.** The accounting journal applies each asset or liability exactly once. Returned principal and unlocked fee reserve move from active receivable to idle asset or pool credit. Any terminal allocation of principal to the provider side—including stalemate provider gross—removes that consumed principal receivable; paid operator-fee receivables are removed only when that fee is actually paid. Withdrawal finalization leaves backing assets controlled, creates an equal fixed liability, and burns only the corresponding filled shares. Withdrawal payment reduces controlled assets and that liability by the same amount.
+**CF-SHARE-010.** The accounting journal applies each asset or liability exactly once. Returned principal and unlocked holder-fee or operator-fee reserves move from active receivable to idle asset or pool credit. Any terminal allocation of principal to the provider side—including stalemate provider gross—removes that consumed principal receivable; paid holder-fee and paid operator-fee receivables are removed only when those fees are actually paid to their recipients. Withdrawal finalization leaves backing assets controlled, creates an equal fixed liability, and burns only the corresponding filled shares. Withdrawal payment reduces controlled assets and that liability by the same amount.
 
 **CF-SHARE-011.** A normal withdrawal cannot reduce total shares to zero while active receivables, non-withdrawal NAV, or unresolved recoveries remain. Wind-down uses its fixed snapshot claim basis even after all original shares are normalized or burned.
 
@@ -1180,9 +1217,24 @@ Crowdfunded liquidity has one normal withdrawal mechanism. No immediate withdraw
 
 **CF-RC-001.** Recapitalization is actual pool tokens returned onchain after offchain activity.
 
-**CF-RC-002.** One immutable recapitalization policy and one obligation owner apply to the entire pool. The policy binds the deterministic obligation formula, accounting-epoch rule, positive recapitalization-deadline offset, completion basis points in `1..10_000`, maximum exposure, immutable late-recovery window or no-expiry selection, and any explicitly selected immutable conversion-rate policy. Pool creation and every deal admission reject unless the maximum possible derived recapitalization deadline plus a finite late-recovery window fits the immutable timestamp type; overflow may never first appear at epoch close or wind-down. Every deal that can consume pool assets binds that exact policy identity and derives its contribution to the canonical obligation from settled amounts and signed quote economics. Selecting another formula, deadline rule, recovery window, or obligation owner requires a new pool identity; a mandate or later terms change cannot create debt for another address.
+**CF-RC-002.** One immutable recapitalization policy and one obligation owner apply to the entire pool. The policy binds the deterministic obligation formula identity (initial V2: full-outlay make-whole under CF-RC-002A), accounting-epoch rule, positive recapitalization-deadline offset, `minimumBps` (completion basis points) in `1..10_000`, maximum exposure, immutable late-recovery window or no-expiry selection, and any explicitly selected immutable conversion-rate policy. Pool creation and every deal admission reject unless the maximum possible derived recapitalization deadline plus a finite late-recovery window fits the immutable timestamp type; overflow may never first appear at epoch close or wind-down. Every deal that can consume pool assets binds that exact policy identity. Selecting another formula, deadline rule, recovery window, or obligation owner requires a new pool identity; a mandate or later terms change cannot create debt for another address.
 
-**CF-RC-003.** At epoch close, canonical deal records determine the aggregate `canonicalObligation`, deadline, and `requiredMinimum = ceil(canonicalObligation * minimumBps / 10_000)` exactly once. No sponsor, operator, reporter, obligation owner, or governance actor supplies or overwrites either amount. A zero aggregate obligation has a zero required minimum, closes successfully, and cannot default.
+**CF-RC-002A — Full-outlay deal contribution (initial V2 default).** For each deal whose canonical pool terminal record falls in the obligation epoch, contribution is denominated in the pool settlement token and derived only from that deal's canonical terminal delta (POOL-SET-001), using checked addition:
+
+- `consumedPrincipal` = principal allocated to the provider side in the terminal delta (zero on cancel and arbitration holder-win; provider gross on release, proof, claim, split, arbitration provider-win, and stalemate);
+- `paidOperatorFee` = operator acceptance fee actually paid in the terminal delta (zero when unlocked or absent);
+- `paidHolderFee` = pool-origin holder fee actually paid to its recipient in the terminal delta under FEE-H-008 (zero when unlocked or absent);
+- `dealContribution = consumedPrincipal + paidOperatorFee + paidHolderFee`.
+
+Completion fees, unlocked holder-fee amounts, unlocked operator-fee amounts, expected fiat, unrealized profit, bond movements, and offchain reports NEVER enter `dealContribution`. A deal contributes to exactly one epoch—the epoch of its terminal record. Same-token initial V2 pools treat any selected conversion-rate policy as identity on these token amounts; a non-identity conversion requirement needs a new formula identity and pool version. Active deals that have not yet terminated contribute nothing until they terminate.
+
+**CF-RC-003.** At epoch close, canonical records determine the aggregate exactly once:
+
+- `canonicalObligation = sum(dealContribution)` over every deal with a terminal record in that epoch, using checked addition (overflow rejects finalization);
+- `requiredMinimum = ceil(canonicalObligation × minimumBps / 10_000)`, implemented as `floor((canonicalObligation × minimumBps + 10_000 - 1) / 10_000)` with checked multiplication;
+- deadline derived from the immutable policy offset.
+
+No sponsor, operator, reporter, obligation owner, or governance actor supplies or overwrites either amount. A zero aggregate obligation has a zero required minimum, closes successfully, and cannot default. An epoch whose only terminals are pure cancels (principal returned, holder and operator fees unlocked) has `canonicalObligation = 0` under CF-RC-002A.
 
 **CF-RC-003A.** Populated obligation epochs finalize permissionlessly in strict epoch order through bounded one-epoch checkpoints. Each immutable record binds its canonical terminal-record aggregate, obligation, minimum, deadlines, and released exposure. Empty wall-clock epochs with no canonical contribution require no synthetic record. A due unfinalized populated epoch blocks later risk-increasing or closure work until one caller advances it; no transaction loops across missed epochs.
 
@@ -1260,6 +1312,11 @@ Crowdfunded liquidity has one normal withdrawal mechanism. No immediate withdraw
 | CASE-CF-010 | Tiny requester is alone | Pay no more than the NAV of its filled shares |
 | CASE-CF-011 | Claims arrive in different order | Pay identical economic entitlements |
 | CASE-CF-012 | Recapitalization meets minimum strictly before its deadline | Increase NAV with exact onchain assets and close the obligation without default |
+| CASE-CF-012A | Provider-positive full release terminal in epoch | Add `principal + paidOperatorFee + paidHolderFee` to `canonicalObligation` |
+| CASE-CF-012B | Cancel or fiat-timeout terminal after activation | Add zero; unlock reserved holder and operator fees to the pool (no paid-fee contribution) |
+| CASE-CF-012C | Stalemate terminal | Add stalemate `consumedPrincipal` (provider gross) only; unlock reserved holder and operator fees |
+| CASE-CF-012D | Attempt to include completion fee, expected fiat, or unlocked holder/operator fees in obligation | Exclude them; obligation uses CF-RC-002A only |
+| CASE-CF-012E | Pool-origin cancel after holder-fee escrow | Unlock full reserved holder fee to the pool; do not credit the fee recipient |
 | CASE-CF-013 | Timely recapitalization is short at the deadline | Preserve permanent objective default eligibility; accept later exact assets only as bounded late recovery |
 | CASE-CF-014 | Objective default exists | Allow permissionless default and wind-down execution |
 | CASE-CF-015 | Active deals exist during wind-down | Continue settlement and attribute every recovery pro rata |
@@ -1272,7 +1329,8 @@ Crowdfunded liquidity has one normal withdrawal mechanism. No immediate withdraw
 | CASE-CF-022 | Default becomes eligible before finalization-generation commit | Reject or invalidate the commit and include every unburned requested share in the wind-down snapshot |
 | CASE-CF-023 | Default occurs after a finalization-generation commit but before claim payment | Preserve the exact segregated withdrawal liability outside wind-down shares |
 | CASE-CF-024 | Withdrawal claim was partly paid before default | Preserve paid value and the exact remaining fixed liability; do not add either to snapshot shares |
-| CASE-CF-025 | Canonical epoch obligation is zero | Close the obligation successfully without default or slash |
+| CASE-CF-025 | Canonical epoch obligation is zero (no terminals, or every `dealContribution` is zero) | Close the obligation successfully without default or slash |
+| CASE-CF-025A | Epoch finalization sum or `requiredMinimum` multiplication overflows | Reject finalization without writing obligation amounts; permit retry only under a corrected implementation (conformance defect if reachable in production parameters) |
 | CASE-CF-026 | Recapitalization is a valid exact partial payment no greater than the remaining amount | Count the exact attributable receipt once; count it as timely only strictly before the deadline and preserve permanent default eligibility afterward |
 | CASE-CF-027 | Multiple defaults compete for a limited standing bond | Apply bond in deadline then epoch-identifier order, capped once per deficit |
 | CASE-CF-028 | Valid late recapitalization arrives after slash but within its acceptance boundary | Treat it as additional recovery; do not reverse default, reduce the penalty base, slash, or priority |
@@ -1831,7 +1889,7 @@ An implementation may add an unsupported capability only through an explicitly v
 
 ### 23.4 Fees and bonds
 
-**INV-FEE-001.** A nonzero activation fee is paid exactly once if and only if activation succeeds; zero is valid.
+**INV-FEE-001.** A nonzero direct-deal activation fee is paid exactly once if and only if activation succeeds. A nonzero pool-origin holder fee is reserved at activation and paid to its recipient at most once on a fee-predicate provider-positive terminal, otherwise unlocked once to the funding pool; zero is valid.
 
 **INV-FEE-002.** Completion fee is paid at most once and never exceeds provider gross. On a mutually signed split it equals the full signed completion fee and the split executes only when provider gross covers that fee.
 
@@ -1889,7 +1947,7 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-POOL-005.** Pool creation and settlement do not iterate over all active deals or funders.
 
-**INV-POOL-006.** Principal and maximum operator-fee exposure are deal-attributable and protocol-controlled before a pool deal becomes active.
+**INV-POOL-006.** Principal, reserved pool-origin holder fee, and maximum operator-fee exposure are deal-attributable and protocol-controlled before a pool deal becomes active. The holder fee is paid to its recipient or unlocked to the pool exactly once under FEE-H-008.
 
 **INV-POOL-007.** Holder-side pool value returns only to the funding pool or its exact pool credit, and that credit is counted once.
 
@@ -1911,7 +1969,9 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-CF-007.** A finalized withdrawal is exactly backed, subtracted from share NAV once, and remains a separate fixed liability until paid.
 
-**INV-CF-008.** Recapitalization expectations derive only from canonical deal records and immutable accepted formulas.
+**INV-CF-008.** Recapitalization expectations derive only from canonical terminal records under the immutable accepted formula. Initial V2 full-outlay make-whole sets each terminal deal's contribution to `consumedPrincipal + paidOperatorFee + paidHolderFee` and never includes completion fees, unlocked holder or operator fees, expected fiat, or offchain reports.
+
+**INV-CF-008A.** `canonicalObligation` equals the checked sum of those deal contributions for the epoch, and `requiredMinimum` equals `ceil(canonicalObligation × minimumBps / 10_000)`.
 
 **INV-CF-009.** Standing-bond scarcity is allocated by deterministic default priority, never caller choice.
 
