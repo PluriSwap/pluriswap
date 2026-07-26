@@ -108,7 +108,9 @@ PluriSwap does not:
 
 **Core success.** Two parties who do not share a trusted operator can agree to terms, place crypto under deterministic custody, and reach one final economic result through Core exits—without a proprietary backend, privileged keeper, administrator, identity gate, or mandatory ecosystem package.
 
-**Assured-trade success.** Parties who want stronger linkage between fiat performance and crypto release, or stronger Sybil/fraud resistance, opt into inspectable packages (for example payment proof, bonds, arbitration, or progressive admission). Ecosystem clients MAY recommend such packages; recommendation never becomes a Core execution condition.
+**Assured-trade success.** Parties who want stronger linkage between fiat performance and crypto release, or stronger Sybil/fraud resistance, opt into inspectable packages. Ecosystem clients MAY recommend such packages; recommendation never becomes a Core execution condition.
+
+**Core silence default.** Mandatory Core treats holder silence after `FIAT_SENT` as non-contest: permissionless claim allocates full principal (and success fees) to the provider without authenticating that fiat was sent. That is the intentional provider-liveness tradeoff. It is not a guarantee of honest fiat performance. Holders who need a unilateral contest path MUST select ARBITRATION (and, for bilateral economic protection on unresolved disputes, BONDS) through an assured-trade or other explicit package under PROFILE-008—not through Core alone.
 
 Core remains usable and complete on its own. Packages minimize trade-offs against permissionlessness by concentrating friction in voluntary venues rather than in base escrow.
 
@@ -270,6 +272,13 @@ An implementation MAY support any of the following independently. Each attaches 
 
 **PROFILE-007 — Profile fees only when enabled.** Arbitration fees, bond reservations, operator acceptance fees, progressive-admission package charges, and any other profile-specific economics exist only when the corresponding profile or package is selected. When the profile is off, those channels are absent and MUST NOT be charged.
 
+**PROFILE-008 — Assured-trade package minimum.** A package, client preset, pool terms bundle, or deployment descriptor that claims “assured trade,” “disputed-fiat protection,” “holder contest,” or equivalent MUST bind at least:
+
+- the `ARBITRATION` profile with an exact adapter and immutable policy; and
+- the `BONDS` profile with party stalemate parameters under Section 9.1 (default `stalemateSlashBps = 10_000`, `stalemateCounterpartyBps = 5_000`, and required penalty recipients).
+
+Optional extras (payment proof, humanity/exposure, reputation) MAY be added. The package MUST NOT imply that Core silence/claim alone authenticates fiat or protects against false `FIAT_SENT`. Activation of a deal that selects such a package MUST reject if ARBITRATION or the required BONDS stalemate fields are missing or under-bound. Independent publishers MAY still offer Core-only or arb-without-bonds packages if they do not use assured-trade (or equivalent) labeling. Conforming clients MUST disclose the Core silence/claim risk before signing any deal that lacks ARBITRATION.
+
 ---
 
 ## 6. Consent and deal activation
@@ -288,7 +297,7 @@ Before a direct deal can become active, both parties MUST consent to one complet
 - fiat currency, amount, payment method, payee commitment, payment reference commitment, and quote semantics;
 - payment-proof policy, payer mode, receipt namespace, and nullifier authority when automatic release is enabled;
 - arbitration adapter, policy, fee token, fee-quote policy, maximum arbitration fee, and stalemate semantics when ARBITRATION is enabled;
-- all bond amounts, owners, sponsors, exact per-outcome slash formulas, penalty caps, and recipients when bonds are enabled, including—when BONDS and ARBITRATION are both enabled—each party role's `stalemateSlashBps`, `stalemateCounterpartyBps`, and `stalematePenaltyRecipient` under Section 9.1;
+- all bond amounts, owners, sponsors, exact per-outcome slash formulas, penalty caps, and recipients when bonds are enabled, including—when BONDS and ARBITRATION are both enabled—each party role's `stalemateSlashBps`, `stalemateCounterpartyBps`, and `stalematePenaltyRecipient` under Section 9.1, and any optional `holderWinArbFeeCompensation` under ARB-003B;
 - reputation or humanity policy when it affects eligibility or limits;
 - every optional extension identifier, version, semantic hash, and compatibility constraint that can affect the deal.
 
@@ -525,11 +534,11 @@ This matrix is the authoritative terminal settlement table. Section 11.2 is the 
 | CASE-OUT-001 | Voluntary release | Provider receives 100 percent gross | Full signed fee, capped by gross | Full reserved fee if eligible | Release | Release |
 | CASE-OUT-002 | Authenticated payment-proof release | Same as voluntary release | Same as voluntary release | Same as voluntary release | Release | Release |
 | CASE-OUT-003 | Timeout claim | Provider receives 100 percent gross | Full signed fee, capped by gross | Full reserved fee if eligible | Release all deal bonds unless a signed timeout liveness stake formula applies | Release |
-| CASE-OUT-004 | Provider cancellation before fiat | Holder side receives 100 percent | None | None; unlock reserved exposure | Apply provider inactivity penalty; release holder bond | Release |
-| CASE-OUT-005 | Fiat-timeout cancellation | Holder side receives 100 percent | None | None; unlock reserved exposure | Same as provider cancellation | Release |
+| CASE-OUT-004 | Provider cancellation before fiat | Holder side receives 100 percent | None | None; unlock reserved exposure | Apply pre-fiat provider-side penalty; release holder bond | Release |
+| CASE-OUT-005 | Fiat-timeout cancellation | Holder side receives 100 percent | None | None; unlock reserved exposure | Same pre-fiat provider-side penalty as provider cancellation | Release |
 | CASE-OUT-006 | Mutual cancellation | Holder side receives 100 percent | None | None; unlock reserved exposure | Release | Release |
 | CASE-OUT-007 | Mutually signed split | Provider receives signed share; holder receives remainder; reject if `providerGross < signedCompletionFee` | Full signed fee (coverage required) | Full reserved fee unless signed operator fault is true; else unlock | Apply only mutually signed slashes within snapshotted caps; release remainder | Slash only when signed operator fault exists; else release |
-| CASE-OUT-009 | Arbitration holder win | Holder side receives 100 percent | None | None; unlock reserved exposure | Apply provider-fault penalty; release holder bond | Slash only when authenticated fault exists; else release |
+| CASE-OUT-009 | Arbitration holder win | Holder side receives 100 percent | None | None; unlock reserved exposure | Apply provider-fault penalty; optional ARB-003B arb-fee compensation from provider bond; release holder bond | Slash only when authenticated fault exists; else release |
 | CASE-OUT-010 | Arbitration provider win | Provider receives 100 percent gross | Full signed fee, capped by gross | Full reserved fee if eligible unless authenticated operator fault exists | Apply holder-fault penalty; release provider bond | Release absent authenticated fault |
 | CASE-OUT-011 | Arbitration refused or no decision | Protocol 50/50 stalemate (Section 9.1) | None | None; unlock reserved exposure | Apply default stalemate party-bond formula (Section 9.1) | Release |
 | CASE-OUT-012 | Arbitration timeout | Protocol 50/50 stalemate (Section 9.1) | None | None; unlock reserved exposure | Apply default stalemate party-bond formula (Section 9.1) | Release |
@@ -540,7 +549,7 @@ This matrix is the authoritative terminal settlement table. Section 11.2 is the 
 
 **OUT-002 — State versus outcome.** A claim uses terminal state RELEASED but MUST remain distinguishable from voluntary or proof release for reputation and any optional bond formulas.
 
-**OUT-002A — Claim is non-contest under signed timeouts.** Timeout claim allocates principal to the provider because the holder did not release, mutual-resolve, or open selected arbitration before the release deadline. It is the agreed Core default for silence after `FIAT_SENT`. It does not authenticate that fiat was sent.
+**OUT-002A — Claim is non-contest under signed timeouts.** Timeout claim allocates principal to the provider—and remains fee-predicate provider-positive—because the holder did not release, mutual-resolve, or open selected arbitration before the release deadline. It is the agreed Core default for silence after `FIAT_SENT` and preserves provider liveness without a keeper or court. It does not authenticate that fiat was sent. A false `FIAT_SENT` followed by holder silence is therefore a Core-retained risk unless ARBITRATION (and, for unresolved-dispute bond protection, BONDS) was selected under PROFILE-008 or equivalent explicit consent.
 
 **OUT-003 — Holder-side pool return.** In a pool-origin deal, holder gross returns to the funding pool or its escrow-controlled credit, not to the controller's personal wallet.
 
@@ -549,6 +558,8 @@ This matrix is the authoritative terminal settlement table. Section 11.2 is the 
 **OUT-005 — Historical facts.** Mutual cancellation after arbitration was opened does not erase that fact, but it does not imply fault without signed or authenticated evidence.
 
 **OUT-006 — No invented operator fault.** A timeout or claim alone does not establish operator fault. Operator fault exists only through evidence defined in the signed split or arbitration policy.
+
+**OUT-006A — Operator fee on timeout claim.** Timeout claim remains fee-predicate provider-positive. When an operator acceptance fee is reserved and authenticated operator fault is absent, the full reserved fee is paid on claim exactly as on voluntary release, proof release, or arbitration provider win. Eligibility compensates snapshotted acceptance work, not proof that fiat was sent. Packages MUST NOT relabel claim as operator fault solely to avoid that fee.
 
 **OUT-007 — Bonds optional on claim.** Default BONDS behavior on timeout claim is release of all deal bonds. A package or signed bond schedule MAY define an explicit timeout liveness stake; that stake is not Core and MUST NOT be labeled as authenticated holder fault.
 
@@ -613,7 +624,7 @@ Partial payment or share-proportional holder-fee discounting is unsupported. A z
 
 **FEE-O-004.** The protocol controls the pool-funded complete operator-acceptance-fee exposure before activation succeeds.
 
-**FEE-O-005.** The fee is paid at most once and only on a provider-positive outcome as defined in Section 9.1 without authenticated operator fault. Eligibility follows the snapshotted acceptance work, not the address that later calls release, proof, claim, or settlement.
+**FEE-O-005.** The fee is paid at most once and only on a provider-positive outcome as defined in Section 9.1 without authenticated operator fault. Eligibility follows the snapshotted acceptance work, not the address that later calls release, proof, claim, or settlement. Timeout claim is included: silence after `FIAT_SENT` does not by itself deny or claw back the operator acceptance fee (OUT-006A).
 
 **FEE-O-006.** A mutually signed split that satisfies completion-fee coverage pays the full reserved operator acceptance fee unless signed authenticated operator fault is true, in which case the unpaid reserved amount unlocks to the pool. Share-proportional operator-fee discounting is unsupported in protocol version 2. Protocol stalemate pays no operator acceptance fee (FEE-O-010).
 
@@ -647,7 +658,7 @@ Bonds add predetermined economic consequences. They do not prove that fiat was p
 
 **BOND-003 — Reservation.** Every required bond is reserved atomically during deal activation and cannot be withdrawn while reserved.
 
-**BOND-004 — Snapshot.** Amounts, tokens, roles, exact per-outcome release and slash formulas, caps, recipients, and outcome consequences are snapshotted for the deal. Labels such as inactivity, timeout liveness stake, fault, or stalemate do not grant discretion beyond those formulas. BONDS is never part of Mandatory Core.
+**BOND-004 — Snapshot.** Amounts, tokens, roles, exact per-outcome release and slash formulas, caps, recipients, and outcome consequences are snapshotted for the deal. Labels such as pre-fiat provider-side penalty, timeout liveness stake, fault, or stalemate do not grant discretion beyond those formulas. BONDS is never part of Mandatory Core.
 
 **BOND-005 — No registry discretion.** A bond manager or governance actor cannot invent a slash outside the snapshotted state-machine outcome.
 
@@ -661,6 +672,8 @@ Bonds add predetermined economic consequences. They do not prove that fiat was p
 
 **BOND-010 — Stalemate parameter validation.** When BONDS and ARBITRATION are both enabled, activation MUST reject unless each party role's stalemate bps are at most `10_000` and, whenever `stalemateCounterpartyBps < 10_000`, that role's `stalematePenaltyRecipient` is present, nonzero, and not custody-self under TOKEN-010A.
 
+**BOND-011 — Pre-fiat provider-side penalty.** Provider cancel before fiat and fiat-timeout cancellation share one snapshotted provider-bond slash formula and holder-side compensation routing. The label is `preFiatProviderPenalty` (pre-fiat provider-side penalty), not “inactivity”: fiat-timeout is a deadline exit that may reflect abandonment or stalled negotiation, not a proven liveness fault distinct from cancel. Packages MAY choose the slash amount (including zero); they MUST NOT imply different fault semantics for the two outcomes unless a later extension version defines separate formulas.
+
 ### 11.2 Default bond outcome matrix
 
 This table restates the bond columns of Section 9.2. If the two disagree, Section 9.2 controls and this table MUST be corrected. When BONDS is disabled, every cell is a no-op.
@@ -669,10 +682,10 @@ This table restates the bond columns of Section 9.2. If the two disagree, Sectio
 | --- | --- | --- | --- | --- |
 | Voluntary or proof release | Release | Release | Release | None |
 | Timeout claim | Release | Release (unless signed timeout liveness stake) | Release | None by default; stake recipient if signed |
-| Provider cancel or fiat timeout | Apply inactivity penalty | Release | Release | Holder side |
+| Provider cancel or fiat timeout | Apply pre-fiat provider-side penalty (same snapshotted formula for both outcomes) | Release | Release | Holder side |
 | Mutual cancel | Release | Release | Release | None |
 | Signed split | Follow mutually signed bounded consequences | Follow mutually signed bounded consequences | Slash only when signed operator fault exists | As mutually signed |
-| Arbitration holder win | Apply provider-fault penalty | Release | Slash only when authenticated fault exists | Holder side |
+| Arbitration holder win | Apply provider-fault penalty; optional ARB-003B arb-fee compensation | Release | Slash only when authenticated fault exists | Holder side (plus opener compensation if ARB-003B selected) |
 | Arbitration provider win | Release | Apply holder-fault penalty | Release absent authenticated fault | Provider side |
 | Arbitration refused or timeout | Apply default stalemate party-bond formula (Section 9.1) | Apply default stalemate party-bond formula (Section 9.1) | Release | Counterparty credit and snapshotted penalty recipient |
 
@@ -692,6 +705,8 @@ This table restates the bond columns of Section 9.2. If the two disagree, Sectio
 | CASE-BOND-010 | Stalemate settles with BONDS enabled | Apply Section 9.1 floor formula per party role; credit counterparty and penalty legs; unlock released remainder; release operator bond absent authenticated fault |
 | CASE-BOND-011 | BONDS and ARBITRATION enabled but stalemate bps out of range or required penalty recipient missing/invalid | Reject activation atomically |
 | CASE-BOND-012 | Stalemate attempt to pay operator acceptance fee or treat stalemate as provider-positive for fees | Reject that fee payment; unlock reserved operator-fee exposure per FEE-O-010 |
+| CASE-BOND-013 | Holder win with ARB-003B selected | Slash provider bond for provider-fault penalty plus arb-fee compensation within caps; credit opener/holder-side per snapshot; never take principal |
+| CASE-BOND-014 | ARB-003B selected but tokens differ and package omits bond-token compensation disclosure, or same-token compensation exceeds recorded paid arb fee | Reject activation or reject the terminal action without partial effects |
 
 ---
 
@@ -751,9 +766,17 @@ External arbitration is the only unilateral contest path for `FIAT_SENT`. It is 
 
 **ARB-002 — Published meaning.** The policy MUST disclose arbitrator, jurisdiction or court, evidence rules, appeal rules, finality rule, the closed ruling mapping in ARB-011, operator-fault schema, timeout, fee token, fee-quote policy, maximum signed fee, and policy content hash.
 
-**ARB-003 — Separate bounded fee.** When opening arbitration from FIAT_SENT, the adapter quotes the exact arbitration fee under the signed immutable quote policy. The action is valid only when the quoted token matches and the amount does not exceed the deal's signed maximum. The opener supplies that exact fee separately; active principal and protocol fees do not reimburse it. A quote above the maximum leaves the deal in FIAT_SENT; release, claim, mutual cancel, and mutual split remain available.
+**ARB-003 — Separate bounded fee.** When opening arbitration from FIAT_SENT, the adapter quotes the exact arbitration fee under the signed immutable quote policy. The action is valid only when the quoted token matches and the amount does not exceed the deal's signed maximum. The opener supplies that exact fee separately. Active principal, completion fees, operator acceptance fees, and pool-origin holder-fee escrow MUST NOT reimburse it. By default the fee is a sunk cost for every terminal outcome, including holder win. Optional bond-funded compensation on holder win is only under ARB-003B when BONDS selects it. A quote above the maximum leaves the deal in FIAT_SENT; release, claim, mutual cancel, and mutual split remain available. Conforming clients MUST disclose the sunk-cost default and any optional bond compensation before signing.
 
-**ARB-003A — Exact fee custody.** The opening caller is the fee payer. The immutable quote policy fixes one disclosed fee receiver outside every principal, pool, bond, and withdrawal custody boundary. Opening atomically observes an exact payer decrease and receiver increase for the quoted ERC-20 amount before the selected adapter creates the dispute. A short, taxed, excess, wrong-recipient, principal-funded, or self-reported payment rejects; if dispute creation fails, the transfer, quote nonce, and state transition all revert.
+**ARB-003A — Exact fee custody.** The opening caller is the fee payer. The immutable quote policy fixes one disclosed fee receiver outside every principal, pool, bond, and withdrawal custody boundary. Opening atomically observes an exact payer decrease and receiver increase for the quoted ERC-20 amount before the selected adapter creates the dispute. A short, taxed, excess, wrong-recipient, principal-funded, or self-reported payment rejects; if dispute creation fails, the transfer, quote nonce, and state transition all revert. The deal records the exact paid fee token and amount for optional ARB-003B use.
+
+**ARB-003B — Optional holder-win bond compensation.** A package or signed BONDS schedule MAY snapshot an optional `holderWinArbFeeCompensation` consequence that, on authenticated arbitration holder win only, credits the opener (or the snapshotted holder-side bond credit receiver) from the provider bond. Default when the field is absent or zero: no compensation. Rules:
+
+- Funding source is only the provider bond reservation; never principal or other deals' bonds.
+- The compensation amount is `min(snapshottedCap, remainingProviderBondAfterOtherHolderWinSlashes)` and, when the arbitration fee token equals the provider bond token, MUST also be `<=` the exact recorded paid arbitration fee from ARB-003A. When tokens differ, the snapshotted cap is a bond-token amount disclosed as compensation—not a literal ERC-20 clawback of the arb fee—and MUST be disclosed as such.
+- It applies only on CASE-OUT-009. Provider win, stalemate, mutual resolve, and Core paths pay no arb-fee compensation under this rule.
+- It stacks with the ordinary provider-fault penalty only within the provider bond's snapshotted caps; exceeding reservation rejects the terminal action (CASE-BOND-008).
+- Consent follows BOND-002 through BOND-004 and BOND-CONSENT rules for the provider (or sponsor) bond.
 
 **ARB-004 — One dispute.** A deal may create at most one external dispute.
 
@@ -780,13 +803,14 @@ External arbitration is the only unilateral contest path for `FIAT_SENT`. It is 
 | CASE-ARB-001 | Valid open from FIAT_SENT before release deadline with exact bounded fee | Create one dispute and enter ARBITRATION_ACTIVE |
 | CASE-ARB-002 | Arbitration disabled, late (at or after release deadline), wrong adapter or fee token, fee above signed maximum, inexact fee, unauthorized opener, or duplicate | Reject and remain FIAT_SENT |
 | CASE-ARB-003 | External dispute creation reverts | Revert open and do not retain the failed fee |
-| CASE-ARB-004 | Final holder ruling authenticates | Execute holder-win outcome |
-| CASE-ARB-005 | Final provider ruling authenticates | Execute provider-win outcome |
-| CASE-ARB-006 | Final refused ruling authenticates | Execute stalemate with arbitration provenance |
+| CASE-ARB-004 | Final holder ruling authenticates | Execute holder-win outcome; apply ARB-003B compensation only if snapshotted |
+| CASE-ARB-005 | Final provider ruling authenticates | Execute provider-win outcome; no arb-fee reimbursement from principal or bonds under ARB-003B |
+| CASE-ARB-006 | Final refused ruling authenticates | Execute stalemate with arbitration provenance; no ARB-003B compensation |
 | CASE-ARB-007 | Ruling is partial, unsupported, non-final, mismatched, or unauthenticated | Reject and remain ARBITRATION_ACTIVE |
-| CASE-ARB-008 | No ruling by arbitration deadline | Anyone may execute stalemate |
+| CASE-ARB-008 | No ruling by arbitration deadline | Anyone may execute stalemate; no ARB-003B compensation |
 | CASE-ARB-009 | Final ruling races timeout | First successful terminal transaction wins |
 | CASE-ARB-010 | Policy changes after activation | Active deal continues under bound policy |
+| CASE-ARB-011 | Opener seeks principal or protocol-fee reimbursement of arb fee | Reject; only optional ARB-003B provider-bond compensation on holder win is permitted |
 | CASE-ARB-016 | Mutual cancel while ARBITRATION_ACTIVE | Return principal holder-side under RES-001 through RES-005 |
 | CASE-ARB-017 | Mutual split while ARBITRATION_ACTIVE | Execute signed split under RES-002 through RES-005 |
 
@@ -1547,7 +1571,7 @@ The mandatory core does not require governance to execute deals. Ecosystem gover
 
 **ECO-001 — Organizational optionality.** Using PluriSwap does not require membership in, a contract with, or payment to the DAO, its legal wrapper, or the PluriSwap company. A DAO-sponsored reference ecosystem that receives fees or enters service contracts MUST identify a legally capable wrapper and disclose its addresses, governing documents, treasury authority, conflicts, and jurisdiction. That organizational requirement is not a protocol execution dependency for independent deployments.
 
-**ECO-002 — Reference-package economics.** The DAO wrapper may sponsor and recommend immutable reference profiles, deployments, interfaces, and protection packages. Their exact fees and recipients remain explicit signed terms under Section 10 and PROFILE-006 through PROFILE-007: the package identity binds the schedule; the protocol enforces those signed fields; clients that offer the package MUST construct them; the protocol never injects a DAO recipient into deals that did not select the package. Independent publishers may offer competing profiles and infrastructure with their own disclosed recipient or zero fee, without DAO permission.
+**ECO-002 — Reference-package economics.** The DAO wrapper may sponsor and recommend immutable reference profiles, deployments, interfaces, and protection packages. Their exact fees and recipients remain explicit signed terms under Section 10 and PROFILE-006 through PROFILE-007: the package identity binds the schedule; the protocol enforces those signed fields; clients that offer the package MUST construct them; the protocol never injects a DAO recipient into deals that did not select the package. Independent publishers may offer competing profiles and infrastructure with their own disclosed recipient or zero fee, without DAO permission. Any DAO-sponsored or ecosystem-recommended package marketed as assured-trade (or equivalent) MUST satisfy PROFILE-008; Core-only silence/claim risk MUST remain visible whenever ARBITRATION is absent.
 
 **ECO-003 — PluriSwap service agreement.** If the DAO wrapper retains or compensates the PluriSwap company, it MUST do so through a fixed, publicly budgeted fee under a disclosed, non-exclusive master services agreement for defined technology, maintenance, support, research, interface, or infrastructure deliverables. Compensation comes from DAO treasury under ordinary governance; it is not an automatic protocol transaction split, percentage of user assets, custody right, or exclusive right to provide any service.
 
@@ -1776,8 +1800,9 @@ The cases below apply in addition to the feature-specific cases above.
 | Case | Situation | Required behavior |
 | --- | --- | --- |
 | CASE-FAIL-020 | Provider never sends or reports fiat | Permit fiat-timeout cancellation by anyone |
-| CASE-FAIL-021 | Provider falsely reports fiat sent | Without ARBITRATION: holder must release, mutual-resolve, or allow claim; with ARBITRATION: holder-side may open the selected provider before release deadline |
-| CASE-FAIL-022 | Holder refuses to release and does not open arbitration | Permit claim by anyone after release deadline (non-contest under signed timeouts) |
+| CASE-FAIL-021 | Provider falsely reports fiat sent | Without ARBITRATION: holder must release, mutual-resolve, or allow claim (Core retains this risk; disclose per PROFILE-008); with ARBITRATION: holder-side may open the selected arbitration before release deadline |
+| CASE-FAIL-022 | Holder refuses to release and does not open arbitration | Permit claim by anyone after release deadline (non-contest under signed timeouts); full provider-positive fee economics unchanged |
+| CASE-FAIL-022A | Package claims assured-trade (or equivalent) but omits ARBITRATION or required BONDS stalemate fields | Reject activation / refuse to label the package assured-trade; Core-only path remains available without that label |
 | CASE-FAIL-023 | Parties disagree and ARBITRATION is enabled | Permit open arbitration before release deadline, mutual split/cancel, or arbitration ruling/timeout stalemate |
 | CASE-FAIL-024 | Arbitrator disappears or censors | Permit arbitration-timeout stalemate; Core claim/release/mutual paths apply only before arbitration was opened or via mutual resolve while active |
 | CASE-FAIL-025 | Payment verifier is unavailable | Preserve manual and timeout lifecycle paths |
@@ -1919,7 +1944,9 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-ARB-001.** Only the selected adapter and immutable policy map a final ruling.
 
-**INV-ARB-002.** Arbitration fees never reduce active principal.
+**INV-ARB-002.** Arbitration fees never reduce active principal and are never reimbursed by completion, operator, or pool-origin holder fees.
+
+**INV-ARB-003.** Default arbitration-fee incidence is sunk for every outcome. Optional `holderWinArbFeeCompensation` may credit the opener from the provider bond on authenticated holder win only, within snapshotted caps and ARB-003B token rules.
 
 **INV-POLICY-001.** A policy identifier never changes meaning.
 
@@ -2188,7 +2215,9 @@ The current repository and Arbitrum Sepolia deployment are evaluated separately 
 | Provider-positive outcome | Fee-bearing terminal path under Section 9.1 (release, proof release, timeout claim, coverage-satisfying mutual split, or arbitration provider win); excludes cancellation and protocol stalemate |
 | Stalemate | Protocol 50/50 principal fallback on the ARBITRATION path when the selected arbitration adapter authenticates refused/no-decision or the arbitration deadline elapses; not a Mandatory Core state. Default BONDS stalemate slashes each party reservation with half to the counterparty and half to the snapshotted penalty recipient |
 | Terminal outcome | Final economic classification; it may be more specific than the stored terminal state |
-| Timeout claim | Core provider-positive RELEASED outcome after the release deadline, treating holder silence after FIAT_SENT as non-contest under signed timeouts; distinct from credit withdrawal or crowdfunding claims |
+| Assured-trade package | Package or preset that claims disputed-fiat / holder-contest protection and therefore MUST bind ARBITRATION plus BONDS stalemate fields under PROFILE-008; never implied by Core alone |
+| Pre-fiat provider-side penalty | Shared snapshotted provider-bond slash for provider cancel before fiat and for fiat-timeout (`preFiatProviderPenalty`); same formula for both; not a distinct “inactivity” fault label |
+| Timeout claim | Core provider-positive RELEASED outcome after the release deadline, treating holder silence after FIAT_SENT as non-contest under signed timeouts without authenticating fiat; distinct from credit withdrawal or crowdfunding claims |
 | Trust-minimized | External trust is explicit, chosen, bounded, inspectable, and unable to override unrelated custody |
 
 ---
