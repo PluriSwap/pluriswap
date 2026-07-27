@@ -8,7 +8,7 @@
 
 **Document authority:** Highest-level definition of PluriSwap business behavior
 
-**Last substantive review:** 2026-07-24
+**Last substantive review:** 2026-07-27
 
 ---
 
@@ -75,7 +75,7 @@ Any change to signed meaning, custody, state transitions, settlement, fee eligib
 
 PluriSwap is a permissionless protocol for escrowed crypto against an offchain fiat agreement. **Mandatory Core** is the constitutional bar for permissionlessness and trust minimization: any addresses may open and complete a direct escrow with deterministic custody and exits, without identity, reputation, bonds, payment proof, arbitration, pool admission, DAO approval, or an endorsed frontend.
 
-Stronger fraud, Sybil, or fiat-assurance properties are available only through **explicitly selected** extension profiles or ecosystem packages—including ARBITRATION (for example Kleros) when parties want a unilateral contest of `FIAT_SENT`. Those packages MAY introduce additional trust assumptions or participation friction for deals that opt in; they MUST NOT redefine Core validity or become hidden gates of base escrow (Section 5, `PERM-005`, `PROFILE-002`).
+Stronger fraud, Sybil, or fiat-assurance properties are available only through **explicitly selected** extension profiles or ecosystem packages—including ARBITRATION (for example Kleros) when parties want an **external court ruling** on `FIAT_SENT`, and PAYMENT_PROOF when they want authenticated automatic release. Mandatory Core itself includes a holder-opened `DISPUTED` freeze with dual-signed settlement and a signed residual split on dispute timeout (Section 8). Those packages MAY introduce additional trust assumptions or participation friction for deals that opt in; they MUST NOT redefine Core validity or become hidden gates of base escrow (Section 5, `PERM-005`, `PROFILE-002`).
 
 The protocol:
 
@@ -156,7 +156,7 @@ Core remains usable and complete on its own. Packages minimize trade-offs agains
 
 PluriSwap is not universally trustless. Fiat payment, token behavior, identity credentials, rate sources, and external arbitration necessarily introduce chosen trust assumptions. Core itself does not assume those components; it assumes only chain execution, signed consent, and the selected token's disclosed behavior.
 
-**TRUST-000 — Core bar.** Mandatory Core MUST NOT require identity, reputation, bonds, payment proof, arbitration, rate policy, pool admission, or a DAO/package fee recipient. Core has no unilateral dispute court. Any such guardrail is an opt-in extension or package and MUST leave the Core path to a terminal result executable when that guardrail is absent or fails.
+**TRUST-000 — Core bar.** Mandatory Core MUST NOT require identity, reputation, bonds, payment proof, arbitration, rate policy, pool admission, or a DAO/package fee recipient. Core has **no external dispute court** and invents no factual finding about fiat. Core **does** include a holder-opened `DISPUTED` freeze, dual-signed bilateral exits, and a permissionless dispute-timeout residual allocation fixed in signed terms (`disputeTimeoutProviderBps`). External arbitration, payment proof, bonds, and similar guardrails remain opt-in extensions or packages and MUST leave the Core path to a terminal result executable when those guardrails are absent or fail.
 
 **TRUST-001 — Explicit selection.** Every trust-bearing component that can affect a deal MUST be explicitly selected in signed terms or inherited from a pool policy that the provider explicitly accepts.
 
@@ -180,7 +180,7 @@ PluriSwap is not universally trustless. Fiat payment, token behavior, identity c
 
 | Actor | Business role | Powers | Prohibited powers |
 | --- | --- | --- | --- |
-| Holder | Supplies crypto principal in a direct deal | Signs terms, funds, releases, co-signs cancellation or split; opens selected arbitration when that profile is enabled | Cannot rewrite terms after activation; cannot unilaterally dispute in Core |
+| Holder | Supplies crypto principal in a direct deal | Signs terms, funds, releases from `FIAT_SENT`, co-signs cancellation, split, or release; opens Core `DISPUTED` from `FIAT_SENT`; opens selected arbitration when that profile is enabled | Cannot rewrite terms after activation; cannot unilaterally seize principal or invent an outcome outside the closed Core machine |
 | Provider | Sends fiat and receives crypto on a provider-positive outcome | Signs terms, marks fiat sent, cancels before fiat, co-signs cancellation or split, claims after deadline | Cannot unilaterally claim before the signed deadline |
 | Pool | Supplies and receives holder-side liquidity in a pool-origin deal | Funds principal, receives holder-positive returns, accounts for its beneficiaries | Cannot create escrow liability without exact funding |
 | Pool controller | Configures a pool and appoints operators under its constitution | Sets future pool policy and mandates | Does not personally own active pool-origin principal unless it is also the pool beneficiary under the pool constitution |
@@ -228,17 +228,18 @@ Every conforming PluriSwap deployment MUST support:
 - direct deal activation from bilateral signed terms;
 - exact principal custody;
 - the Core state machine and Core-only success path in Section 8;
-- voluntary release;
+- voluntary release from `FIAT_SENT`;
 - provider cancellation before fiat is marked;
 - permissionless fiat-timeout cancellation;
-- permissionless claim after the release deadline, treating holder silence after `FIAT_SENT` as non-contest of the fiat-sent assertion under the signed timeouts;
-- mutually signed cancellation;
-- mutually signed split;
+- holder-opened Core `DISPUTED` freeze from `FIAT_SENT` before the release deadline;
+- dual-signed cancellation, dual-signed release, and dual-signed split from `FIAT_SENT` and from `DISPUTED`;
+- permissionless dispute-timeout residual allocation after `disputeDeadline` under signed `disputeTimeoutProviderBps`;
+- permissionless claim after the release deadline **only while still in `FIAT_SENT`**, treating holder silence (no release, no mutual resolve, no open `DISPUTED`, and no open arbitration) as non-contest of the fiat-sent assertion under the signed timeouts;
 - optional Core activation and completion fee channels under Section 10, including zero-fee deals;
 - immutable receivers and economics;
 - permissionless execution and independent indexing.
 
-Mandatory Core has **no** unilateral dispute court or dispute-timeout stalemate. Contesting `FIAT_SENT` requires the ARBITRATION profile (for example Kleros) selected in deal terms. Extension-point transitions (payment-proof release, arbitration open and rulings) are OUT_OF_SCOPE for Mandatory Core conformance unless the corresponding profile is enabled. When a profile is disabled, those edges MUST reject or be absent.
+Mandatory Core has **no external dispute court**. It **does** provide a Core contest path: the holder-side authority may open `DISPUTED`, after which principal moves only by dual-signed cancel, dual-signed release, dual-signed split, an enabled extension exit (payment proof or arbitration when selected), or the signed dispute-timeout residual. An external court ruling on `FIAT_SENT` still requires the ARBITRATION profile. Extension-point transitions (payment-proof release, arbitration open and rulings) are OUT_OF_SCOPE for Mandatory Core conformance unless the corresponding profile is enabled. When a profile is disabled, those edges MUST reject or be absent.
 
 ### 5.2 Optional extension profiles
 
@@ -247,8 +248,8 @@ An implementation MAY support any of the following independently. Each attaches 
 | Profile | Capability | Primary extension point |
 | --- | --- | --- |
 | POOL | Reusable owned or custom pool liquidity | Activation / holder-side authority |
-| PAYMENT_PROOF | Authenticated payment-proof release | FUNDED or FIAT_SENT → RELEASED |
-| ARBITRATION | Selected external dispute provider (for example Kleros) | FIAT_SENT → ARBITRATION_ACTIVE → terminal |
+| PAYMENT_PROOF | Authenticated payment-proof release | FUNDED, FIAT_SENT, or DISPUTED → RELEASED |
+| ARBITRATION | Selected external dispute provider (for example Kleros) | FIAT_SENT or DISPUTED → ARBITRATION_ACTIVE → terminal |
 | BONDS | Reserved role collateral and predetermined consequences | Activation reservation / terminal side-effects |
 | REPUTATION | Deterministic event-derived reputation and future deal limits | Future admission only |
 | HUMANITY | Authenticated credential-based uniqueness or eligibility | Future admission only |
@@ -283,7 +284,9 @@ Before a direct deal can become active, both parties MUST consent to one complet
 - positive principal amount;
 - holder fee, provider fee, their recipients, and every applicable signed cap;
 - unique nonce and absolute creation expiry;
-- fiat and release durations; arbitration duration when ARBITRATION is enabled;
+- fiat duration, release duration, and dispute duration (all strictly positive);
+- `disputeTimeoutProviderBps` in `0..10_000` inclusive (Core client default and recommended residual is `5_000`);
+- arbitration duration when ARBITRATION is enabled;
 - fiat currency, amount, payment method, payee commitment, payment reference commitment, and quote semantics;
 - payment-proof policy, payer mode, receipt namespace, and nullifier authority when automatic release is enabled;
 - arbitration adapter, policy, fee token, fee-quote policy, maximum arbitration fee, and stalemate semantics when ARBITRATION is enabled;
@@ -311,13 +314,15 @@ The signature domain MUST prevent replay across chains, deployments, and protoco
 
 **TIME-001 — Protocol clock.** Deadline eligibility uses the canonical chain timestamp observed by the settling deployment.
 
-**TIME-002 — Deadline origins.** Fiat deadline equals successful activation timestamp plus signed fiat duration. Release deadline equals the successful FUNDED-to-FIAT_SENT transition timestamp plus signed release duration. When ARBITRATION is enabled, arbitration deadline equals the successful FIAT_SENT-to-ARBITRATION_ACTIVE transition timestamp plus signed arbitration duration. There is no Core dispute deadline.
+**TIME-002 — Deadline origins.** Fiat deadline equals successful activation timestamp plus signed fiat duration. Release deadline equals the successful FUNDED-to-FIAT_SENT transition timestamp plus signed release duration. Dispute deadline equals the successful FIAT_SENT-to-DISPUTED transition timestamp plus signed dispute duration. When ARBITRATION is enabled, arbitration deadline equals the successful transition into ARBITRATION_ACTIVE (from `FIAT_SENT` or from `DISPUTED`) plus signed arbitration duration.
 
-**TIME-003 — Valid duration.** Every enabled duration MUST be strictly positive, fit the technical specification's immutable numeric range, and add to its origin without overflow. Creation expiry MUST be strictly later than the activation transaction's chain timestamp. Invalid time arithmetic rejects before exposure is created.
+**TIME-003 — Valid duration.** Every Core duration (fiat, release, dispute) and every enabled profile duration MUST be strictly positive, fit the technical specification's immutable numeric range, and add to its origin without overflow. `disputeTimeoutProviderBps` MUST be an integer in `0..10_000` inclusive. Creation expiry MUST be strictly later than the activation transaction's chain timestamp. Invalid time or bps arithmetic rejects before exposure is created.
 
 **TIME-004 — Immutable timestamps.** Each origin and derived absolute deadline is recorded once. A later block timestamp, policy change, or external-service delay cannot rewrite it.
 
 **TIME-005 — Fiat-timeout threshold.** `fiatDeadline` enables permissionless timeout cancellation; it does not independently expire provider mark-fiat or an otherwise valid authenticated payment-proof transition. At and after the boundary, those actions race timeout cancellation from the still-current state, and the first successful transition wins.
+
+**TIME-006 — Dispute-timeout threshold.** `disputeDeadline` enables permissionless CASE-CORE-025 residual allocation from `DISPUTED`. Dual-sign payloads and payment-proof exits remain eligible until another terminal action wins. Opening arbitration from `DISPUTED` is valid only strictly before `disputeDeadline`; dispute timeout is valid at or after it, so those two are never both eligible at the same observed chain timestamp. Dual-sign versus dispute timeout at the boundary follows CASE-RACE-008.
 
 ### 6.3 Pool-origin consent
 
@@ -345,11 +350,15 @@ For a pool-origin deal:
 
 **RES-002 — Split payload.** A split authorization binds every field in RES-001 plus provider-share basis points, each non-default bond slash amount and recipient, any asserted operator-fault classification and its evidence hash, and every additional signer required by RES-004. Provider share MUST be between zero and 10,000 basis points inclusive. Holder share, provider fee, operator fee, and rounding derive deterministically from the signed deal and Section 9; the payload cannot rewrite them.
 
-**RES-003 — Two-sided authorization.** Mutual cancellation and split require fresh authorization from the provider and the exact holder-side authority snapshotted at activation. For a direct deal that authority is the holder. For a pool-origin deal it is the pool's defined EIP-1271 or onchain authorization path. Anyone may relay the completed authorization.
+**RES-002A — Co-signed release payload.** A co-signed release authorization binds every field in RES-001 with action type co-signed release. It introduces no alternate receiver and no rewrite of fees or bonds beyond the ordinary voluntary-release economics in Section 9: provider receives 100 percent principal gross, completion and operator fees follow provider-positive release rules, and bond release/slash follows the voluntary-release bond row. Co-signed release is available from `FIAT_SENT` and from `DISPUTED`. From `DISPUTED` it is the only path that allocates 100 percent to the provider without waiting for dispute timeout (unilateral holder release is not available while `DISPUTED`).
+
+**RES-003 — Two-sided authorization.** Mutual cancellation, co-signed release, and split require fresh authorization from the provider and the exact holder-side authority snapshotted at activation. For a direct deal that authority is the holder. For a pool-origin deal it is the pool's defined EIP-1271 or onchain authorization path. Anyone may relay the completed authorization.
 
 **RES-004 — Affected collateral.** A split cannot slash third-party or operator-owned collateral, redirect its compensation, or establish operator fault unless the affected collateral owner personally signed that exact deal consequence, supplied a distinct sponsor/consequence authorization, or separately authorizes the split. A controller-signed pool constitution, deployment authorization, pool terms, or operator mandate is not the operator's or another sponsor's collateral consent. Without the affected owner's authorization, a payload requesting the consequence MUST reject rather than partially apply.
 
 **RES-005 — Replay and atomicity.** Resolution nonces are action-specific and one-use. An expired, replayed, cross-deal, cross-version, cross-chain, cross-deployment, malformed, incompletely authorized, or out-of-bounds resolution rejects with no state or economic effect.
+
+**RES-006 — DISPUTED dual-sign only.** While a deal is in `DISPUTED`, principal allocation requires a fresh dual-signed RES-001 cancel, RES-002A co-signed release, or RES-002 split (or an enabled extension exit under Section 8). Unilateral holder release and permissionless claim are invalid in `DISPUTED`.
 
 ---
 
@@ -381,7 +390,16 @@ For a pool-origin deal:
 
 ## 8. Core state machine
 
-The protocol defines one Core state machine. Optional profiles attach only at the extension points marked below. Core alone is a complete bilateral escrow path. Core has no unilateral dispute mechanism: after `FIAT_SENT`, the holder may release, the parties may mutual-cancel or mutual-split, or anyone may claim after the release deadline. Contesting the fiat-sent assertion requires ARBITRATION selected in the deal terms.
+The protocol defines one Core state machine. Optional profiles attach only at the extension points marked below. Core alone is a complete bilateral escrow path.
+
+After `FIAT_SENT`, Core offers:
+
+- unilateral holder release;
+- dual-signed cancel, co-signed release, or split;
+- holder-opened `DISPUTED` freeze (strictly before the release deadline);
+- permissionless claim after the release deadline **only if the deal is still in `FIAT_SENT`** (holder silence = non-contest under signed timeouts).
+
+While `DISPUTED`, claim and unilateral holder release are **disabled**. Principal moves only by dual-signed cancel, co-signed release, or split; by an enabled extension exit; or by permissionless dispute-timeout residual allocation under snapshotted `disputeTimeoutProviderBps`. Core invents no finding about whether fiat was paid. An external court ruling still requires ARBITRATION.
 
 ### 8.1 States
 
@@ -389,8 +407,10 @@ The protocol defines one Core state machine. Optional profiles attach only at th
 
 - FUNDED
 - FIAT_SENT
+- DISPUTED
 - RELEASED
 - RESOLVED_SPLIT
+- RESOLVED_BY_DISPUTE_TIMEOUT
 - CANCELLED
 
 **Extension-point states (ARBITRATION profile only):**
@@ -399,11 +419,11 @@ The protocol defines one Core state machine. Optional profiles attach only at th
 - RESOLVED_BY_ARBITRATION
 - STALEMATE
 
-RELEASED, RESOLVED_SPLIT, RESOLVED_BY_ARBITRATION, STALEMATE, and CANCELLED are terminal. A deal in a terminal state is no longer an active deal; any matured credits are open liabilities under Section 17.2.
+RELEASED, RESOLVED_SPLIT, RESOLVED_BY_DISPUTE_TIMEOUT, RESOLVED_BY_ARBITRATION, STALEMATE, and CANCELLED are terminal. A deal in a terminal state is no longer an active deal; any matured credits are open liabilities under Section 17.2.
 
-CLAIMED is an economic outcome of a RELEASED state, not a separate state. It is distinct from credit withdrawal claims and crowdfunding withdrawal claims.
+CLAIMED is an economic outcome of a RELEASED state, not a separate state. It is distinct from credit withdrawal claims and crowdfunding withdrawal claims. DISPUTE_TIMEOUT is an economic outcome of `RESOLVED_BY_DISPUTE_TIMEOUT`; it MUST remain distinguishable from mutual split, arbitration stalemate, and claim.
 
-Reserved identifiers CASE-CORE-010 and CASE-CORE-013 through CASE-CORE-019 (former Core dispute, escalation, and dispute-stalemate paths) are superseded and MUST NOT be reassigned. The former Core `DISPUTED` state is removed from Mandatory Core.
+Reserved identifiers CASE-CORE-010 and CASE-CORE-013 through CASE-CORE-019 (former removed Core dispute/escalation paths with different semantics) are superseded and MUST NOT be reassigned. The Core `DISPUTED` state and cases CASE-CORE-021 through CASE-CORE-027 define the current contest freeze, dual-sign, residual-timeout, and rejection path. CASE-OUT-008 remains reserved and MUST NOT be reassigned; dispute-timeout economics use CASE-OUT-013.
 
 ### 8.2 State graph
 
@@ -414,21 +434,32 @@ stateDiagram-v2
     [*] --> FUNDED: atomic activation
     FUNDED --> FIAT_SENT: provider marks fiat sent
     FUNDED --> CANCELLED: provider cancel, fiat timeout, or mutual cancel
-    FIAT_SENT --> RELEASED: holder release or claim
+    FIAT_SENT --> RELEASED: holder release, co-signed release, or claim
     FIAT_SENT --> RESOLVED_SPLIT: mutually signed split
     FIAT_SENT --> CANCELLED: mutual cancel
+    FIAT_SENT --> DISPUTED: holder opens Core dispute
+    DISPUTED --> CANCELLED: mutual cancel
+    DISPUTED --> RELEASED: co-signed release
+    DISPUTED --> RESOLVED_SPLIT: mutually signed split
+    DISPUTED --> RESOLVED_BY_DISPUTE_TIMEOUT: dispute timeout residual
     FUNDED --> RELEASED: payment proof (PAYMENT_PROOF)
     FIAT_SENT --> RELEASED: payment proof (PAYMENT_PROOF)
+    DISPUTED --> RELEASED: payment proof (PAYMENT_PROOF)
     FIAT_SENT --> ARBITRATION_ACTIVE: open selected arbitration (ARBITRATION)
+    DISPUTED --> ARBITRATION_ACTIVE: open selected arbitration (ARBITRATION)
     ARBITRATION_ACTIVE --> RESOLVED_BY_ARBITRATION: holder or provider ruling
     ARBITRATION_ACTIVE --> STALEMATE: refused ruling or arbitration timeout
     ARBITRATION_ACTIVE --> RESOLVED_SPLIT: mutually signed split
     ARBITRATION_ACTIVE --> CANCELLED: mutual cancel
 ```
 
-**Core-only success path.** activate → FUNDED → FIAT_SENT → holder RELEASE, permissionless CLAIM after release deadline (silence = non-contest under signed timeouts), mutual cancel, or mutual split.
+**Core-only success path (uncontested).** activate → FUNDED → FIAT_SENT → holder RELEASE, dual-signed cancel/release/split, or permissionless CLAIM after release deadline (silence = non-contest under signed timeouts).
 
-**Silence after FIAT_SENT.** When the provider has marked fiat sent and the holder neither releases nor opens selected arbitration before the release deadline, permissionless claim allocates principal to the provider side. The parties agreed to that clock in signed terms. Claim does not authenticate that fiat was actually sent.
+**Core contest path.** activate → FUNDED → FIAT_SENT → holder opens DISPUTED → dual-signed cancel, co-signed release, or split; or anyone executes DISPUTE_TIMEOUT residual after `disputeDeadline`.
+
+**Silence after FIAT_SENT.** When the provider has marked fiat sent and the holder neither releases, mutual-resolves, opens `DISPUTED`, nor opens selected arbitration before the release deadline, permissionless claim allocates principal to the provider side. The parties agreed to that clock in signed terms. Claim does not authenticate that fiat was actually sent. Opening `DISPUTED` disables claim for the life of that deal.
+
+**Dispute timeout residual.** Parties bind `disputeTimeoutProviderBps` at activation (recommended Core default `5_000`). On dispute timeout, provider gross is `floor(principal × disputeTimeoutProviderBps / 10_000)` and holder gross is the remainder. This is residual risk sharing when bilateral consent fails—not a finding that fiat was or was not paid. It is extensible: packages and venues constrain allowed bps without new Core states. Burn sinks are not a Core timeout outcome.
 
 ### 8.3 Valid transition cases
 
@@ -441,45 +472,69 @@ stateDiagram-v2
 | CASE-CORE-004 | FUNDED | Provider cancels | Before fiat is marked | Return principal holder-side; cancel |
 | CASE-CORE-005 | FUNDED | Anyone executes fiat timeout | At or after fiat deadline | Return principal holder-side; cancel |
 | CASE-CORE-006 | FUNDED | Anyone relays fresh two-sided authorization under RES-001 through RES-005 | Before cancellation payload expiry | Return principal holder-side; mutual cancel |
-| CASE-CORE-007 | FIAT_SENT | Holder releases | Before another terminal action wins | Release to provider side |
-| CASE-CORE-009 | FIAT_SENT | Anyone claims | At or after release deadline | Release to provider side with CLAIMED outcome (non-contest under signed timeouts) |
-| CASE-CORE-011 | FIAT_SENT | Anyone relays fresh two-sided authorization under RES-001 through RES-005 | Before cancellation payload expiry | Return principal holder-side; mutual cancel |
-| CASE-CORE-012 | FIAT_SENT | Anyone relays a fresh split authorization under RES-002 through RES-005 | Before another terminal action wins and before payload expiry | Execute signed split |
+| CASE-CORE-007 | FIAT_SENT | Holder-side authority releases | Before another terminal action wins | Release to provider side |
+| CASE-CORE-009 | FIAT_SENT | Anyone claims | At or after release deadline; deal still FIAT_SENT | Release to provider side with CLAIMED outcome (non-contest under signed timeouts) |
+| CASE-CORE-011 | FIAT_SENT | Anyone relays fresh mutual cancel under RES-001 through RES-005 | Before cancellation payload expiry | Return principal holder-side; mutual cancel |
+| CASE-CORE-012 | FIAT_SENT | Anyone relays a fresh split under RES-002 through RES-005 | Before another terminal action wins and before payload expiry | Execute signed split |
+| CASE-CORE-021 | FIAT_SENT | Snapshotted holder-side authority opens Core dispute | Strictly before release deadline; at most once per deal | Enter DISPUTED; record dispute open timestamp; start dispute deadline |
+| CASE-CORE-022 | DISPUTED | Anyone relays fresh mutual cancel under RES-001 through RES-005 | Before cancellation payload expiry | Return principal holder-side; mutual cancel |
+| CASE-CORE-023 | DISPUTED | Anyone relays fresh co-signed release under RES-002A through RES-005 | Before another terminal action wins and before payload expiry | Release to provider side |
+| CASE-CORE-024 | DISPUTED | Anyone relays a fresh split under RES-002 through RES-005 | Before another terminal action wins and before payload expiry | Execute signed split |
+| CASE-CORE-025 | DISPUTED | Anyone executes dispute timeout | At or after dispute deadline | Allocate principal by snapshotted `disputeTimeoutProviderBps`; enter RESOLVED_BY_DISPUTE_TIMEOUT with DISPUTE_TIMEOUT outcome |
+| CASE-CORE-026 | FIAT_SENT | Anyone relays fresh co-signed release under RES-002A through RES-005 | Before another terminal action wins and before payload expiry | Release to provider side |
+| CASE-CORE-027 | DISPUTED | Unilateral holder release or claim | Always | Reject without economic change |
 | CASE-CORE-020 | Any terminal state | Any later state-changing action | Always | Reject without economic change |
+
+**DISPUTE-001 — Holder-side opener.** Only the snapshotted holder-side authority may open Core `DISPUTED`: the direct holder, or for a pool-origin deal the snapshotted controller or an operator whose snapshotted mandate includes release or contest authority. Opening does not require bonds, arbitration, or a fee channel in Core.
+
+**DISPUTE-002 — One open.** A deal may enter `DISPUTED` at most once. A second open rejects.
+
+**DISPUTE-003 — Freeze.** While `DISPUTED`, permissionless claim and unilateral holder release MUST reject. Dual-signed RES paths, dispute timeout, and enabled extension exits remain as defined.
+
+**DISPUTE-004 — Residual formula.** On CASE-CORE-025, `providerGross = floor(principal × disputeTimeoutProviderBps / 10_000)` and `holderGross = principal - providerGross`. Completion fee is none (stalemate-like). Unpaid operator acceptance fee unlocks to the pool. Bonds follow the dispute-timeout bond row.
+
+**DISPUTE-005 — No burn sink.** Protocol version 2 Core dispute timeout NEVER routes principal to a burn, null, or non-party sink. Extensibility of residual risk uses `disputeTimeoutProviderBps` and optional profiles, not destruction of principal.
+
+**DISPUTE-006 — Packages.** A package or pool policy MAY constrain allowed `disputeTimeoutProviderBps` or dispute duration for deals that select it. It MUST NOT inject a bps or duration into a deal that did not bind that value in signed terms.
 
 #### PAYMENT_PROOF extension-point transitions
 
-Enabled only when the deal selects PAYMENT_PROOF. Otherwise those transitions are OUT_OF_SCOPE and MUST reject. The authoritative cases are CASE-PAY-001 and CASE-PAY-002 in Section 12.2. Reserved identifiers CASE-CORE-003 and CASE-CORE-008 are superseded and MUST NOT be reassigned.
+Enabled only when the deal selects PAYMENT_PROOF. Otherwise those transitions are OUT_OF_SCOPE and MUST reject. The authoritative cases are CASE-PAY-001 through CASE-PAY-002A in Section 12.2. Reserved identifiers CASE-CORE-003 and CASE-CORE-008 are superseded and MUST NOT be reassigned.
 
 | Case | Start | Trigger and authority | Timing | Result |
 | --- | --- | --- | --- | --- |
 | CASE-PAY-001 | FUNDED | Anyone submits an authenticated selected payment proof | Before terminal state | Release to provider side |
 | CASE-PAY-002 | FIAT_SENT | Anyone submits an authenticated selected payment proof | Before terminal state | Release to provider side |
+| CASE-PAY-002A | DISPUTED | Anyone submits an authenticated selected payment proof | Before terminal state | Release to provider side |
 
 #### ARBITRATION extension-point transitions
 
-Enabled only when the deal selects ARBITRATION (adapter and policy bound in terms). Otherwise opening arbitration is OUT_OF_SCOPE and MUST reject; Core continues with release, claim, mutual cancel, and mutual split only. Authoritative detail cases are in Section 13.2. Reserved identifiers CASE-CORE-013 and CASE-CORE-016 through CASE-CORE-019 are superseded and MUST NOT be reassigned.
+Enabled only when the deal selects ARBITRATION (adapter and policy bound in terms). Otherwise opening arbitration is OUT_OF_SCOPE and MUST reject; Core continues with release, claim (from `FIAT_SENT` only), `DISPUTED`, dual-sign paths, and dispute timeout. Authoritative detail cases are in Section 13.2. Reserved identifiers CASE-CORE-013 and CASE-CORE-016 through CASE-CORE-019 are superseded and MUST NOT be reassigned.
 
 | Case | Start | Trigger and authority | Timing | Result |
 | --- | --- | --- | --- | --- |
 | CASE-ARB-001 | FIAT_SENT | Holder-side authority pays the selected arbitration fee and opens the bound external dispute | Strictly before release deadline | Create one dispute; enter ARBITRATION_ACTIVE; start arbitration deadline |
+| CASE-ARB-001A | DISPUTED | Holder-side authority pays the selected arbitration fee and opens the bound external dispute | Strictly before dispute deadline | Create one dispute; enter ARBITRATION_ACTIVE; start arbitration deadline; Core dispute timeout no longer applies |
 | CASE-ARB-004 | ARBITRATION_ACTIVE | Selected adapter authenticates final holder win | Before another terminal action wins | Resolve holder-side |
 | CASE-ARB-005 | ARBITRATION_ACTIVE | Selected adapter authenticates final provider win | Before another terminal action wins | Resolve provider-side |
 | CASE-ARB-006 | ARBITRATION_ACTIVE | Selected adapter authenticates refused or no-decision ruling | Before another terminal action wins | Execute stalemate economics with arbitration provenance |
 | CASE-ARB-008 | ARBITRATION_ACTIVE | Anyone executes arbitration timeout | At or after arbitration deadline | Execute stalemate economics |
 | CASE-ARB-016 | ARBITRATION_ACTIVE | Anyone relays fresh mutual cancel under RES-001 through RES-005 | Before cancellation payload expiry | Return principal holder-side; mutual cancel |
 | CASE-ARB-017 | ARBITRATION_ACTIVE | Anyone relays fresh split under RES-002 through RES-005 | Before another terminal action wins and before payload expiry | Execute signed split |
+| CASE-ARB-018 | ARBITRATION_ACTIVE | Anyone relays fresh co-signed release under RES-002A through RES-005 | Before another terminal action wins and before payload expiry | Release to provider side |
 
 ### 8.4 Race semantics
 
 | Case | Competing actions | Rule |
 | --- | --- | --- |
 | CASE-RACE-001 | From FUNDED: mark fiat, provider cancel, fiat-timeout cancel, or mutual cancel; and payment proof only if PAYMENT_PROOF is enabled | Every action is checked against its own authority, profile enablement, and timing; among simultaneously eligible transactions, the first successful state-changing transaction wins and every now-incompatible transaction rejects |
-| CASE-RACE-002 | From FIAT_SENT: holder release, claim, mutual cancel, or mutual split; payment proof if PAYMENT_PROOF is enabled; open arbitration if ARBITRATION is enabled | Every action is checked against its own authority, profile enablement, and timing; among simultaneously eligible transactions, the first successful state-changing transaction wins and every now-incompatible transaction rejects |
-| CASE-RACE-003 | Open arbitration versus claim at the release boundary | Opening arbitration is valid only strictly before the release deadline; claim is valid at or after it, so both are never eligible at the same observed chain timestamp |
-| CASE-RACE-004 | From ARBITRATION_ACTIVE: final ruling, arbitration timeout, mutual cancel, or mutual split | Applies only when ARBITRATION is enabled. Among simultaneously eligible transactions, the first successful state-changing transaction wins and every now-incompatible transaction rejects |
+| CASE-RACE-002 | From FIAT_SENT: holder release, claim, open DISPUTED, mutual cancel, co-signed release, or mutual split; payment proof if PAYMENT_PROOF is enabled; open arbitration if ARBITRATION is enabled | Every action is checked against its own authority, profile enablement, and timing; among simultaneously eligible transactions, the first successful state-changing transaction wins and every now-incompatible transaction rejects |
+| CASE-RACE-003 | Open DISPUTED or open arbitration versus claim at the release boundary | Opening DISPUTED and opening arbitration from FIAT_SENT are valid only strictly before the release deadline; claim is valid at or after it while still FIAT_SENT, so claim is never eligible at the same observed chain timestamp as those opens |
+| CASE-RACE-004 | From ARBITRATION_ACTIVE: final ruling, arbitration timeout, mutual cancel, co-signed release, or mutual split | Applies only when ARBITRATION is enabled. Among simultaneously eligible transactions, the first successful state-changing transaction wins and every now-incompatible transaction rejects |
+| CASE-RACE-005 | From DISPUTED: dual-sign cancel/release/split, dispute timeout; payment proof if enabled; open arbitration if enabled | Every action is checked against its own authority, profile enablement, and timing; first successful state-changing transaction wins |
 | CASE-RACE-006 | Final arbitration ruling versus arbitration timeout | Applies only when ARBITRATION is enabled. At or after the arbitration deadline either may be submitted; the first successful terminal transaction wins and the other rejects |
 | CASE-RACE-007 | Duplicate relays | Every state-changing transition call submitted after its transition already succeeded MUST reject without economic effect; read-only queries are outside the transition catalog |
+| CASE-RACE-008 | Dual-sign settlement versus dispute timeout at the dispute boundary | Dual-sign is valid before another terminal wins and before payload expiry; dispute timeout is valid at or after dispute deadline; among simultaneously eligible transactions, the first successful terminal transaction wins |
 
 Timeout rights do not expire merely because no keeper acted immediately. They remain executable until another valid transition wins.
 
@@ -489,45 +544,57 @@ Timeout rights do not expire merely because no keeper acted immediately. They re
 
 ### 9.1 Common calculation rules
 
-For a partial outcome, provider gross is the principal multiplied by the signed provider basis points, rounded down. Holder gross is the principal remainder. Provider fee collected is the lesser of the signed provider fee and provider gross. Provider net is provider gross minus provider fee collected.
+For a partial outcome, provider gross is the principal multiplied by the applicable provider basis points, rounded down. Holder gross is the principal remainder. Provider fee collected is the lesser of the signed provider fee and provider gross. Provider net is provider gross minus provider fee collected.
 
-The protocol stalemate split is 50 percent provider and 50 percent holder, with any indivisible remainder assigned to the holder side.
+Applicable provider basis points are:
+
+- the dual-signed split bps for mutually signed split;
+- the snapshotted `disputeTimeoutProviderBps` for Core dispute timeout (CASE-OUT-013);
+- `5_000` for arbitration refused/no-decision and arbitration-timeout stalemate (fixed protocol 50/50), with any indivisible remainder assigned to the holder side.
+
+**Stalemate-like fee treatment** applies to arbitration stalemate (CASE-OUT-011, CASE-OUT-012) and Core dispute timeout (CASE-OUT-013): completion fee is none; unpaid operator acceptance fee unlocks; principal follows the partial (or zero/full) allocation above. This is not a provider-positive fee event even when provider gross is positive.
 
 ### 9.2 Complete outcome matrix
 
-This matrix is the authoritative terminal settlement table. Section 11.2 is the bond-focused view of the same outcomes and MUST NOT disagree. When BONDS is not enabled, every bond cell is a no-op. When no operator role exists, every operator-acceptance-fee cell is a no-op. CASE-OUT-002 and CASE-OUT-009 through CASE-OUT-012 apply only when the corresponding PAYMENT_PROOF or ARBITRATION profile is enabled. CASE-OUT-008 (former Core dispute stalemate) is reserved and superseded; stalemate exists only on the ARBITRATION path.
+This matrix is the authoritative terminal settlement table. Section 11.2 is the bond-focused view of the same outcomes and MUST NOT disagree. When BONDS is not enabled, every bond cell is a no-op. When no operator role exists, every operator-acceptance-fee cell is a no-op. CASE-OUT-002 and CASE-OUT-009 through CASE-OUT-012 apply only when the corresponding PAYMENT_PROOF or ARBITRATION profile is enabled. CASE-OUT-008 (former removed Core dispute-stalemate identifier) is reserved and superseded. Core dispute-timeout residual is CASE-OUT-013 and MUST NOT be labeled arbitration stalemate. CASE-OUT-001A covers co-signed release (economically identical to voluntary release for principal and fees).
 
 | Case | Outcome | Principal allocation | Completion fee (provider fee) | Operator acceptance fee | Party bonds | Operator bond |
 | --- | --- | --- | --- | --- | --- | --- |
 | CASE-OUT-001 | Voluntary release | Provider receives 100 percent gross | Full signed fee, capped by gross | Full reserved fee if eligible | Release | Release |
+| CASE-OUT-001A | Co-signed release | Same as voluntary release | Same as voluntary release | Same as voluntary release | Release | Release |
 | CASE-OUT-002 | Authenticated payment-proof release | Same as voluntary release | Same as voluntary release | Same as voluntary release | Release | Release |
 | CASE-OUT-003 | Timeout claim | Provider receives 100 percent gross | Full signed fee, capped by gross | Full reserved fee if eligible | Release all deal bonds unless a signed timeout liveness stake formula applies | Release |
 | CASE-OUT-004 | Provider cancellation before fiat | Holder side receives 100 percent | None | None; unlock reserved exposure | Apply provider inactivity penalty; release holder bond | Release |
 | CASE-OUT-005 | Fiat-timeout cancellation | Holder side receives 100 percent | None | None; unlock reserved exposure | Same as provider cancellation | Release |
 | CASE-OUT-006 | Mutual cancellation | Holder side receives 100 percent | None | None; unlock reserved exposure | Release | Release |
-| CASE-OUT-007 | Mutually signed split | Provider receives signed share; holder receives remainder | Lesser of signed fee and provider gross | Provider-share-proportional amount unless signed operator fault is true | Apply only mutually signed slashes within snapshotted caps; release remainder | Slash only when signed operator fault exists; else release |
+| CASE-OUT-007 | Mutually signed split | Provider receives signed share; holder receives remainder | Lesser of signed fee and provider gross | Provider-share-proportional amount unless signed operator fault is true; if fault is true, pay zero and unlock remainder | Apply only mutually signed slashes within snapshotted caps; release remainder | Slash only when signed operator fault exists; else release |
 | CASE-OUT-009 | Arbitration holder win | Holder side receives 100 percent | None | None; unlock reserved exposure | Apply provider-fault penalty; release holder bond | Slash only when authenticated fault exists; else release |
 | CASE-OUT-010 | Arbitration provider win | Provider receives 100 percent gross | Full signed fee, capped by gross | Full reserved fee if eligible unless authenticated operator fault exists | Apply holder-fault penalty; release provider bond | Release absent authenticated fault |
-| CASE-OUT-011 | Arbitration refused or no decision | Protocol 50/50 stalemate | None | None; unlock reserved exposure | Apply both party stalemate penalties | Release |
-| CASE-OUT-012 | Arbitration timeout | Protocol 50/50 stalemate | None | None; unlock reserved exposure | Apply both party stalemate penalties | Release |
+| CASE-OUT-011 | Arbitration refused or no decision | Protocol 50/50 stalemate | None (stalemate-like) | None; unlock reserved exposure | Apply both party stalemate penalties | Release |
+| CASE-OUT-012 | Arbitration timeout | Protocol 50/50 stalemate | None (stalemate-like) | None; unlock reserved exposure | Apply both party stalemate penalties | Release |
+| CASE-OUT-013 | Core dispute timeout | Provider gross by snapshotted `disputeTimeoutProviderBps`; holder receives remainder | None (stalemate-like) | None; unlock reserved exposure | Apply snapshotted dispute-timeout bond formula if any; default release both party bonds | Release |
 
 ### 9.3 Outcome rules
 
 **OUT-001 — One terminal result.** Every deal produces at most one terminal economic outcome.
 
-**OUT-002 — State versus outcome.** A claim uses terminal state RELEASED but MUST remain distinguishable from voluntary or proof release for reputation and any optional bond formulas.
+**OUT-002 — State versus outcome.** A claim uses terminal state RELEASED but MUST remain distinguishable from voluntary, co-signed, or proof release for reputation and any optional bond formulas. Core dispute timeout uses terminal state `RESOLVED_BY_DISPUTE_TIMEOUT` and outcome DISPUTE_TIMEOUT and MUST remain distinguishable from mutual split and from arbitration STALEMATE even when `disputeTimeoutProviderBps` equals `5_000`.
 
-**OUT-002A — Claim is non-contest under signed timeouts.** Timeout claim allocates principal to the provider because the holder did not release, mutual-resolve, or open selected arbitration before the release deadline. It is the agreed Core default for silence after `FIAT_SENT`. It does not authenticate that fiat was sent.
+**OUT-002A — Claim is non-contest under signed timeouts.** Timeout claim allocates principal to the provider because the deal remained in `FIAT_SENT` and the holder did not release, mutual-resolve, open `DISPUTED`, or open selected arbitration before the release deadline. It is the agreed Core default for silence after `FIAT_SENT`. It does not authenticate that fiat was sent. Claim is unavailable after `DISPUTED` is opened.
+
+**OUT-002B — Dispute timeout is residual risk, not truth.** CASE-OUT-013 allocates by signed `disputeTimeoutProviderBps` because bilateral dual-sign settlement did not complete before `disputeDeadline`. It does not authenticate fiat performance, slash by fault, or burn principal.
 
 **OUT-003 — Holder-side pool return.** In a pool-origin deal, holder gross returns to the funding pool or its escrow-controlled credit, not to the controller's personal wallet.
 
-**OUT-004 — Arbitration provenance.** A refused ruling that produces stalemate MUST remain distinguishable from an arbitration-timeout stalemate.
+**OUT-004 — Arbitration provenance.** A refused ruling that produces stalemate MUST remain distinguishable from an arbitration-timeout stalemate. Both MUST remain distinguishable from Core DISPUTE_TIMEOUT.
 
-**OUT-005 — Historical facts.** Mutual cancellation after arbitration was opened does not erase that fact, but it does not imply fault without signed or authenticated evidence.
+**OUT-005 — Historical facts.** Mutual cancellation after `DISPUTED` or arbitration was opened does not erase that fact, but it does not imply fault without signed or authenticated evidence.
 
-**OUT-006 — No invented operator fault.** A timeout or claim alone does not establish operator fault. Operator fault exists only through evidence defined in the signed split or arbitration policy.
+**OUT-006 — No invented operator fault.** A timeout, claim, or Core dispute timeout alone does not establish operator fault. Operator fault exists only through evidence defined in the signed split or arbitration policy.
 
 **OUT-007 — Bonds optional on claim.** Default BONDS behavior on timeout claim is release of all deal bonds. A package or signed bond schedule MAY define an explicit timeout liveness stake; that stake is not Core and MUST NOT be labeled as authenticated holder fault.
+
+**OUT-008 — Operator fee on signed fault in split.** When CASE-OUT-007 records signed operator fault as true, operator acceptance fee paid is zero and every unpaid reserved portion unlocks to the pool.
 
 ---
 
@@ -541,7 +608,7 @@ Core defines two optional fee channels. Amounts MAY be zero. Recipients are what
 
 **FEE-H-002.** When nonzero, it is transferred or credited to the snapshotted signed recipient exactly once during activation.
 
-**FEE-H-003.** It is non-refundable after successful activation, including cancellation, stalemate, and holder-win outcomes.
+**FEE-H-003.** It is non-refundable after successful activation, including cancellation, arbitration stalemate, Core dispute timeout, and holder-win outcomes.
 
 **FEE-H-004.** If activation reverts, no activation fee remains charged.
 
@@ -553,11 +620,11 @@ Core defines two optional fee channels. Amounts MAY be zero. Recipients are what
 
 ### 10.2 Completion fee (provider fee)
 
-**FEE-P-001.** The completion fee is taken only from provider gross at terminal settlement on a provider-positive outcome.
+**FEE-P-001.** The completion fee is taken only from provider gross at terminal settlement on a provider-positive outcome that is not stalemate-like. Provider-positive means voluntary release, co-signed release, payment-proof release, timeout claim, arbitration provider win, or mutually signed split with positive provider gross.
 
 **FEE-P-002.** It is charged at most once.
 
-**FEE-P-003.** It is zero when provider gross is zero and on cancellation or stalemate.
+**FEE-P-003.** It is zero when provider gross is zero, on cancellation, on arbitration stalemate (CASE-OUT-011 and CASE-OUT-012), and on Core dispute timeout (CASE-OUT-013), even if provider gross is positive under residual bps.
 
 **FEE-P-004.** In a split, it is capped by provider gross even if the signed nominal fee is larger.
 
@@ -623,11 +690,12 @@ This table restates the bond columns of Section 9.2. If the two disagree, Sectio
 
 | Outcome | Provider bond | Holder or pool-side bond | Operator bond | Default compensation side |
 | --- | --- | --- | --- | --- |
-| Voluntary or proof release | Release | Release | Release | None |
+| Voluntary, co-signed, or proof release | Release | Release | Release | None |
 | Timeout claim | Release | Release (unless signed timeout liveness stake) | Release | None by default; stake recipient if signed |
 | Provider cancel or fiat timeout | Apply inactivity penalty | Release | Release | Holder side |
 | Mutual cancel | Release | Release | Release | None |
 | Signed split | Follow mutually signed bounded consequences | Follow mutually signed bounded consequences | Slash only when signed operator fault exists | As mutually signed |
+| Core dispute timeout | Apply snapshotted dispute-timeout formula if any; default release | Apply snapshotted dispute-timeout formula if any; default release | Release | None by default; as signed if any |
 | Arbitration holder win | Apply provider-fault penalty | Release | Slash only when authenticated fault exists | Holder side |
 | Arbitration provider win | Release | Apply holder-fault penalty | Release absent authenticated fault | Provider side |
 | Arbitration refused or timeout | Apply stalemate policy | Apply stalemate policy | Release | Snapshotted neutral recipient |
@@ -670,7 +738,7 @@ Payment proof is an optional automatic release path. It is more security-sensiti
 
 **PAY-008 — Atomic consumption.** Proof authentication, nullifier consumption, state transition, principal allocation, fees, canonical pool terminal record and protocol-controlled pool liabilities, and required bond accounting commit or revert together. Optional pool-local journal consumption remains asynchronous under POOL-SET-005 and POOL-SET-006.
 
-**PAY-009 — No proof, no automatic release.** If proof is unavailable or invalid, the manual release, claim, mutual cancel, mutual split, cancellation, timeout, and—when selected—arbitration paths remain as defined by state.
+**PAY-009 — No proof, no automatic release.** If proof is unavailable or invalid, the manual release, claim (from `FIAT_SENT` only), Core `DISPUTED` path, dual-sign paths, cancellation, timeouts, and—when selected—arbitration paths remain as defined by state.
 
 **PAY-010 — Reversibility disclosure.** Protocol settlement is final even if the external rail later reverses or charges back a payment. The selected policy MUST disclose this risk.
 
@@ -684,6 +752,7 @@ Payment proof is an optional automatic release path. It is more security-sensiti
 | --- | --- | --- |
 | CASE-PAY-001 | Authenticated proof matches a FUNDED deal | Record fiat metadata, consume nullifier, and release atomically |
 | CASE-PAY-002 | Authenticated proof matches a FIAT_SENT deal | Consume nullifier and release atomically |
+| CASE-PAY-002A | Authenticated proof matches a DISPUTED deal | Consume nullifier and release atomically |
 | CASE-PAY-003 | Wrong policy, currency, method, amount, payer mode or identity, payee, reference, receipt namespace, or receipt | Reject and preserve state |
 | CASE-PAY-004 | Forged, malformed, expired, revoked, or unauthenticated evidence | Reject and preserve state |
 | CASE-PAY-005 | Receipt or nullifier already used | Reject and preserve state |
@@ -698,13 +767,13 @@ Payment proof is an optional automatic release path. It is more security-sensiti
 
 ### 13.1 Arbitration policy
 
-External arbitration is the only unilateral contest path for `FIAT_SENT`. It is optional, selected in deal terms (adapter and policy—for example Kleros), and is not protocol administration. Without it, Core offers only release, claim, mutual cancel, and mutual split.
+External arbitration is the optional **external court** path for `FIAT_SENT` or `DISPUTED`. It is selected in deal terms (adapter and policy—for example Kleros) and is not protocol administration. Without it, Core still offers release, claim (from `FIAT_SENT`), Core `DISPUTED` freeze, dual-signed cancel/release/split, and dispute-timeout residual allocation. Arbitration does not replace Core `DISPUTED`; it escalates to an authenticated ruling when parties selected that trust dependency.
 
 **ARB-001 — Explicit selection.** Arbitration is available only when the deal selects an exact adapter and immutable policy at consent time.
 
 **ARB-002 — Published meaning.** The policy MUST disclose arbitrator, jurisdiction or court, evidence rules, appeal rules, finality rule, the closed ruling mapping in ARB-011, operator-fault schema, timeout, fee token, fee-quote policy, maximum signed fee, and policy content hash.
 
-**ARB-003 — Separate bounded fee.** When opening arbitration from FIAT_SENT, the adapter quotes the exact arbitration fee under the signed immutable quote policy. The action is valid only when the quoted token matches and the amount does not exceed the deal's signed maximum. The opener supplies that exact fee separately; active principal and protocol fees do not reimburse it. A quote above the maximum leaves the deal in FIAT_SENT; release, claim, mutual cancel, and mutual split remain available.
+**ARB-003 — Separate bounded fee.** When opening arbitration from `FIAT_SENT` or `DISPUTED`, the adapter quotes the exact arbitration fee under the signed immutable quote policy. The action is valid only when the quoted token matches and the amount does not exceed the deal's signed maximum. The opener supplies that exact fee separately; active principal and protocol fees do not reimburse it. A quote above the maximum leaves the deal in its current state (`FIAT_SENT` or `DISPUTED`); Core exits for that state remain available.
 
 **ARB-003A — Exact fee custody.** The opening caller is the fee payer. The immutable quote policy fixes one disclosed fee receiver outside every principal, pool, bond, and withdrawal custody boundary. Opening atomically observes an exact payer decrease and receiver increase for the quoted ERC-20 amount before the selected adapter creates the dispute. A short, taxed, excess, wrong-recipient, principal-funded, or self-reported payment rejects; if dispute creation fails, the transfer, quote nonce, and state transition all revert.
 
@@ -720,18 +789,21 @@ External arbitration is the only unilateral contest path for `FIAT_SENT`. It is 
 
 **ARB-009 — Censorship fallback.** If no final ruling arrives, anyone may execute stalemate at or after the arbitration deadline.
 
-**ARB-010 — Active-policy continuity.** Policy overwrite, governance status, or adapter delisting cannot make the protocol reject an otherwise authentic final ruling under the bound policy. The selected adapter or external arbitrator can nevertheless fail or disappear; arbitration is therefore an explicitly selected trust dependency and the immutable arbitration-timeout stalemate is the liveness guarantee for that path. Core claim/release/mutual paths remain the liveness guarantee when ARBITRATION is not selected.
+**ARB-010 — Active-policy continuity.** Policy overwrite, governance status, or adapter delisting cannot make the protocol reject an otherwise authentic final ruling under the bound policy. The selected adapter or external arbitrator can nevertheless fail or disappear; arbitration is therefore an explicitly selected trust dependency and the immutable arbitration-timeout stalemate is the liveness guarantee for that path. Core claim/release/`DISPUTED`/dual-sign/dispute-timeout paths remain the liveness guarantee when ARBITRATION is not selected.
 
-**ARB-011 — Closed ruling space.** Protocol version 2 accepts exactly three final arbitration meanings: holder win, provider win, or refused/no decision. A partial ruling, alternate receiver, discretionary fee, or any other mapping is unsupported and rejects. Parties that want a partial outcome MUST use the mutually authorized split (from FIAT_SENT or, if already opened, from ARBITRATION_ACTIVE).
+**ARB-011 — Closed ruling space.** Protocol version 2 accepts exactly three final arbitration meanings: holder win, provider win, or refused/no decision. A partial ruling, alternate receiver, discretionary fee, or any other mapping is unsupported and rejects. Parties that want a partial outcome MUST use the mutually authorized split (from `FIAT_SENT`, `DISPUTED`, or `ARBITRATION_ACTIVE`) or accept Core dispute-timeout residual bps when still in `DISPUTED`.
 
-**ARB-012 — Holder-side opener.** Only the snapshotted holder-side authority (direct holder, or pool controller/operator with arbitration permission) may open arbitration from FIAT_SENT. Opening is valid only strictly before the release deadline.
+**ARB-012 — Holder-side opener.** Only the snapshotted holder-side authority (direct holder, or pool controller/operator with arbitration permission) may open arbitration. From `FIAT_SENT`, opening is valid only strictly before the release deadline. From `DISPUTED`, opening is valid only strictly before the dispute deadline. A deal creates at most one external dispute.
+
+**ARB-013 — Escalation from DISPUTED.** Successful open from `DISPUTED` enters `ARBITRATION_ACTIVE` and supersedes the Core dispute-timeout clock: CASE-CORE-025 MUST reject after arbitration is opened. Dual-sign paths remain available from `ARBITRATION_ACTIVE` under CASE-ARB-016 through CASE-ARB-018.
 
 ### 13.2 Arbitration cases
 
 | Case | Condition | Required behavior |
 | --- | --- | --- |
 | CASE-ARB-001 | Valid open from FIAT_SENT before release deadline with exact bounded fee | Create one dispute and enter ARBITRATION_ACTIVE |
-| CASE-ARB-002 | Arbitration disabled, late (at or after release deadline), wrong adapter or fee token, fee above signed maximum, inexact fee, unauthorized opener, or duplicate | Reject and remain FIAT_SENT |
+| CASE-ARB-001A | Valid open from DISPUTED before dispute deadline with exact bounded fee | Create one dispute, enter ARBITRATION_ACTIVE, and retire Core dispute timeout |
+| CASE-ARB-002 | Arbitration disabled, late for the current state, wrong adapter or fee token, fee above signed maximum, inexact fee, unauthorized opener, or duplicate | Reject and remain in the current state (FIAT_SENT or DISPUTED) |
 | CASE-ARB-003 | External dispute creation reverts | Revert open and do not retain the failed fee |
 | CASE-ARB-004 | Final holder ruling authenticates | Execute holder-win outcome |
 | CASE-ARB-005 | Final provider ruling authenticates | Execute provider-win outcome |
@@ -742,6 +814,7 @@ External arbitration is the only unilateral contest path for `FIAT_SENT`. It is 
 | CASE-ARB-010 | Policy changes after activation | Active deal continues under bound policy |
 | CASE-ARB-016 | Mutual cancel while ARBITRATION_ACTIVE | Return principal holder-side under RES-001 through RES-005 |
 | CASE-ARB-017 | Mutual split while ARBITRATION_ACTIVE | Execute signed split under RES-002 through RES-005 |
+| CASE-ARB-018 | Co-signed release while ARBITRATION_ACTIVE | Release to provider side under RES-002A through RES-005 |
 
 ---
 
@@ -818,7 +891,7 @@ Legacy coordinator-held pools are migration infrastructure, not the target proto
 
 **POOL-OP-002.** A mandate binds the pool, version, operator, fee recipient, fee basis points, independent permissions, owner or controller authorization, nonce, and expiry.
 
-**POOL-OP-003.** Independent permissions may include accepting deals, releasing, opening selected arbitration, or performing pool-local operations. Timeout execution never requires an operator mandate.
+**POOL-OP-003.** Independent permissions may include accepting deals, releasing, opening Core `DISPUTED` (contest), opening selected arbitration, or performing pool-local operations. Timeout execution never requires an operator mandate.
 
 **POOL-OP-004.** A mandate cannot grant withdrawal, ownership transfer, receiver redirection, terms rewriting, arbitrary settlement, or access to another pool.
 
@@ -878,21 +951,23 @@ Legacy coordinator-held pools are migration infrastructure, not the target proto
 
 After activation, pool-origin deals use the complete core state machine in Section 8.
 
-**POOL-LIFE-001.** The provider has the same fiat-reporting, claim, proof, split, arbitration, and timeout protections as in a direct deal.
+**POOL-LIFE-001.** The provider has the same fiat-reporting, claim, Core `DISPUTED`, proof, dual-sign, arbitration, and timeout protections as in a direct deal.
 
 **POOL-LIFE-002.** The pool controller address and operator authority valid at activation are snapshotted as the holder-side operational authorities for that deal.
 
-**POOL-LIFE-003.** A snapshotted controller or operator with release permission may release after fiat is marked sent.
+**POOL-LIFE-003.** A snapshotted controller or operator with release permission may unilaterally release from `FIAT_SENT` after fiat is marked sent. Unilateral release is unavailable from `DISPUTED`; co-signed release or other dual-sign paths apply instead.
 
-**POOL-LIFE-004.** A snapshotted controller or operator with arbitration permission may open selected arbitration from FIAT_SENT strictly before the release deadline when ARBITRATION is enabled for the deal.
+**POOL-LIFE-003A.** A snapshotted controller, or an operator whose snapshotted mandate includes release or contest permission, may open Core `DISPUTED` from `FIAT_SENT` strictly before the release deadline under DISPUTE-001.
+
+**POOL-LIFE-004.** A snapshotted controller or operator with arbitration permission may open selected arbitration from `FIAT_SENT` strictly before the release deadline, or from `DISPUTED` strictly before the dispute deadline, when ARBITRATION is enabled for the deal.
 
 **POOL-LIFE-005.** Operator-mandate replacement or revocation does not silently give a new address authority over an existing deal. The snapshotted authority remains valid and irrevocable for that deal; this key-compromise risk MUST be disclosed before acceptance. A replacement or recovery authority is valid only through exact objective conditions and authorizations accepted before activation. The controller itself is fixed for the lifetime of the V2 pool identity under POOL-OWN-002.
 
-**POOL-LIFE-006.** Controller, operator, registry, backend, or governance disappearance cannot remove provider claims, authenticated proof release, arbitration fallback, already completed mutual authorizations, or permissionless timeout exits.
+**POOL-LIFE-006.** Controller, operator, registry, backend, or governance disappearance cannot remove provider claims (while still `FIAT_SENT`), Core dispute timeout, authenticated proof release, arbitration fallback, already completed mutual authorizations, or permissionless timeout exits.
 
 ### 14.8 Pool terminal accounting
 
-**POOL-SET-001.** Each deal produces exactly one immutable pool terminal delta reconciling principal, holder return, provider gross, provider fee, paid operator fee, unlocked operator fee, and realized pool consumption.
+**POOL-SET-001.** Each deal produces exactly one immutable pool terminal delta reconciling principal, holder return, provider gross, provider fee, paid operator fee, unlocked operator fee, and realized pool consumption. Core dispute timeout records holder return equal to holder gross under `disputeTimeoutProviderBps`, provider gross to the provider side, zero completion fee, and full unlock of unpaid operator fee.
 
 **POOL-SET-002.** Holder-side principal returns to the funding pool or pool-specific credit.
 
@@ -1673,21 +1748,25 @@ The cases below apply in addition to the feature-specific cases above.
 | CASE-FAIL-013 | Relayer changes one signed field | Reject signature |
 | CASE-FAIL-014 | Same signatures are replayed on another chain, deployment, or version | Reject domain mismatch |
 | CASE-FAIL-015 | A signed but unactivated offer references policy no longer accepted by its own selected module | Reject activation without changing the offer's historical signature |
-| CASE-FAIL-016 | Creation expiry is not future, an enabled duration is zero, or deadline arithmetic overflows | Reject activation |
+| CASE-FAIL-016 | Creation expiry is not future, a Core duration (fiat, release, or dispute) is zero, `disputeTimeoutProviderBps` is outside `0..10_000`, or deadline arithmetic overflows | Reject activation |
 
 ### 21.2 Active-deal adversity and recovery
 
 | Case | Situation | Required behavior |
 | --- | --- | --- |
 | CASE-FAIL-020 | Provider never sends or reports fiat | Permit fiat-timeout cancellation by anyone |
-| CASE-FAIL-021 | Provider falsely reports fiat sent | Without ARBITRATION: holder must release, mutual-resolve, or allow claim; with ARBITRATION: holder-side may open the selected provider before release deadline |
-| CASE-FAIL-022 | Holder refuses to release and does not open arbitration | Permit claim by anyone after release deadline (non-contest under signed timeouts) |
-| CASE-FAIL-023 | Parties disagree and ARBITRATION is enabled | Permit open arbitration before release deadline, mutual split/cancel, or arbitration ruling/timeout stalemate |
-| CASE-FAIL-024 | Arbitrator disappears or censors | Permit arbitration-timeout stalemate; Core claim/release/mutual paths apply only before arbitration was opened or via mutual resolve while active |
+| CASE-FAIL-021 | Provider falsely reports fiat sent | Holder-side may open Core `DISPUTED` before release deadline (dual-sign or dispute-timeout residual); or release/mutual-resolve; or allow claim if still `FIAT_SENT` after release deadline; and may open ARBITRATION when enabled |
+| CASE-FAIL-022 | Holder refuses to release, does not open `DISPUTED`, and does not open arbitration | Permit claim by anyone after release deadline while still `FIAT_SENT` (non-contest under signed timeouts) |
+| CASE-FAIL-022A | Holder opens `DISPUTED` and parties dual-sign cancel, release, or split before dispute deadline | Execute the signed dual-sign outcome; claim remains unavailable |
+| CASE-FAIL-022B | Holder opens `DISPUTED` and no dual-sign or extension exit before dispute deadline | Anyone may execute CASE-OUT-013 residual by `disputeTimeoutProviderBps` |
+| CASE-FAIL-023 | Parties disagree and ARBITRATION is enabled | Permit open arbitration from `FIAT_SENT` before release deadline or from `DISPUTED` before dispute deadline; dual-sign; or arbitration ruling/timeout stalemate |
+| CASE-FAIL-024 | Arbitrator disappears or censors | Permit arbitration-timeout stalemate; before arbitration open, Core claim/`DISPUTED`/dual-sign/dispute-timeout paths apply; after open, dual-sign and arbitration timeout remain |
 | CASE-FAIL-025 | Payment verifier is unavailable | Preserve manual and timeout lifecycle paths |
 | CASE-FAIL-026 | A restricted action is called by an unauthorized address | Reject without state change |
 | CASE-FAIL-027 | An action is called from wrong state or at wrong time | Reject without state change |
-| CASE-FAIL-028 | Split or mutual-cancel payload is expired, replayed, wrong-domain, wrong-versioned, wrong-deal, or missing a required authorization | Reject |
+| CASE-FAIL-028 | Split, mutual-cancel, or co-signed-release payload is expired, replayed, wrong-domain, wrong-versioned, wrong-deal, or missing a required authorization | Reject |
+| CASE-FAIL-028A | Claim or unilateral holder release is attempted while DISPUTED | Reject without economic change |
+| CASE-FAIL-028B | Open DISPUTED at or after release deadline, by unauthorized opener, or after already disputed | Reject and remain FIAT_SENT or current state |
 | CASE-FAIL-029 | Split exceeds 100 percent, slash exceeds cap, or recipient is invalid | Reject atomically |
 | CASE-FAIL-030 | Mandatory extension step attempts reentrancy | Reject re-entry and preserve atomicity |
 | CASE-FAIL-031 | Terminal action is replayed | Reject; no effect repeats |
@@ -1745,7 +1824,9 @@ The following are outside protocol version 2 mandatory core unless a later exten
 - first-come-first-served crowdfunding withdrawals or wind-down;
 - claims that a partial bond is complete insurance;
 - controller or sponsor transfer under an existing initial-V2 pool identity;
-- a global mandatory pool, module, identity, or token endorsement list.
+- a global mandatory pool, module, identity, or token endorsement list;
+- burning or routing Core dispute-timeout principal to a null, burn, or non-party sink (residual risk uses `disputeTimeoutProviderBps` only);
+- treating Core DISPUTE_TIMEOUT as an external court finding or as arbitration STALEMATE.
 
 An implementation may add an unsupported capability only through an explicitly versioned extension that preserves all constitutional guarantees.
 
@@ -1787,15 +1868,19 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-STATE-004.** Every active state has a bounded path to a terminal result without governance or proprietary infrastructure.
 
-**INV-STATE-005.** Every eligible timeout remains permissionlessly executable.
+**INV-STATE-005.** Every eligible timeout remains permissionlessly executable, including fiat timeout, release claim from `FIAT_SENT`, Core dispute timeout from `DISPUTED`, and arbitration timeout when enabled.
 
 **INV-STATE-006.** An anyone-callable action has predetermined receivers and economics.
+
+**INV-STATE-007.** While `DISPUTED`, unilateral holder release and permissionless claim are impossible; dual-sign, dispute timeout, and enabled extension exits remain the only state-changing paths.
+
+**INV-STATE-008.** Core dispute timeout allocates principal exactly by snapshotted `disputeTimeoutProviderBps` with stalemate-like fees and never burns principal to a non-party sink.
 
 ### 23.4 Fees and bonds
 
 **INV-FEE-001.** A nonzero activation fee is paid exactly once if and only if activation succeeds; zero is valid.
 
-**INV-FEE-002.** Completion fee is paid at most once and never exceeds provider gross.
+**INV-FEE-002.** Completion fee is paid at most once, never exceeds provider gross, and is zero on cancellation, arbitration stalemate, and Core dispute timeout.
 
 **INV-FEE-003.** Operator acceptance fee is paid at most once, comes only from its funding pool, and never exceeds reserved exposure.
 
@@ -1989,7 +2074,7 @@ A system is not the completed PluriSwap Protocol merely because contracts compil
 
 **DOD-OPS-002.** Live readback proves bytecode, immutable wiring, liabilities, policies, governance roles, delays, enabled profiles, and external dependencies.
 
-**DOD-OPS-003.** Direct activation, pool funding and withdrawal, proof, arbitration open/ruling when enabled, claim, mutual cancel/split, cancellation, credit withdrawal, and every timeout canary pass for each enabled profile. If crowdfunding is enabled, deposit, constrained epoch, fixed claim, recapitalization, default, bond priority, wind-down, and late-recovery canaries also pass.
+**DOD-OPS-003.** Direct activation, pool funding and withdrawal, proof, arbitration open/ruling when enabled, claim from `FIAT_SENT`, open Core `DISPUTED`, dual-sign cancel/release/split, dispute-timeout residual, cancellation, credit withdrawal, and every timeout canary pass for each enabled profile. If crowdfunding is enabled, deposit, constrained epoch, fixed claim, recapitalization, default, bond priority, wind-down, and late-recovery canaries also pass.
 
 **DOD-OPS-004.** Monitoring detects solvency, liveness, governance, external dependency, and policy anomalies without acquiring custody authority.
 
@@ -2070,6 +2155,9 @@ The current repository and Arbitrum Sepolia deployment are evaluated separately 
 | Extension point | Named attachment on the Core state machine or accounting path where an optional profile adds transitions or side-effects |
 | Extension profile | Optional versioned protocol capability selected by participants |
 | Fiat-sent assertion | Provider's onchain statement that fiat was sent; not cryptographic payment proof |
+| DISPUTED | Core non-terminal state opened by holder-side authority from `FIAT_SENT` before the release deadline; freezes claim and unilateral release until dual-sign settlement, an enabled extension exit, or dispute-timeout residual |
+| Dispute timeout / DISPUTE_TIMEOUT | Permissionless Core terminal after `disputeDeadline`; allocates principal by snapshotted `disputeTimeoutProviderBps` with stalemate-like fees; not an external court finding and not a burn |
+| `disputeTimeoutProviderBps` | Signed integer in `0..10_000` bound at activation; provider residual share on Core dispute timeout; recommended Core default `5_000` |
 | Liability | Nominal token amount attributed by protocol accounting to an active deal, matured credit, fee recipient, bond recipient, or pool; actual recovery is conditional under a deficit boundary |
 | Permissionless execution | Ability of any address to submit a valid action when public signed, state, proof, ruling, or deadline conditions hold |
 | Permissionless participation | Ability to use compatible public protocol functions without discretionary identity or commercial approval |
@@ -2081,9 +2169,9 @@ The current repository and Arbitrum Sepolia deployment are evaluated separately 
 | Recommended / endorsed | Ecosystem advisory status maintained by a named authority; never synonymous with exclusive, permissioned, or protocol-authoritative |
 | Release class | Typed evidence-maturity classification of one exact release: EXPERIMENTAL, CANDIDATE, or QUALIFIED; separate from conformance status |
 | Conformance status | Typed disposition of a rule, case, invariant, profile, or scope against this document; separate from release class and endorsement |
-| Stalemate | Protocol 50/50 terminal fallback on the ARBITRATION path when the selected provider refuses or times out; not a Core state |
+| Stalemate | Protocol 50/50 terminal fallback on the ARBITRATION path when the selected provider refuses or times out (`STALEMATE` state); distinct from Core DISPUTE_TIMEOUT even when residual bps is 50/50 |
 | Terminal outcome | Final economic classification; it may be more specific than the stored terminal state |
-| Timeout claim | Core provider-positive RELEASED outcome after the release deadline, treating holder silence after FIAT_SENT as non-contest under signed timeouts; distinct from credit withdrawal or crowdfunding claims |
+| Timeout claim | Core provider-positive RELEASED outcome after the release deadline while still in `FIAT_SENT`, treating holder silence (no release, dual-sign, `DISPUTED`, or arbitration open) as non-contest under signed timeouts; distinct from credit withdrawal or crowdfunding claims; unavailable after `DISPUTED` |
 | Trust-minimized | External trust is explicit, chosen, bounded, inspectable, and unable to override unrelated custody |
 
 ---
