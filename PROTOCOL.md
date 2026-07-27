@@ -108,7 +108,11 @@ PluriSwap does not:
 
 **Core success.** Two parties who do not share a trusted operator can agree to terms, place crypto under deterministic custody, and reach one final economic result through Core exits—without a proprietary backend, privileged keeper, administrator, identity gate, or mandatory ecosystem package.
 
-**Assured-trade success.** Parties who want stronger linkage between fiat performance and crypto release, or stronger Sybil/fraud resistance, opt into inspectable packages (for example payment proof, bonds, arbitration, or progressive admission). Ecosystem clients MAY recommend such packages; recommendation never becomes a Core execution condition.
+**Assured-trade success.** Parties who want stronger linkage between fiat performance and crypto release, or stronger Sybil/fraud resistance, opt into inspectable packages. Ecosystem clients MAY recommend such packages; recommendation never becomes a Core execution condition.
+
+**Core silence default.** Mandatory Core treats holder silence after `FIAT_SENT` as non-contest: permissionless claim allocates full principal (and success fees) to the provider without authenticating that fiat was sent. That is the intentional provider-liveness tradeoff. It is not a guarantee of honest fiat performance. Holders who need a unilateral contest path MUST select ARBITRATION (and, for bilateral economic protection on unresolved disputes, BONDS) through an assured-trade or other explicit package under PROFILE-008—not through Core alone.
+
+**Fiat-timeout active exit.** While a deal remains `FUNDED`, `fiatDeadline` enables a permissionless cancel that returns principal holder-side. That exit is intentional and holder-favorable, but it is **active**, not passive: Core does not auto-cancel and does not freeze provider mark-fiat at the clock. At and after the deadline, timeout cancel and mark-fiat race; the first successful transition wins. A holder who wants the timeout outcome submits it—or relies on any address executing that predetermined cancel—before mark-fiat succeeds. Leaving the deal idle after the deadline is holder non-execution of that exit, not a protocol loophole (TIME-005, CASE-CORE-005, CASE-RACE-001).
 
 Core remains usable and complete on its own. Packages minimize trade-offs against permissionlessness by concentrating friction in voluntary venues rather than in base escrow.
 
@@ -180,7 +184,7 @@ PluriSwap is not universally trustless. Fiat payment, token behavior, identity c
 
 | Actor | Business role | Powers | Prohibited powers |
 | --- | --- | --- | --- |
-| Holder | Supplies crypto principal in a direct deal | Signs terms, funds, releases from `FIAT_SENT`, co-signs cancellation, split, or release; opens Core `DISPUTED` from `FIAT_SENT`; opens selected arbitration when that profile is enabled | Cannot rewrite terms after activation; cannot unilaterally seize principal or invent an outcome outside the closed Core machine |
+| Holder | Supplies crypto principal in a direct deal | Signs terms, funds, releases from `FIAT_SENT`, co-signs cancellation, split, or release; opens Core `DISPUTED` from `FIAT_SENT`; opens selected arbitration when that profile is enabled; may execute or rely on permissionless fiat-timeout cancel after `fiatDeadline` while `FUNDED` | Cannot rewrite terms after activation; cannot unilaterally seize principal or invent an outcome outside the closed Core machine; fiat-timeout is an active exit, not auto-cancel (TIME-005) |
 | Provider | Sends fiat and receives crypto on a provider-positive outcome | Signs terms, marks fiat sent, cancels before fiat, co-signs cancellation or split, claims after deadline | Cannot unilaterally claim before the signed deadline |
 | Pool | Supplies and receives holder-side liquidity in a pool-origin deal | Funds principal, receives holder-positive returns, accounts for its beneficiaries | Cannot create escrow liability without exact funding |
 | Pool controller | Configures a pool and appoints operators under its constitution | Sets future pool policy and mandates | Does not personally own active pool-origin principal unless it is also the pool beneficiary under the pool constitution |
@@ -204,14 +208,16 @@ Legacy coordinator-held pools (Section 14.2) are migration infrastructure in whi
 ### 4.2 Assets and accounting terms
 
 - **Principal:** crypto amount held for the trade. Principal excludes all fees and bonds.
-- **Activation fee (holder fee):** optional Core fee charged for creating an active escrow at FUNDED. It is paid at activation and is non-refundable. Amount MAY be zero.
-- **Completion fee (provider fee):** optional Core fee charged from the provider's gross crypto share on a provider-positive terminal settlement. Amount MAY be zero.
-- **Operator acceptance fee:** pool-funded fee reserved at activation for an enabled operator role and paid only on eligible provider-positive outcomes without authenticated operator fault. "Reserved," "eligible," and "paid" are statuses of this same fee.
+- **Activation fee (toll):** optional Core fee for creating an active escrow at FUNDED. On both direct and pool-origin deals it is paid to its snapshotted recipient at successful activation and is non-refundable thereafter. It is the spam-prevention and infrastructure toll for opening escrow; cancel and other non-success terminals do not unlock it. Amount MAY be zero on Core-only deals; protection packages require a positive amount under PROFILE-008 / FEE-H-009.
+- **Success holder fee:** optional Core fee, separate from the activation toll, reserved into deal-scoped custody at activation when nonzero. It is paid to its snapshotted recipient only on a fee-predicate provider-positive terminal; otherwise it unlocks to the holder (direct) or funding pool (pool-origin). Amount MAY be zero; protection packages default it to zero so the toll is not double-charged on success.
+- **Completion fee (provider fee):** optional Core fee charged from the provider's gross crypto share on a provider-positive terminal settlement (Section 9.1). Amount MAY be zero. Distinct from the operator acceptance fee: it compensates the snapshotted package/DAO (or other) recipient, not the pool operator.
+- **Operator acceptance fee:** pool-funded fee reserved at activation for an enabled operator role and paid only on eligible provider-positive outcomes without authenticated operator fault. "Reserved," "eligible," and "paid" are statuses of this same fee. Cancellation is never provider-positive for this fee. Protocol stalemate is provider-positive for this fee only when stalemate fee-coverage holds under Section 9.1.
+- **Provider-positive outcome:** a terminal path that is fee-bearing under Section 9.1: voluntary release, authenticated payment-proof release, timeout claim, mutually signed split that satisfies split fee-coverage, arbitration provider win, or protocol stalemate that satisfies stalemate fee-coverage (identical coverage test to a mutual split at `providerShareBps = 5_000`). Cancellation is never provider-positive. Protocol stalemate without fee-coverage assigns positive provider principal gross but pays no success fees.
 - **Profile or package fee:** any additional fee channel defined only by an enabled extension profile or ecosystem package identity (for example arbitration fee at escalation). Absent that selection, the channel does not exist.
 - **Bond:** collateral reserved separately from principal and fees to secure a defined role.
 - **Pool available liquidity:** pool assets not consumed, reserved, queued for an earlier obligation, or required for active exposure.
 - **Pool locked exposure:** principal and fee exposure reserved for active deals.
-- **Pool consumed exposure:** pool assets that permanently left pool availability through fees, provider-positive settlement, or realized loss.
+- **Pool consumed exposure:** pool assets that permanently left pool availability through principal allocated to the provider side (including stalemate provider gross), activation tolls paid at activation, success holder or operator fees actually paid to their recipients, or realized loss. Unlocked success-holder or operator fee reserves are not consumed.
 - **Liability:** an amount the protocol owes to a deal, receiver credit, fee credit, bond recipient, or pool.
 - **Active deal:** a deal that has activated and has not yet reached a terminal state. Matured credits after a terminal state are open liabilities, not active deals.
 
@@ -230,12 +236,12 @@ Every conforming PluriSwap deployment MUST support:
 - the Core state machine and Core-only success path in Section 8;
 - voluntary release from `FIAT_SENT`;
 - provider cancellation before fiat is marked;
-- permissionless fiat-timeout cancellation;
+- permissionless fiat-timeout cancellation from `FUNDED` at or after `fiatDeadline` (active holder-favorable exit that races mark-fiat by design under TIME-005);
 - holder-opened Core `DISPUTED` freeze from `FIAT_SENT` before the release deadline;
 - dual-signed cancellation, dual-signed release, and dual-signed split from `FIAT_SENT` and from `DISPUTED`;
 - permissionless dispute-timeout residual allocation after `disputeDeadline` under signed `disputeTimeoutProviderBps`;
 - permissionless claim after the release deadline **only while still in `FIAT_SENT`**, treating holder silence (no release, no mutual resolve, no open `DISPUTED`, and no open arbitration) as non-contest of the fiat-sent assertion under the signed timeouts;
-- optional Core activation and completion fee channels under Section 10, including zero-fee deals;
+- optional Core activation-fee (toll), success-holder-fee, and completion-fee channels under Section 10, including zero-fee Core-only deals;
 - immutable receivers and economics;
 - permissionless execution and independent indexing.
 
@@ -268,7 +274,15 @@ An implementation MAY support any of the following independently. Each attaches 
 
 **PROFILE-006 — Package-bound fee schedules.** An ecosystem or reference package MAY publish an immutable package identity whose semantic hash binds required fee moments, amounts or caps, and recipients (including a disclosed DAO wrapper) for deals that select that package or its bundled profiles. The protocol enforces only the exact signed fee fields; it never injects a DAO address, global tax, or package fee into a deal that did not select that package. Independent publishers MAY offer zero-fee or different-recipient packages. Frontends and clients that offer a named package MUST construct and display that package's bound fee fields; they are not an alternate collection path and cannot be the sole guarantee of payment.
 
-**PROFILE-007 — Profile fees only when enabled.** Arbitration fees, bond reservations, operator acceptance fees, progressive-admission package charges, and any other profile-specific economics exist only when the corresponding profile or package is selected. When the profile is off, those channels are absent and MUST NOT be charged.
+**PROFILE-007 — Profile fees only when enabled.** Arbitration fees, bond reservations, operator acceptance fees, progressive-admission package charges, and any other profile-specific economics exist only when the corresponding profile or package is selected. When the profile is off, those channels are absent and MUST NOT be charged. Core activation and completion fee channels remain available whenever snapshotted in deal terms, including zero amounts.
+
+**PROFILE-008 — Assured-trade / protection package minimum.** A package, client preset, pool terms bundle, or deployment descriptor that claims “assured trade,” “disputed-fiat protection,” “holder contest,” “protection package,” or equivalent MUST bind at least:
+
+- the `ARBITRATION` profile with an exact adapter and immutable policy;
+- the `BONDS` profile with party stalemate parameters under Section 9.1 (default `stalemateSlashBps = 10_000`, `stalemateCounterpartyBps = 5_000`, and required penalty recipients); and
+- a strictly positive `activationFee` (toll) under FEE-H-009, paid at activation on both direct and pool-origin deals.
+
+Optional extras (payment proof, humanity/exposure, reputation, nonzero `successHolderFee`) MAY be added. Protection packages SHOULD default `successHolderFee` to zero unless they intentionally add a separate success-contingent holder-side charge on top of the toll. The package MUST NOT imply that Core silence/claim alone authenticates fiat or protects against false `FIAT_SENT`. Activation of a deal that selects such a package MUST reject if ARBITRATION, the required BONDS stalemate fields, or a positive activation fee is missing or under-bound. Independent publishers MAY still offer Core-only or arb-without-bonds packages if they do not use assured-trade / protection (or equivalent) labeling. Conforming clients MUST disclose the Core silence/claim risk before signing any deal that lacks ARBITRATION, and MUST disclose that the activation toll is sunk even if the deal later cancels.
 
 ---
 
@@ -282,7 +296,7 @@ Before a direct deal can become active, both parties MUST consent to one complet
 - holder, provider, and their settlement receivers;
 - token, custody-boundary identity and sharing scope, and token-risk identity;
 - positive principal amount;
-- holder fee, provider fee, their recipients, and every applicable signed cap;
+- activation fee (toll), optional success holder fee, provider (completion) fee, their recipients, and every applicable signed cap;
 - unique nonce and absolute creation expiry;
 - fiat duration, release duration, and dispute duration (all strictly positive);
 - `disputeTimeoutProviderBps` in `0..10_000` inclusive (Core client default and recommended residual is `5_000`);
@@ -290,7 +304,7 @@ Before a direct deal can become active, both parties MUST consent to one complet
 - fiat currency, amount, payment method, payee commitment, payment reference commitment, and quote semantics;
 - payment-proof policy, payer mode, receipt namespace, and nullifier authority when automatic release is enabled;
 - arbitration adapter, policy, fee token, fee-quote policy, maximum arbitration fee, and stalemate semantics when ARBITRATION is enabled;
-- all bond amounts, owners, sponsors, exact per-outcome slash formulas, penalty caps, and recipients when bonds are enabled;
+- all bond amounts, owners, sponsors, exact per-outcome slash formulas, penalty caps, and recipients when bonds are enabled, including—when BONDS and ARBITRATION are both enabled—each party role's `stalemateSlashBps`, `stalemateCounterpartyBps`, and `stalematePenaltyRecipient` under Section 9.1, and any optional `holderWinArbFeeCompensation` under ARB-003B;
 - reputation or humanity policy when it affects eligibility or limits;
 - every optional extension identifier, version, semantic hash, and compatibility constraint that can affect the deal.
 
@@ -298,7 +312,7 @@ The signature domain MUST prevent replay across chains, deployments, and protoco
 
 ### 6.2 Deal activation
 
-**ACT-001 — Atomic activation.** A deal becomes active only when signature validation, expiry and nonce checks, token compatibility, exact funding, holder-fee payment or credit, required bond reservations, and deal storage all succeed atomically.
+**ACT-001 — Atomic activation.** A deal becomes active only when signature validation, expiry and nonce checks, token compatibility, exact funding, activation-fee payment or credit, any required success-holder-fee reservation, required bond reservations, and deal storage all succeed atomically.
 
 **ACT-002 — Exact custody.** Activation MUST create a principal liability only after the escrow boundary receives the exact principal amount.
 
@@ -320,7 +334,7 @@ The signature domain MUST prevent replay across chains, deployments, and protoco
 
 **TIME-004 — Immutable timestamps.** Each origin and derived absolute deadline is recorded once. A later block timestamp, policy change, or external-service delay cannot rewrite it.
 
-**TIME-005 — Fiat-timeout threshold.** `fiatDeadline` enables permissionless timeout cancellation; it does not independently expire provider mark-fiat or an otherwise valid authenticated payment-proof transition. At and after the boundary, those actions race timeout cancellation from the still-current state, and the first successful transition wins.
+**TIME-005 — Fiat-timeout threshold.** `fiatDeadline` enables a permissionless, holder-favorable timeout cancellation from `FUNDED`: any address may cancel and return principal holder-side at or after that deadline (`CASE-CORE-005`). This is Core's intentional **active** holder exit when the provider has not yet marked fiat sent. It is not a passive auto-cancel, and it does not independently expire provider mark-fiat or an otherwise valid authenticated payment-proof transition. At and after the boundary, mark-fiat (and payment-proof when enabled) remain eligible and race timeout cancellation from the still-current `FUNDED` state; the first successful transition wins (`CASE-RACE-001`). A holder who wants the timeout outcome MUST submit it—or rely on any address executing that predetermined cancel—before mark-fiat succeeds. Choosing not to execute timeout after the deadline, or losing that race, leaves mark-fiat available **by design**; that is not a silent loophole or defect.
 
 **TIME-006 — Dispute-timeout threshold.** `disputeDeadline` enables permissionless CASE-CORE-025 residual allocation from `DISPUTED`. Dual-sign payloads and payment-proof exits remain eligible until another terminal action wins. Opening arbitration from `DISPUTED` is valid only strictly before `disputeDeadline`; dispute timeout is valid at or after it, so those two are never both eligible at the same observed chain timestamp. Dual-sign versus dispute timeout at the boundary follows CASE-RACE-008.
 
@@ -331,7 +345,7 @@ For a pool-origin deal:
 - the economic holder is the pool contract or isolated pool account, not the controller's personal wallet;
 - the pool constitution provides holder-side consent and defines who may authorize operations;
 - the provider MUST accept the exact pool identity, implementation or policy identity, pool terms, final deal terms, release authority, operator, operator fee recipient, operator fee, and acceptance expiry;
-- the complete pool-deal context identifies the pool itself as `holderFeePayer` in the initial V2 pool profiles and binds the exact holder-fee amount and recipient accepted by the provider;
+- the complete pool-deal context identifies the pool itself as `activationFeePayer` (and, when nonzero, `successHolderFeePayer`) in the initial V2 pool profiles and binds the exact activation-fee and success-holder-fee amounts and recipients accepted by the provider;
 - any operator action MUST fit an active mandate at acceptance time;
 - active deal authority and economics are snapshotted and do not change if a mandate is later revoked or pool control changes;
 - holder-positive settlement returns value to the funding pool or its escrow-controlled pool credit; neither controller nor provider may redirect it.
@@ -348,7 +362,7 @@ For a pool-origin deal:
 
 **RES-001 — Mutual cancellation payload.** A mutual-cancellation authorization binds the signing domain, ratified protocol identity and version, deployment, exact deal identifier, action type, resolution nonce, and absolute expiry. It introduces no alternate receiver, activation fee, completion fee, or other economic allocation: principal returns to the predetermined holder side and any enabled bond rules for mutual cancel apply. There is no separate mutual-cancel fee channel in protocol version 2.
 
-**RES-002 — Split payload.** A split authorization binds every field in RES-001 plus provider-share basis points, each non-default bond slash amount and recipient, any asserted operator-fault classification and its evidence hash, and every additional signer required by RES-004. Provider share MUST be between zero and 10,000 basis points inclusive. Holder share, provider fee, operator fee, and rounding derive deterministically from the signed deal and Section 9; the payload cannot rewrite them.
+**RES-002 — Split payload.** A split authorization binds every field in RES-001 plus provider-share basis points, each non-default bond slash amount and recipient, any asserted operator-fault classification and its evidence hash, and every additional signer required by RES-004. Provider share MUST be between zero and 10,000 basis points inclusive. Holder share, provider fee, operator fee, and rounding derive deterministically from the signed deal and Section 9; the payload cannot rewrite them. Execution MUST reject when Section 9.1 split fee-coverage fails (`providerGross < signedCompletionFee`). A holder-full return with no completion fee MUST use mutual cancellation (RES-001), not a below-coverage split.
 
 **RES-002A — Co-signed release payload.** A co-signed release authorization binds every field in RES-001 with action type co-signed release. It introduces no alternate receiver and no rewrite of fees or bonds beyond the ordinary voluntary-release economics in Section 9: provider receives 100 percent principal gross, completion and operator fees follow provider-positive release rules, and bond release/slash follows the voluntary-release bond row. Co-signed release is available from `FIAT_SENT` and from `DISPUTED`. From `DISPUTED` it is the only path that allocates 100 percent to the provider without waiting for dispute timeout (unilateral holder release is not available while `DISPUTED`).
 
@@ -374,11 +388,15 @@ For a pool-origin deal:
 
 **ECON-005 — Fee separation.** Activation, completion, and operator acceptance fees are separate from principal and from one another.
 
-**ECON-006 — Activation fee once.** A nonzero activation fee is charged exactly once at activation and is not refunded by a later outcome.
+**ECON-006 — Activation fee once.** A nonzero activation fee is assessed at most once per deal. On both direct and pool-origin deals it is paid to its snapshotted recipient at successful activation and is not refunded on any later terminal, including cancel, holder-win, and stalemate (FEE-H-001 through FEE-H-003).
 
-**ECON-007 — Completion fee cap.** The completion fee is charged at most once and never exceeds provider gross.
+**ECON-006A — Success holder fee once.** A nonzero success holder fee is reserved at most once at activation and is paid to its recipient or unlocked to the holder-side funder exactly once at terminal settlement under FEE-H-010.
+
+**ECON-007 — Completion fee cap.** The completion fee is charged at most once and never exceeds provider gross. Full provider-side success paths collect `min(signedCompletionFee, providerGross)`. A covered mutually signed split and a fee-covered protocol stalemate each collect the full signed completion fee and execute only when (or, for stalemate, pay fees only when) `providerGross >= signedCompletionFee`; they MUST NOT use a share-proportional or `min` discount.
 
 **ECON-008 — Operator acceptance fee source.** An operator acceptance fee is paid only from exposure reserved for that fee; it is never taken from unrelated principal.
+
+**ECON-012 — Stalemate and mutual-50/50 fee parity.** Protocol stalemate MUST NOT be a fee-cheaper substitute for a covered mutually signed split at `providerShareBps = 5_000`. When stalemate `providerGross = floor(principal / 2)` satisfies split fee-coverage (`providerGross >= signedCompletionFee`), stalemate is fee-predicate provider-positive and charges the same completion fee, operator acceptance fee (absent authenticated operator fault), and success holder fee (when reserved) as that covered 50/50 split. When coverage fails, stalemate still settles the 50/50 principal allocation (liveness) but pays no completion, operator acceptance, or success holder fee and unlocks those reserved success-path fees. The activation toll is already sunk at activation and is unaffected. Bond consequences remain independent under Section 9.1 and Section 11.
 
 **ECON-009 — Rounding.** Fractional provider shares and fees round down. Any principal remainder goes to the holder side. Rounding MUST never create value or exceed a signed cap.
 
@@ -457,6 +475,8 @@ stateDiagram-v2
 
 **Core contest path.** activate → FUNDED → FIAT_SENT → holder opens DISPUTED → dual-signed cancel, co-signed release, or split; or anyone executes DISPUTE_TIMEOUT residual after `disputeDeadline`.
 
+**Fiat timeout while FUNDED.** At or after `fiatDeadline`, any address may cancel and return principal holder-side. That path is Core's intentional active holder-favorable exit before mark-fiat. It races mark-fiat rather than auto-disabling it; see TIME-005 and CASE-RACE-001.
+
 **Silence after FIAT_SENT.** When the provider has marked fiat sent and the holder neither releases, mutual-resolves, opens `DISPUTED`, nor opens selected arbitration before the release deadline, permissionless claim allocates principal to the provider side. The parties agreed to that clock in signed terms. Claim does not authenticate that fiat was actually sent. Opening `DISPUTED` disables claim for the life of that deal.
 
 **Dispute timeout residual.** Parties bind `disputeTimeoutProviderBps` at activation (recommended Core default `5_000`). On dispute timeout, provider gross is `floor(principal × disputeTimeoutProviderBps / 10_000)` and holder gross is the remainder. This is residual risk sharing when bilateral consent fails—not a finding that fiat was or was not paid. It is extensible: packages and venues constrain allowed bps without new Core states. Burn sinks are not a Core timeout outcome.
@@ -468,9 +488,9 @@ stateDiagram-v2
 | Case | Start | Trigger and authority | Timing | Result |
 | --- | --- | --- | --- | --- |
 | CASE-CORE-001 | No deal | Anyone relays valid bilateral terms and funding | Before creation expiry | Activate in FUNDED |
-| CASE-CORE-002 | FUNDED | Provider marks fiat sent | Before another transition wins | Enter FIAT_SENT and start release deadline |
+| CASE-CORE-002 | FUNDED | Provider marks fiat sent | While FUNDED remains current; eligible before or after fiatDeadline if timeout or another transition has not already won | Enter FIAT_SENT and start release deadline |
 | CASE-CORE-004 | FUNDED | Provider cancels | Before fiat is marked | Return principal holder-side; cancel |
-| CASE-CORE-005 | FUNDED | Anyone executes fiat timeout | At or after fiat deadline | Return principal holder-side; cancel |
+| CASE-CORE-005 | FUNDED | Anyone executes fiat timeout | At or after fiatDeadline | Return principal holder-side; cancel (intentional active holder-favorable exit; races mark-fiat under TIME-005) |
 | CASE-CORE-006 | FUNDED | Anyone relays fresh two-sided authorization under RES-001 through RES-005 | Before cancellation payload expiry | Return principal holder-side; mutual cancel |
 | CASE-CORE-007 | FIAT_SENT | Holder-side authority releases | Before another terminal action wins | Release to provider side |
 | CASE-CORE-009 | FIAT_SENT | Anyone claims | At or after release deadline; deal still FIAT_SENT | Release to provider side with CLAIMED outcome (non-contest under signed timeouts) |
@@ -538,25 +558,45 @@ Enabled only when the deal selects ARBITRATION (adapter and policy bound in term
 
 Timeout rights do not expire merely because no keeper acted immediately. They remain executable until another valid transition wins.
 
+**Fiat-deadline race (intentional).** At or after `fiatDeadline` while still `FUNDED`, timeout cancel and provider mark-fiat are simultaneously eligible. Timeout is the holder-favorable path and returns principal holder-side if it wins; mark-fiat enters `FIAT_SENT` and starts the release clock if it wins first. Core does not auto-cancel at the deadline and does not freeze mark-fiat. Holder protection after `fiatDeadline` is therefore active execution of timeout (by the holder or any address), not passive clock expiry. See TIME-005 and Section 2.3.
+
 ---
 
 ## 9. Terminal outcomes and value movement
 
 ### 9.1 Common calculation rules
 
-For a partial outcome, provider gross is the principal multiplied by the applicable provider basis points, rounded down. Holder gross is the principal remainder. Provider fee collected is the lesser of the signed provider fee and provider gross. Provider net is provider gross minus provider fee collected.
+For a mutually signed split, provider gross is `floor(principal × providerShareBps / 10_000)`. Holder gross is the principal remainder. Split fee-coverage requires `providerGross >= signedCompletionFee`. When coverage holds, provider fee collected equals the full signed completion fee (not a share-proportional or gross-capped discount), and provider net is `providerGross - signedCompletionFee`. When coverage fails, the split rejects with no state or economic effect.
 
-Applicable provider basis points are:
+For full provider-side success paths (voluntary release, authenticated payment-proof release, timeout claim, arbitration provider win), provider gross is the full principal, provider fee collected is the lesser of the signed provider fee and provider gross, and provider net is provider gross minus provider fee collected.
 
-- the dual-signed split bps for mutually signed split;
-- the snapshotted `disputeTimeoutProviderBps` for Core dispute timeout (CASE-OUT-013);
-- `5_000` for arbitration refused/no-decision and arbitration-timeout stalemate (fixed protocol 50/50), with any indivisible remainder assigned to the holder side.
+**Provider-positive outcomes.** An outcome is provider-positive for fee predicates when it is voluntary release, authenticated payment-proof release, timeout claim, a mutually signed split that satisfies split fee-coverage, arbitration provider win, or protocol stalemate that satisfies stalemate fee-coverage under ECON-012. Cancellation is never provider-positive. Protocol stalemate without fee-coverage is not provider-positive even though provider principal gross is positive.
 
-**Stalemate-like fee treatment** applies to arbitration stalemate (CASE-OUT-011, CASE-OUT-012) and Core dispute timeout (CASE-OUT-013): completion fee is none; unpaid operator acceptance fee unlocks; principal follows the partial (or zero/full) allocation above. This is not a provider-positive fee event even when provider gross is positive.
+**Mutually signed split fees.** A covered split is an anti-cheat success path: it ALWAYS charges the full signed completion fee and, when an operator acceptance fee exists and signed authenticated operator fault is false, the full reserved operator acceptance fee. It MUST NOT discount either fee by provider share.
+
+**Protocol stalemate principal and fees.** Provider gross is `floor(principal / 2)`. Holder gross is `principal - providerGross` (any indivisible remainder goes to the holder side). Stalemate fee-coverage is the same predicate as split fee-coverage on that gross: `providerGross >= signedCompletionFee`. When coverage holds, completion fee collected equals the full signed completion fee, provider net is `providerGross - signedCompletionFee`, an eligible operator acceptance fee is paid in full, and any reserved success holder fee is paid under FEE-H-010—identical success-path fee incidence to a covered mutual split at `providerShareBps = 5_000` (ECON-012). When coverage fails, completion fee is zero, operator acceptance fee unlocks unpaid, and any reserved success holder fee unlocks; principal still settles 50/50. The activation toll is unaffected (already paid at activation). Refused-ruling and arbitration-timeout stalemates use identical principal and fee math; only provenance differs (OUT-004).
+
+**Core dispute timeout residual.** Applicable provider basis points are the snapshotted `disputeTimeoutProviderBps` for CASE-OUT-013. Provider gross is `floor(principal × disputeTimeoutProviderBps / 10_000)`; holder gross is the remainder. Completion fee is none; unpaid operator acceptance fee unlocks; any reserved success holder fee unlocks. This is residual risk sharing when dual-sign settlement fails—not a provider-positive fee event and not an external court finding.
+
+**Default stalemate party-bond formula (when BONDS is enabled).** For each party bond role (provider; holder or pool-side), settlement uses the snapshotted non-negative integers `stalemateSlashBps` and `stalemateCounterpartyBps`, each at most `10_000`, and—when `stalemateCounterpartyBps < 10_000`—a snapshotted `stalematePenaltyRecipient` that satisfies TOKEN-010A. Protocol version 2 default values are `stalemateSlashBps = 10_000` and `stalemateCounterpartyBps = 5_000`. With `BPS = 10_000` and floor division:
+
+- `slash = floor(reserved × stalemateSlashBps / BPS)`
+- `toCounterparty = floor(slash × stalemateCounterpartyBps / BPS)`
+- `toPenalty = slash - toCounterparty`
+- `released = reserved - slash`
+
+Routing is role-derived and non-discretionary at settlement:
+
+- provider-bond `toCounterparty` credits the snapshotted holder-side bond credit receiver (pool-origin: the funding pool or its pool credit);
+- holder/pool-bond `toCounterparty` credits the snapshotted provider bond credit receiver;
+- each role's `toPenalty` credits that role's snapshotted `stalematePenaltyRecipient`;
+- `released` unlocks to the bond owner or sponsor under ordinary bond release rules.
+
+Operator bond releases on stalemate absent authenticated operator fault. Activation MUST reject if either bps exceeds `10_000`, or if `stalemateCounterpartyBps < 10_000` and the penalty recipient is missing, zero, or custody-self. Packages MAY snapshot other bps under this same formula shape; they cannot replace counterparty routing with discretionary settlement choice. When BONDS is disabled, every stalemate bond cell is a no-op.
 
 ### 9.2 Complete outcome matrix
 
-This matrix is the authoritative terminal settlement table. Section 11.2 is the bond-focused view of the same outcomes and MUST NOT disagree. When BONDS is not enabled, every bond cell is a no-op. When no operator role exists, every operator-acceptance-fee cell is a no-op. CASE-OUT-002 and CASE-OUT-009 through CASE-OUT-012 apply only when the corresponding PAYMENT_PROOF or ARBITRATION profile is enabled. CASE-OUT-008 (former removed Core dispute-stalemate identifier) is reserved and superseded. Core dispute-timeout residual is CASE-OUT-013 and MUST NOT be labeled arbitration stalemate. CASE-OUT-001A covers co-signed release (economically identical to voluntary release for principal and fees).
+This matrix is the authoritative terminal settlement table. Section 11.2 is the bond-focused view of the same outcomes and MUST NOT disagree. When BONDS is not enabled, every bond cell is a no-op. When no operator role exists, every operator-acceptance-fee cell is a no-op. The activation toll is paid at activation and does not reappear here. A nonzero success holder fee is not a separate matrix column: it pays on every fee-predicate provider-positive row and unlocks to the holder-side funder on every other row under FEE-H-010 / OUT-010. CASE-OUT-002 and CASE-OUT-009 through CASE-OUT-012 apply only when the corresponding PAYMENT_PROOF or ARBITRATION profile is enabled. CASE-OUT-008 (former removed Core dispute-stalemate identifier) is reserved and superseded. Core dispute-timeout residual is CASE-OUT-013 and MUST NOT be labeled arbitration stalemate. CASE-OUT-001A covers co-signed release (economically identical to voluntary release for principal and fees). Stalemate exists only on the ARBITRATION path; Core DISPUTE_TIMEOUT is residual risk under `disputeTimeoutProviderBps` with stalemate-like fee treatment (completion fee none; unpaid operator fee unlocks).
 
 | Case | Outcome | Principal allocation | Completion fee (provider fee) | Operator acceptance fee | Party bonds | Operator bond |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -564,15 +604,15 @@ This matrix is the authoritative terminal settlement table. Section 11.2 is the 
 | CASE-OUT-001A | Co-signed release | Same as voluntary release | Same as voluntary release | Same as voluntary release | Release | Release |
 | CASE-OUT-002 | Authenticated payment-proof release | Same as voluntary release | Same as voluntary release | Same as voluntary release | Release | Release |
 | CASE-OUT-003 | Timeout claim | Provider receives 100 percent gross | Full signed fee, capped by gross | Full reserved fee if eligible | Release all deal bonds unless a signed timeout liveness stake formula applies | Release |
-| CASE-OUT-004 | Provider cancellation before fiat | Holder side receives 100 percent | None | None; unlock reserved exposure | Apply provider inactivity penalty; release holder bond | Release |
-| CASE-OUT-005 | Fiat-timeout cancellation | Holder side receives 100 percent | None | None; unlock reserved exposure | Same as provider cancellation | Release |
+| CASE-OUT-004 | Provider cancellation before fiat | Holder side receives 100 percent | None | None; unlock reserved exposure | Apply pre-fiat provider-side penalty; release holder bond | Release |
+| CASE-OUT-005 | Fiat-timeout cancellation | Holder side receives 100 percent | None | None; unlock reserved exposure | Same pre-fiat provider-side penalty as provider cancellation | Release |
 | CASE-OUT-006 | Mutual cancellation | Holder side receives 100 percent | None | None; unlock reserved exposure | Release | Release |
-| CASE-OUT-007 | Mutually signed split | Provider receives signed share; holder receives remainder | Lesser of signed fee and provider gross | Provider-share-proportional amount unless signed operator fault is true; if fault is true, pay zero and unlock remainder | Apply only mutually signed slashes within snapshotted caps; release remainder | Slash only when signed operator fault exists; else release |
-| CASE-OUT-009 | Arbitration holder win | Holder side receives 100 percent | None | None; unlock reserved exposure | Apply provider-fault penalty; release holder bond | Slash only when authenticated fault exists; else release |
+| CASE-OUT-007 | Mutually signed split | Provider receives signed share; holder receives remainder; reject if `providerGross < signedCompletionFee` | Full signed fee (coverage required) | Full reserved fee unless signed operator fault is true; else unlock | Apply only mutually signed slashes within snapshotted caps; release remainder | Slash only when signed operator fault exists; else release |
+| CASE-OUT-009 | Arbitration holder win | Holder side receives 100 percent | None | None; unlock reserved exposure | Apply provider-fault penalty; optional ARB-003B arb-fee compensation from provider bond; release holder bond | Slash only when authenticated fault exists; else release |
 | CASE-OUT-010 | Arbitration provider win | Provider receives 100 percent gross | Full signed fee, capped by gross | Full reserved fee if eligible unless authenticated operator fault exists | Apply holder-fault penalty; release provider bond | Release absent authenticated fault |
-| CASE-OUT-011 | Arbitration refused or no decision | Protocol 50/50 stalemate | None (stalemate-like) | None; unlock reserved exposure | Apply both party stalemate penalties | Release |
-| CASE-OUT-012 | Arbitration timeout | Protocol 50/50 stalemate | None (stalemate-like) | None; unlock reserved exposure | Apply both party stalemate penalties | Release |
-| CASE-OUT-013 | Core dispute timeout | Provider gross by snapshotted `disputeTimeoutProviderBps`; holder receives remainder | None (stalemate-like) | None; unlock reserved exposure | Apply snapshotted dispute-timeout bond formula if any; default release both party bonds | Release |
+| CASE-OUT-011 | Arbitration refused or no decision | Protocol 50/50 stalemate (Section 9.1) | Full signed fee when stalemate fee-coverage holds; else none | Full reserved fee if eligible when coverage holds; else unlock | Apply default stalemate party-bond formula (Section 9.1) | Release |
+| CASE-OUT-012 | Arbitration timeout | Protocol 50/50 stalemate (Section 9.1) | Full signed fee when stalemate fee-coverage holds; else none | Full reserved fee if eligible when coverage holds; else unlock | Apply default stalemate party-bond formula (Section 9.1) | Release |
+| CASE-OUT-013 | Core dispute timeout | Provider gross by snapshotted `disputeTimeoutProviderBps`; holder receives remainder | None (stalemate-like residual; not fee-covered stalemate) | None; unlock reserved exposure | Apply snapshotted dispute-timeout bond formula if any; default release both party bonds | Release |
 
 ### 9.3 Outcome rules
 
@@ -580,7 +620,7 @@ This matrix is the authoritative terminal settlement table. Section 11.2 is the 
 
 **OUT-002 — State versus outcome.** A claim uses terminal state RELEASED but MUST remain distinguishable from voluntary, co-signed, or proof release for reputation and any optional bond formulas. Core dispute timeout uses terminal state `RESOLVED_BY_DISPUTE_TIMEOUT` and outcome DISPUTE_TIMEOUT and MUST remain distinguishable from mutual split and from arbitration STALEMATE even when `disputeTimeoutProviderBps` equals `5_000`.
 
-**OUT-002A — Claim is non-contest under signed timeouts.** Timeout claim allocates principal to the provider because the deal remained in `FIAT_SENT` and the holder did not release, mutual-resolve, open `DISPUTED`, or open selected arbitration before the release deadline. It is the agreed Core default for silence after `FIAT_SENT`. It does not authenticate that fiat was sent. Claim is unavailable after `DISPUTED` is opened.
+**OUT-002A — Claim is non-contest under signed timeouts.** Timeout claim allocates principal to the provider—and remains fee-predicate provider-positive—because the deal remained in `FIAT_SENT` and the holder did not release, mutual-resolve, open `DISPUTED`, or open selected arbitration before the release deadline. It is the agreed Core default for silence after `FIAT_SENT` and preserves provider liveness without a keeper or court. It does not authenticate that fiat was sent. Claim is unavailable after `DISPUTED` is opened. A false `FIAT_SENT` followed by holder silence without opening `DISPUTED` or ARBITRATION is therefore a Core-retained risk unless ARBITRATION (and, for unresolved-dispute bond protection, BONDS) was selected under PROFILE-008 or equivalent explicit consent.
 
 **OUT-002B — Dispute timeout is residual risk, not truth.** CASE-OUT-013 allocates by signed `disputeTimeoutProviderBps` because bilateral dual-sign settlement did not complete before `disputeDeadline`. It does not authenticate fiat performance, slash by fault, or burn principal.
 
@@ -592,45 +632,70 @@ This matrix is the authoritative terminal settlement table. Section 11.2 is the 
 
 **OUT-006 — No invented operator fault.** A timeout, claim, or Core dispute timeout alone does not establish operator fault. Operator fault exists only through evidence defined in the signed split or arbitration policy.
 
+**OUT-006A — Operator fee on timeout claim.** Timeout claim remains fee-predicate provider-positive. When an operator acceptance fee is reserved and authenticated operator fault is absent, the full reserved fee is paid on claim exactly as on voluntary release, proof release, or arbitration provider win. Eligibility compensates snapshotted acceptance work, not proof that fiat was sent. Packages MUST NOT relabel claim as operator fault solely to avoid that fee.
+
 **OUT-007 — Bonds optional on claim.** Default BONDS behavior on timeout claim is release of all deal bonds. A package or signed bond schedule MAY define an explicit timeout liveness stake; that stake is not Core and MUST NOT be labeled as authenticated holder fault.
 
 **OUT-008 — Operator fee on signed fault in split.** When CASE-OUT-007 records signed operator fault as true, operator acceptance fee paid is zero and every unpaid reserved portion unlocks to the pool.
+
+**OUT-008A — Stalemate fee parity with mutual 50/50.** Protocol stalemate is a bilateral unresolved fallback for principal and bonds, but it MUST NOT undercut success-fee economics relative to a covered mutual split at 5,000 bps. When stalemate fee-coverage holds, it is fee-predicate provider-positive and pays completion fee, eligible operator acceptance fee, and any reserved success holder fee exactly as that covered split (ECON-012 / Section 9.1). When coverage fails, it settles 50/50 principal with those success-path fees unpaid/unlocked. The activation toll is unaffected. Provenance, bond formulas, and mutual-authorization requirements still distinguish stalemate from a signed split (OUT-004). Core dispute timeout (CASE-OUT-013) is not fee-covered stalemate: completion and operator fees unlock unpaid regardless of residual bps.
+
+**OUT-009 — Split fees are undiscounted.** Mutual split MUST NOT be used to shrink completion or operator acceptance fees below the snapshotted full amounts. Below-coverage provider shares reject; holder-full no-fee returns use mutual cancel.
+
+**OUT-010 — Success holder fee escrow.** When a nonzero success holder fee is reserved, it remains in deal-scoped custody until terminal settlement. It is credited to its snapshotted recipient on fee-predicate provider-positive outcomes—including fee-covered protocol stalemate under ECON-012—and unlocked to the direct holder or the funding pool (pool-origin) on cancel, mutual cancel, arbitration holder-win, Core dispute timeout, and protocol stalemate without fee-coverage. It MUST NOT be paid at activation. A zero success holder fee is a no-op. The activation toll is a separate channel and is never escrowed under this rule.
 
 ---
 
 ## 10. Fee policy
 
-Core defines two optional fee channels. Amounts MAY be zero. Recipients are whatever addresses appear in signed terms or an accepted package schedule—including a disclosed DAO wrapper—never an injected protocol constant. Profile-specific fees exist only when that profile or package is selected (PROFILE-006, PROFILE-007).
+Core defines holder-side channels (activation toll and optional success holder fee), a completion (provider) fee, and—when a pool operator role is enabled—an operator acceptance fee. Amounts MAY be zero except where a protection package requires a positive activation toll (FEE-H-009). Recipients are whatever addresses appear in signed terms or an accepted package schedule—including a disclosed DAO wrapper—never an injected protocol constant. Profile-specific fees exist only when that profile or package is selected (PROFILE-006, PROFILE-007). Completion fees and operator acceptance fees are both first-class: the former compensates the package/DAO (or other) recipient from provider gross; the latter compensates operator acceptance work from the pool.
 
-### 10.1 Activation fee (holder fee)
+### 10.1 Holder-side fee channels (activation toll and success holder fee)
 
-**FEE-H-001.** The activation fee pays for successful activation of an escrow at FUNDED, not for a favorable terminal outcome.
+Protocol version 2 splits the former single “holder fee” into two channels so direct and pool-origin deals share one spam-toll mechanism without stacking a second charge on success by default.
 
-**FEE-H-002.** When nonzero, it is transferred or credited to the snapshotted signed recipient exactly once during activation.
+**FEE-H-001 — Activation fee (toll).** The activation fee is compensation for creating an active escrow at FUNDED and the spam-prevention toll for using that infrastructure. On both direct and pool-origin deals it is earned and paid at successful activation. Later cancel, holder-win, stalemate, or other terminals do not unlock or refund it. Pool liquidity that pays the toll is intentionally consumed at deal creation; pools MUST price it into offers and rate checks (`poolOutlay`).
 
-**FEE-H-003.** It is non-refundable after successful activation, including cancellation, arbitration stalemate, Core dispute timeout, and holder-win outcomes.
+**FEE-H-002.** When nonzero, the activation fee is transferred or credited to the snapshotted signed recipient exactly once during activation (direct holder or pool `activationFeePayer`).
 
-**FEE-H-004.** If activation reverts, no activation fee remains charged.
+**FEE-H-003.** After successful activation, the activation fee is non-refundable on every terminal, including cancellation, arbitration stalemate, Core dispute timeout, and holder-win outcomes.
 
-**FEE-H-005.** The base protocol imposes no governance-selected activation-fee schedule or global cap and does not require a DAO recipient. The exact nonnegative amount and recipient are part of explicit consent; conforming clients MUST display both before signing. Pool-origin terms additionally enforce the pool's accepted cap and recipient policy. A zero amount is a valid Core-only configuration.
+**FEE-H-003.** After successful activation, the activation fee is non-refundable on every terminal, including cancellation, stalemate, and holder-win outcomes.
 
-**FEE-H-006.** A DAO-sponsored reference package that charges an activation fee MUST bind the disclosed DAO legal wrapper as its signed recipient under PROFILE-006. An independently published package may select its own disclosed recipient or zero fee. Endorsement or recommended status never creates a protocol-wide DAO tax, changes a signed recipient, or prevents a competing zero-fee deployment.
+**FEE-H-004.** If activation reverts, no activation fee remains charged or reserved, and no success holder fee remains reserved.
 
-**FEE-H-007.** Activation-fee routing does not subsume completion fees, arbitration fees, operator acceptance fees, bond movements, or other separately defined economics. No hidden or automatic onchain split to PluriSwap, the DAO, a frontend, or an infrastructure provider is permitted.
+**FEE-H-005.** The base protocol imposes no governance-selected activation-fee schedule or global cap and does not require a DAO recipient. The exact nonnegative amount and recipient are part of explicit consent; conforming clients MUST display both before signing. Pool-origin terms additionally enforce the pool's accepted activation-fee (and optional success-holder-fee) cap and recipient policy. A zero activation fee is a valid Core-only configuration; protection packages require a positive toll under FEE-H-009.
+
+**FEE-H-006.** A DAO-sponsored reference package that charges an activation fee or completion fee MUST bind the disclosed DAO legal wrapper as the signed recipient of each such package-required channel under PROFILE-006. An independently published package may select its own disclosed recipient or zero fee where the package label permits. Endorsement or recommended status never creates a protocol-wide DAO tax, changes a signed recipient, or prevents a competing zero-fee Core-only deployment.
+
+**FEE-H-007.** Activation-fee and success-holder-fee routing do not subsume completion fees, arbitration fees, operator acceptance fees, bond movements, or other separately defined economics. No hidden or automatic onchain split to PluriSwap, the DAO, a frontend, or an infrastructure provider is permitted.
+
+**FEE-H-008 — Pool-origin activation toll (replaces former holder-fee escrow).** In the initial V2 pool profiles, activation atomically (i) pays the exact snapshotted activation fee from the pool to its snapshotted recipient, (ii) moves or assigns principal and the complete maximum operator-fee exposure into deal-scoped protocol-controlled custody, (iii) when nonzero, reserves the success holder fee into deal-scoped custody under FEE-H-010, (iv) reserves required bonds, and (v) activates the deal. The activation fee is not held as refundable deal escrow. The former pool-origin pattern of escrowing a holder fee until terminal pay-or-unlock is removed for the toll channel. Cancel-spam therefore costs the pool the activation toll by design; that cost is infrastructure pricing, not a protocol defect.
+
+**FEE-H-009 — Protection-package toll.** Any package subject to PROFILE-008 MUST bind a strictly positive `activationFee`. Activation MUST reject if that package is selected and the snapshotted activation fee is zero or missing. Core-only deals without that labeling MAY use a zero activation fee.
+
+**FEE-H-010 — Success holder fee (optional).** A nonzero success holder fee is reserved into deal-scoped custody at activation from the direct holder or the pool (`successHolderFeePayer`). At terminal settlement exactly one of the following occurs once:
+
+- on a fee-predicate provider-positive outcome (including fee-covered protocol stalemate under ECON-012): credit the full snapshotted success holder fee to its snapshotted recipient;
+- otherwise (cancel, fiat-timeout, mutual cancel, arbitration holder-win, or protocol stalemate without fee-coverage): unlock the full reserved amount to the direct holder or the funding pool or its pool credit.
+
+Partial payment or share-proportional discounting is unsupported. A zero snapshotted success holder fee is a no-op. Protection packages SHOULD leave this channel at zero unless they intentionally add a success-contingent charge on top of the activation toll.
+
+**FEE-H-011 — Channel separation.** Completion fees (provider / DAO take from provider gross) and operator acceptance fees (pool-funded operator work) remain separate channels under Sections 10.2 and 10.3. A conforming pool + protection package typically uses a positive activation toll, a completion fee to the package/DAO recipient, and an operator acceptance fee when an operator role is enabled; any of the optional amounts may still be zero when not charged.
 
 ### 10.2 Completion fee (provider fee)
 
-**FEE-P-001.** The completion fee is taken only from provider gross at terminal settlement on a provider-positive outcome that is not stalemate-like. Provider-positive means voluntary release, co-signed release, payment-proof release, timeout claim, arbitration provider win, or mutually signed split with positive provider gross.
+**FEE-P-001.** The completion fee is taken only from provider gross at terminal settlement on a provider-positive outcome as defined in Section 9.1 (voluntary release, co-signed release, payment-proof release, timeout claim, coverage-satisfying mutual split, arbitration provider win, or fee-covered protocol stalemate). Core dispute timeout is not provider-positive for fee predicates.
 
 **FEE-P-002.** It is charged at most once.
 
-**FEE-P-003.** It is zero when provider gross is zero, on cancellation, on arbitration stalemate (CASE-OUT-011 and CASE-OUT-012), and on Core dispute timeout (CASE-OUT-013), even if provider gross is positive under residual bps.
+**FEE-P-003.** It is zero on cancellation and on Core dispute timeout (CASE-OUT-013), even if provider gross is positive under residual bps. On protocol stalemate it is zero when stalemate fee-coverage fails and equals the full signed completion fee when coverage holds (ECON-012 / Section 9.1). On full provider-side success paths it is also zero when provider gross is zero (which requires a zero signed fee under the principal cap).
 
-**FEE-P-004.** In a split, it is capped by provider gross even if the signed nominal fee is larger.
+**FEE-P-004.** On a mutually signed split, the completion fee equals the full signed completion fee. The split is valid only when `providerGross >= signedCompletionFee`. The protocol MUST NOT charge `min(signedFee, providerGross)` or any share-proportional substitute on that path. A zero signed completion fee makes coverage trivial (`providerGross >= 0`).
 
 **FEE-P-005.** The fee recipient is snapshotted no later than activation and cannot be changed for the active deal.
 
-**FEE-P-006.** The base upper bound is principal. Any lower direct-deal limit is explicit signed policy; any lower pool-origin limit is also enforced by accepted pool terms. Governance cannot substitute a fee schedule after consent. A zero amount is a valid Core-only configuration.
+**FEE-P-006.** The base upper bound is principal. Any lower direct-deal limit is explicit signed policy; any lower pool-origin limit is also enforced by accepted pool terms. Governance cannot substitute a fee schedule after consent. A zero amount is a valid Core-only configuration. Because splits require coverage, a nonzero completion fee implies a minimum executable provider share of at least that fee in principal units.
 
 **FEE-P-007.** A package that requires a completion fee to a disclosed DAO or other recipient binds that requirement only for deals that select the package (PROFILE-006). The protocol enforces the signed fields; frontends that offer the package MUST populate and display them and are not an alternate collection mechanism.
 
@@ -644,15 +709,17 @@ Core defines two optional fee channels. Amounts MAY be zero. Recipients are what
 
 **FEE-O-004.** The protocol controls the pool-funded complete operator-acceptance-fee exposure before activation succeeds.
 
-**FEE-O-005.** The fee is paid at most once and only on a provider-positive outcome without authenticated operator fault. Eligibility follows the snapshotted acceptance work, not the address that later calls release, proof, claim, or settlement.
+**FEE-O-005.** The fee is paid at most once and only on a provider-positive outcome as defined in Section 9.1 without authenticated operator fault. Eligibility follows the snapshotted acceptance work, not the address that later calls release, proof, claim, or settlement. Timeout claim is included: silence after `FIAT_SENT` does not by itself deny or claw back the operator acceptance fee (OUT-006A).
 
-**FEE-O-006.** A partial provider-positive outcome pays the same proportion of reserved operator acceptance fee as provider gross bears to principal, rounded down.
+**FEE-O-006.** A mutually signed split that satisfies completion-fee coverage pays the full reserved operator acceptance fee unless signed authenticated operator fault is true, in which case the unpaid reserved amount unlocks to the pool. Fee-covered protocol stalemate pays the same full reserved operator acceptance fee under the same fault rule (ECON-012). Share-proportional operator-fee discounting is unsupported in protocol version 2. Protocol stalemate without fee-coverage pays no operator acceptance fee (FEE-O-010).
 
 **FEE-O-007.** Every unpaid portion unlocks to the pool.
 
 **FEE-O-008.** The complete maximum operator acceptance fee MUST be placed in deal-scoped protocol-controlled custody at activation. It never remains a revocable promise of the pool and never comes from a shared coordinator balance or unrelated principal.
 
 **FEE-O-009.** No operator address, recipient, mandate, or fee means zero operator acceptance fee.
+
+**FEE-O-010.** The operator acceptance fee is zero—and every reserved unpaid portion unlocks to the pool—on cancellation, on arbitration holder-win, and on protocol stalemate without fee-coverage, matching CASE-OUT-004 through CASE-OUT-006, CASE-OUT-009, and the uncovered branches of CASE-OUT-011 and CASE-OUT-012. Fee-covered stalemate pays under FEE-O-006 / ECON-012.
 
 ### 10.4 Package and profile fee enforcement
 
@@ -676,13 +743,21 @@ Bonds add predetermined economic consequences. They do not prove that fiat was p
 
 **BOND-003 — Reservation.** Every required bond is reserved atomically during deal activation and cannot be withdrawn while reserved.
 
-**BOND-004 — Snapshot.** Amounts, tokens, roles, exact per-outcome release and slash formulas, caps, recipients, and outcome consequences are snapshotted for the deal. Labels such as inactivity, timeout liveness stake, fault, or stalemate do not grant discretion beyond those formulas. BONDS is never part of Mandatory Core.
+**BOND-004 — Snapshot.** Amounts, tokens, roles, exact per-outcome release and slash formulas, caps, recipients, and outcome consequences are snapshotted for the deal. Labels such as pre-fiat provider-side penalty, timeout liveness stake, fault, or stalemate do not grant discretion beyond those formulas. BONDS is never part of Mandatory Core.
 
 **BOND-005 — No registry discretion.** A bond manager or governance actor cannot invent a slash outside the snapshotted state-machine outcome.
 
 **BOND-006 — Conservation.** At terminal settlement, released amount plus slashed amount equals the original reserved amount for every bond.
 
 **BOND-007 — Pull compensation.** Slash recipients MUST receive an accounting credit claimable separately so a failing receiver cannot block core settlement.
+
+**BOND-008 — Default stalemate party-bond formula.** When BONDS is enabled, refused-ruling and arbitration-timeout stalemates apply the default stalemate party-bond formula in Section 9.1 to each party bond role. The formula shape is mandatory; default bps are `stalemateSlashBps = 10_000` and `stalemateCounterpartyBps = 5_000` unless the deal snapshots other values in range. Full cross-slash to the counterparty alone is not the V2 default because equal reserved amounts would net to a collateral swap rather than bilateral punishment.
+
+**BOND-009 — Stalemate counterparty protection.** Of each party role's stalemate `slash`, `toCounterparty` credits the opposite party as specified in Section 9.1. `toPenalty` credits only that role's snapshotted `stalematePenaltyRecipient`. Settlement MUST NOT route either leg to a discretionary, caller-chosen, or governance-chosen address.
+
+**BOND-010 — Stalemate parameter validation.** When BONDS and ARBITRATION are both enabled, activation MUST reject unless each party role's stalemate bps are at most `10_000` and, whenever `stalemateCounterpartyBps < 10_000`, that role's `stalematePenaltyRecipient` is present, nonzero, and not custody-self under TOKEN-010A.
+
+**BOND-011 — Pre-fiat provider-side penalty.** Provider cancel before fiat and fiat-timeout cancellation share one snapshotted provider-bond slash formula and holder-side compensation routing. The label is `preFiatProviderPenalty` (pre-fiat provider-side penalty), not “inactivity”: fiat-timeout is a deadline exit that may reflect abandonment or stalled negotiation, not a proven liveness fault distinct from cancel. Packages MAY choose the slash amount (including zero); they MUST NOT imply different fault semantics for the two outcomes unless a later extension version defines separate formulas.
 
 ### 11.2 Default bond outcome matrix
 
@@ -692,13 +767,13 @@ This table restates the bond columns of Section 9.2. If the two disagree, Sectio
 | --- | --- | --- | --- | --- |
 | Voluntary, co-signed, or proof release | Release | Release | Release | None |
 | Timeout claim | Release | Release (unless signed timeout liveness stake) | Release | None by default; stake recipient if signed |
-| Provider cancel or fiat timeout | Apply inactivity penalty | Release | Release | Holder side |
+| Provider cancel or fiat timeout | Apply pre-fiat provider-side penalty (same snapshotted formula for both outcomes) | Release | Release | Holder side |
 | Mutual cancel | Release | Release | Release | None |
 | Signed split | Follow mutually signed bounded consequences | Follow mutually signed bounded consequences | Slash only when signed operator fault exists | As mutually signed |
 | Core dispute timeout | Apply snapshotted dispute-timeout formula if any; default release | Apply snapshotted dispute-timeout formula if any; default release | Release | None by default; as signed if any |
-| Arbitration holder win | Apply provider-fault penalty | Release | Slash only when authenticated fault exists | Holder side |
+| Arbitration holder win | Apply provider-fault penalty; optional ARB-003B arb-fee compensation | Release | Slash only when authenticated fault exists | Holder side (plus opener compensation if ARB-003B selected) |
 | Arbitration provider win | Release | Apply holder-fault penalty | Release absent authenticated fault | Provider side |
-| Arbitration refused or timeout | Apply stalemate policy | Apply stalemate policy | Release | Snapshotted neutral recipient |
+| Arbitration refused or timeout | Apply default stalemate party-bond formula (Section 9.1) | Apply default stalemate party-bond formula (Section 9.1) | Release | Counterparty credit and snapshotted penalty recipient |
 
 ### 11.3 Bond cases
 
@@ -713,6 +788,12 @@ This table restates the bond columns of Section 9.2. If the two disagree, Sectio
 | CASE-BOND-007 | Terminal outcome slashes the bond | Credit the predetermined recipient and release remainder exactly once |
 | CASE-BOND-008 | Slash exceeds reservation or cap | Reject the terminal action without partial effects |
 | CASE-BOND-009 | Duplicate terminal bond action | Reject without repeated value movement |
+| CASE-BOND-010 | Stalemate settles with BONDS enabled | Apply Section 9.1 floor formula per party role; credit counterparty and penalty legs; unlock released remainder; release operator bond absent authenticated fault |
+| CASE-BOND-011 | BONDS and ARBITRATION enabled but stalemate bps out of range or required penalty recipient missing/invalid | Reject activation atomically |
+| CASE-BOND-012 | Fee-covered stalemate with reserved operator acceptance fee and no authenticated operator fault | Pay full reserved operator acceptance fee per ECON-012 / FEE-O-006; do not unlock that paid amount |
+| CASE-BOND-012A | Stalemate without fee-coverage, or with authenticated operator fault, attempts to pay operator acceptance fee | Reject that fee payment; unlock reserved operator-fee exposure per FEE-O-010 |
+| CASE-BOND-013 | Holder win with ARB-003B selected | Slash provider bond for provider-fault penalty plus arb-fee compensation within caps; credit opener/holder-side per snapshot; never take principal |
+| CASE-BOND-014 | ARB-003B selected but tokens differ and package omits bond-token compensation disclosure, or same-token compensation exceeds recorded paid arb fee | Reject activation or reject the terminal action without partial effects |
 
 ---
 
@@ -773,9 +854,17 @@ External arbitration is the optional **external court** path for `FIAT_SENT` or 
 
 **ARB-002 — Published meaning.** The policy MUST disclose arbitrator, jurisdiction or court, evidence rules, appeal rules, finality rule, the closed ruling mapping in ARB-011, operator-fault schema, timeout, fee token, fee-quote policy, maximum signed fee, and policy content hash.
 
-**ARB-003 — Separate bounded fee.** When opening arbitration from `FIAT_SENT` or `DISPUTED`, the adapter quotes the exact arbitration fee under the signed immutable quote policy. The action is valid only when the quoted token matches and the amount does not exceed the deal's signed maximum. The opener supplies that exact fee separately; active principal and protocol fees do not reimburse it. A quote above the maximum leaves the deal in its current state (`FIAT_SENT` or `DISPUTED`); Core exits for that state remain available.
+**ARB-003 — Separate bounded fee.** When opening arbitration from `FIAT_SENT` or `DISPUTED`, the adapter quotes the exact arbitration fee under the signed immutable quote policy. The action is valid only when the quoted token matches and the amount does not exceed the deal's signed maximum. The opener supplies that exact fee separately. Active principal, completion fees, operator acceptance fees, paid activation fees, and reserved success-holder-fee escrow MUST NOT reimburse it. By default the fee is a sunk cost for every terminal outcome, including holder win. Optional bond-funded compensation on holder win is only under ARB-003B when BONDS selects it. A quote above the maximum leaves the deal in its current state (`FIAT_SENT` or `DISPUTED`); Core exits for that state remain available. Conforming clients MUST disclose the sunk-cost default and any optional bond compensation before signing.
 
-**ARB-003A — Exact fee custody.** The opening caller is the fee payer. The immutable quote policy fixes one disclosed fee receiver outside every principal, pool, bond, and withdrawal custody boundary. Opening atomically observes an exact payer decrease and receiver increase for the quoted ERC-20 amount before the selected adapter creates the dispute. A short, taxed, excess, wrong-recipient, principal-funded, or self-reported payment rejects; if dispute creation fails, the transfer, quote nonce, and state transition all revert.
+**ARB-003A — Exact fee custody.** The opening caller is the fee payer. The immutable quote policy fixes one disclosed fee receiver outside every principal, pool, bond, and withdrawal custody boundary. Opening atomically observes an exact payer decrease and receiver increase for the quoted ERC-20 amount before the selected adapter creates the dispute. A short, taxed, excess, wrong-recipient, principal-funded, or self-reported payment rejects; if dispute creation fails, the transfer, quote nonce, and state transition all revert. The deal records the exact paid fee token and amount for optional ARB-003B use.
+
+**ARB-003B — Optional holder-win bond compensation.** A package or signed BONDS schedule MAY snapshot an optional `holderWinArbFeeCompensation` consequence that, on authenticated arbitration holder win only, credits the opener (or the snapshotted holder-side bond credit receiver) from the provider bond. Default when the field is absent or zero: no compensation. Rules:
+
+- Funding source is only the provider bond reservation; never principal or other deals' bonds.
+- The compensation amount is `min(snapshottedCap, remainingProviderBondAfterOtherHolderWinSlashes)` and, when the arbitration fee token equals the provider bond token, MUST also be `<=` the exact recorded paid arbitration fee from ARB-003A. When tokens differ, the snapshotted cap is a bond-token amount disclosed as compensation—not a literal ERC-20 clawback of the arb fee—and MUST be disclosed as such.
+- It applies only on CASE-OUT-009. Provider win, stalemate, mutual resolve, and Core paths pay no arb-fee compensation under this rule.
+- It stacks with the ordinary provider-fault penalty only within the provider bond's snapshotted caps; exceeding reservation rejects the terminal action (CASE-BOND-008).
+- Consent follows BOND-002 through BOND-004 and BOND-CONSENT rules for the provider (or sponsor) bond.
 
 **ARB-004 — One dispute.** A deal may create at most one external dispute.
 
@@ -805,13 +894,14 @@ External arbitration is the optional **external court** path for `FIAT_SENT` or 
 | CASE-ARB-001A | Valid open from DISPUTED before dispute deadline with exact bounded fee | Create one dispute, enter ARBITRATION_ACTIVE, and retire Core dispute timeout |
 | CASE-ARB-002 | Arbitration disabled, late for the current state, wrong adapter or fee token, fee above signed maximum, inexact fee, unauthorized opener, or duplicate | Reject and remain in the current state (FIAT_SENT or DISPUTED) |
 | CASE-ARB-003 | External dispute creation reverts | Revert open and do not retain the failed fee |
-| CASE-ARB-004 | Final holder ruling authenticates | Execute holder-win outcome |
-| CASE-ARB-005 | Final provider ruling authenticates | Execute provider-win outcome |
-| CASE-ARB-006 | Final refused ruling authenticates | Execute stalemate with arbitration provenance |
+| CASE-ARB-004 | Final holder ruling authenticates | Execute holder-win outcome; apply ARB-003B compensation only if snapshotted |
+| CASE-ARB-005 | Final provider ruling authenticates | Execute provider-win outcome; no arb-fee reimbursement from principal or bonds under ARB-003B |
+| CASE-ARB-006 | Final refused ruling authenticates | Execute stalemate with arbitration provenance; no ARB-003B compensation |
 | CASE-ARB-007 | Ruling is partial, unsupported, non-final, mismatched, or unauthenticated | Reject and remain ARBITRATION_ACTIVE |
-| CASE-ARB-008 | No ruling by arbitration deadline | Anyone may execute stalemate |
+| CASE-ARB-008 | No ruling by arbitration deadline | Anyone may execute stalemate; no ARB-003B compensation |
 | CASE-ARB-009 | Final ruling races timeout | First successful terminal transaction wins |
 | CASE-ARB-010 | Policy changes after activation | Active deal continues under bound policy |
+| CASE-ARB-011 | Opener seeks principal or protocol-fee reimbursement of arb fee | Reject; only optional ARB-003B provider-bond compensation on holder win is permitted |
 | CASE-ARB-016 | Mutual cancel while ARBITRATION_ACTIVE | Return principal holder-side under RES-001 through RES-005 |
 | CASE-ARB-017 | Mutual split while ARBITRATION_ACTIVE | Execute signed split under RES-002 through RES-005 |
 | CASE-ARB-018 | Co-signed release while ARBITRATION_ACTIVE | Release to provider side under RES-002A through RES-005 |
@@ -873,7 +963,7 @@ Legacy coordinator-held pools are migration infrastructure, not the target proto
 
 **POOL-ID-004.** A proxy implementation or behavior-changing configuration update creates a new pool implementation identity and terms version. Every acceptance signed against the prior identity rejects after the update. Active deals retain their snapshotted core authority, receiver, economics, and terminal delta regardless of later pool code.
 
-**POOL-TERMS-001.** Published pool terms include token, minimum and maximum trade size, maximum exposure, timeouts, accepted extension policies, bond policy, rate policy, holder-fee cap and recipient policy, provider-fee cap and recipient policy, operator-fee cap and recipient policy, release authority model, and lifecycle state.
+**POOL-TERMS-001.** Published pool terms include token, minimum and maximum trade size, maximum exposure, timeouts, accepted extension policies, bond policy, rate policy, activation-fee (toll) cap and recipient policy, optional success-holder-fee cap and recipient policy, provider-fee cap and recipient policy, operator-fee cap and recipient policy, release authority model, and lifecycle state.
 
 **POOL-TERMS-002.** Every terms version has an immutable canonical hash.
 
@@ -925,7 +1015,7 @@ Legacy coordinator-held pools are migration infrastructure, not the target proto
 
 **POOL-FUND-001.** Idle modular-pool liquidity remains isolated in the pool or its pool-specific vault.
 
-**POOL-FUND-002.** In the initial V2 pool profiles, the economic pool is the `holderFeePayer`. Activation atomically moves or assigns principal, the exact holder fee, and the complete maximum operator-fee exposure from that pool into deal-scoped protocol-controlled custody; credits the holder fee to its snapshotted recipient; reserves required bonds; and activates the deal. The canonical activation delta records every component and the holder fee's non-refundable consumption. A custom pool's promise, balance, or revocable allowance is not a reservation.
+**POOL-FUND-002.** In the initial V2 pool profiles, the economic pool is the `activationFeePayer` and, when a success holder fee is nonzero, the `successHolderFeePayer`. Activation atomically pays the exact activation fee to its recipient under FEE-H-008; moves or assigns principal and the complete maximum operator-fee exposure into deal-scoped protocol-controlled custody; when nonzero, reserves the success holder fee under FEE-H-010; reserves required bonds; and activates the deal. The canonical activation delta records the paid activation toll and every reserved component. A custom pool's promise, balance, or revocable allowance is not a reservation.
 
 **POOL-FUND-003.** Escrow MUST independently observe an exact same-transaction token pull from the bound pool or an exact same-custody allocation from an already attributed pool credit before creating a principal or operator-fee liability. A canonical pool vault may satisfy the pull only through its immutable purpose-bound callback from the paired escrow vault, with both source and destination deltas verified in the same transaction. A pre-transfer, unsolicited surplus, concurrent transfer, arbitrary callback or callback return value, allowance alone, or self-reported value is insufficient.
 
@@ -933,7 +1023,7 @@ Legacy coordinator-held pools are migration infrastructure, not the target proto
 
 **POOL-FUND-005.** Pool accounting separately identifies idle assets, active principal, reserved operator fees, consumed assets, and withdrawal liabilities.
 
-**POOL-FUND-006.** New exposure cannot exceed exact available assets after all existing exposure, the proposed principal, proposed holder fee, complete maximum operator-fee reservation, and matured withdrawal liabilities are accounted for without overlap.
+**POOL-FUND-006.** New exposure cannot exceed exact available assets after all existing exposure, the proposed principal, proposed activation fee, proposed success holder fee (if any), complete maximum operator-fee reservation, and matured withdrawal liabilities are accounted for without overlap.
 
 **POOL-FUND-007.** One pool's assets cannot satisfy another pool's funding, refund, operator fee, or withdrawal.
 
@@ -967,13 +1057,13 @@ After activation, pool-origin deals use the complete core state machine in Secti
 
 ### 14.8 Pool terminal accounting
 
-**POOL-SET-001.** Each deal produces exactly one immutable pool terminal delta reconciling principal, holder return, provider gross, provider fee, paid operator fee, unlocked operator fee, and realized pool consumption. Core dispute timeout records holder return equal to holder gross under `disputeTimeoutProviderBps`, provider gross to the provider side, zero completion fee, and full unlock of unpaid operator fee.
+**POOL-SET-001.** Each deal produces exactly one immutable pool terminal delta reconciling principal, holder return, provider gross, provider fee, paid activation fee (toll, already paid at activation), paid success holder fee, unlocked success holder fee, paid operator fee, unlocked operator fee, and realized pool consumption. Core dispute timeout records holder return equal to holder gross under `disputeTimeoutProviderBps`, provider gross to the provider side, zero completion fee, unlock of any reserved success holder fee, and full unlock of unpaid operator fee.
 
 **POOL-SET-002.** Holder-side principal returns to the funding pool or pool-specific credit.
 
-**POOL-SET-003.** Provider-positive principal and paid operator fees become consumed pool exposure.
+**POOL-SET-003.** Principal allocated to the provider side—including stalemate provider gross—and fees actually paid to their recipients become consumed pool exposure. The activation toll is consumed at activation when paid. Fee-predicate “provider-positive” (Section 9.1) does not gate principal consumption: stalemate always consumes provider gross. When stalemate fee-coverage holds, paid completion, operator acceptance, and success holder fees are also consumed at terminal; when coverage fails, those reserved success-path fees unlock and are not consumed.
 
-**POOL-SET-004.** Cancellation unlocks returned principal and every unpaid operator-fee amount.
+**POOL-SET-004.** Cancellation unlocks returned principal, any reserved success holder fee, and every unpaid operator-fee amount. The activation toll remains paid. Protocol stalemate returns holder gross and consumes provider gross under POOL-SET-003; it pays or unlocks success-holder-fee and operator-fee reserves according to stalemate fee-coverage (ECON-012 / FEE-H-010 / FEE-O-010).
 
 **POOL-SET-005.** Core settlement atomically commits the canonical pool terminal record and all protocol-controlled value and liability changes. A custom-pool callback or pool-local journal is not part of canonical custody correctness and MUST NOT run on the core settlement path. Its failure cannot reverse provider payment, change the terminal outcome, consume the canonical record, or block another deal.
 
@@ -1021,17 +1111,39 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 
 **RATE-002 — Canonical representation.** A rate is a positive integer count of quote-currency minor units per one whole settlement token. The policy binds base token and decimals, quote currency and minor-unit decimals, pair direction, source chain and address, source interface plus signer or code identity as applicable, round or observation identity, scale conversion, maximum age, maximum deviation basis points, and policy semantic hash.
 
-**RATE-003 — Deal-implied rate.** For positive principal in token smallest units, `dealRate = floor(fiatMinorAmount × 10^tokenDecimals ÷ principal)`. The signed fiat amount, currency, principal, token decimals, and rounding rule are part of consent; a caller cannot submit a substitute rate.
+**RATE-003 — Gross deal-implied rate.** For positive principal in token smallest units, `dealRateGross = floor(fiatMinorAmount × 10^tokenDecimals ÷ principal)`. The signed fiat amount, currency, principal, token decimals, and rounding rule are part of consent; a caller cannot submit a substitute rate. `dealRateGross` is the face escrow rate and the compatibility alias of the former unqualified `dealRate`.
+
+**RATE-003A — All-in deal-implied rates.** When RATE_POLICY is enabled, acceptance also derives provider- and pool-all-in rates from the same signed economics so fees cannot hide outside the quote check. With `BPS = 10_000` and floor division:
+
+- Reject if `signedCompletionFee >= principal` (provider-net rate undefined / zero-net success path).
+- `providerNet = principal - signedCompletionFee` (always positive after the reject above).
+- `dealRateProvider = floor(fiatMinorAmount × 10^tokenDecimals ÷ providerNet)`.
+- `poolOutlay = principal + signedActivationFee + signedSuccessHolderFee + reservedOperatorAcceptanceFee`, using checked addition; reject on overflow. For a pool with no operator fee, the reserved operator term is zero. A zero success holder fee contributes nothing. Because the activation toll is sunk at FUNDED, `dealRatePool` always includes that infrastructure cost even if the deal later cancels.
+- Reject if `poolOutlay == 0`.
+- `dealRatePool = floor(fiatMinorAmount × 10^tokenDecimals ÷ poolOutlay)`.
+
+Bonds and arbitration fees are out of scope for these rates (different custody moments and often different tokens). When all three fee terms are zero, `dealRateGross`, `dealRateProvider`, and `dealRatePool` are equal.
 
 **RATE-004 — Authenticated observation.** An external observation MUST authenticate the selected source and observation identity, have positive value, have an observation timestamp no later than the activation transaction's chain timestamp, and have age no greater than the signed maximum. Zero, negative, future, stale, missing, or unauthenticated observations reject. Initial V2 observations are detached signed evidence: multiple observations may remain concurrently valid within their signed age and expiry bounds, and publishing a newer observation does not silently supersede an older one.
 
-**RATE-005 — Deviation.** After exact scale normalization, acceptance requires `abs(dealRate - referenceRate) × 10,000 <= referenceRate × maxDeviationBps`. Equality at the boundary passes. A zero reference rate rejects before this calculation.
+**RATE-005 — Gross deviation.** After exact scale normalization, EXTERNAL acceptance requires `abs(dealRateGross - referenceRate) × 10_000 <= referenceRate × maxDeviationBps`. Equality at the boundary passes. A zero reference rate rejects before this calculation.
+
+**RATE-005A — All-in deviation.** EXTERNAL acceptance also requires the same band against the same normalized `referenceRate` for both all-in rates:
+
+- `abs(dealRateProvider - referenceRate) × 10_000 <= referenceRate × maxDeviationBps`
+- `abs(dealRatePool - referenceRate) × 10_000 <= referenceRate × maxDeviationBps`
+
+Equality at each boundary passes. MANUAL mode does not apply RATE-005 or RATE-005A but still computes and snapshots RATE-003 / RATE-003A and enforces the undefined-rate rejects in RATE-003A.
+
+Nonzero completion, activation, success-holder, or operator fees create a wedge among the three rates. Pool terms MUST choose fee amounts and `maxDeviationBps` so at least one feasible fiat/principal quote can satisfy RATE-005 and RATE-005A together; an infeasible signed quote rejects at acceptance rather than silently checking only the gross rate.
 
 **RATE-006 — Arithmetic.** Rate multiplication, absolute difference, scale conversion, and mul-div use full-precision checked arithmetic. Overflow, underflow, precision loss outside the specified floor, or unsupported decimals rejects rather than truncating silently.
 
-**RATE-007 — Immutable snapshot.** Activation records source, observation identity, value, timestamp, normalized reference rate, deal rate, deviation, and policy hash. Later source updates cannot change the active deal.
+**RATE-007 — Immutable snapshot.** Activation records source, observation identity, value, timestamp, normalized reference rate, `dealRateGross`, `dealRateProvider`, `dealRatePool`, `providerNet`, `poolOutlay`, each checked deviation, and policy hash. Later source updates cannot change the active deal.
 
 **RATE-008 — Optional fallback.** If pool terms permit MANUAL mode, a provider may accept exact manual economics without an external source. Failure or deactivation of EXTERNAL mode does not silently switch a signed acceptance to MANUAL; a new acceptance is required.
+
+**RATE-009 — Consent display.** Conforming clients that construct RATE_POLICY acceptances MUST display gross, provider-all-in, and pool-all-in rates (and the fee inputs that distinguish them) before signing, including in MANUAL mode.
 
 ### 14.11 Pool and rate cases
 
@@ -1052,8 +1164,8 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 | CASE-POOL-013 | Pool or implementation loses endorsement | Affect recommendations or future exposure only; preserve active deals |
 | CASE-POOL-014 | Owned or custom pool is deficient, closing, or closed; or crowdfunded pool is defaulted, closing, or closed | Reject new exposure even if an old signature remains unexpired |
 | CASE-POOL-015 | Controller transfer is attempted under an existing pool identity | Reject without changing authority, nonces, collateral, terms, or exposure; a different controller requires a new pool identity |
-| CASE-POOL-016 | Optional rate is fresh and within deviation | Permit acceptance when every other condition passes |
-| CASE-POOL-017 | Rate is stale, missing, or outside enforced deviation | Reject acceptance |
+| CASE-POOL-016 | Optional EXTERNAL rate is fresh and gross plus both all-in rates are within deviation | Permit acceptance when every other condition passes |
+| CASE-POOL-017 | Rate is stale, missing, or any of gross/provider/pool rates is outside enforced deviation | Reject acceptance |
 | CASE-POOL-018 | Rate publisher tries a custody or operator action | Reject; rate publication grants no other role |
 | CASE-POOL-019 | External rate policy is disabled before activation | Reject its acceptance; permit a new provider-signed MANUAL acceptance only when pool terms allow it |
 | CASE-POOL-020 | Closure begins with active deals | Stop new exposure; allow all valid active exits and final accounting |
@@ -1063,7 +1175,7 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 | CASE-POOL-024 | Operator mandate is revoked or replaced after activation | Reject that mandate's authority over future deals; preserve the old snapshotted operator authority on its active deals and disclose the accepted compromise risk |
 | CASE-POOL-025 | New operator or controller acts on an old deal without preaccepted replacement authority | Reject |
 | CASE-POOL-026 | A new pool identity is created under another controller while the old pool still has secured obligations | Keep every old obligation and bond attached to the old identity; never migrate or release them because the new pool exists |
-| CASE-POOL-027 | Proof, controller, relayer, or operator settles a provider-positive operator-accepted deal | Pay the same eligible operator acceptance fee regardless of settlement caller, absent authenticated operator fault |
+| CASE-POOL-027 | Proof, controller, relayer, or operator settles an operator-accepted deal on a fee-predicate provider-positive path (Section 9.1), including fee-covered stalemate | Pay the same eligible operator acceptance fee regardless of settlement caller, absent authenticated operator fault; stalemate without fee-coverage unlocks per FEE-O-010 |
 | CASE-POOL-028 | Pool has no enabled operator and activation consumes no operator acceptance | Reserve and pay zero operator acceptance fee; prohibit operator actions, fault, exposure, reputation, and bond attribution |
 | CASE-POOL-029 | Objective local deficiency is demonstrated | Enter DEFICIENT and reject new exposure while preserving funded core deals |
 | CASE-POOL-030 | Exact recapitalization fully cures an owned or custom pool | Permit future exposure only after public assets cover every attributable local liability |
@@ -1083,17 +1195,24 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 | CASE-POOL-044 | Model, interface, engine, DAO, or PluriSwap requests a seed phrase or raw private key | Reject the flow as non-conformant |
 | CASE-POOL-045 | Compatible custom pool publishes no conforming deployment descriptor | Preserve permissionless base compatibility; mark its POOL-DEPLOY requirements non-CONFORMING and forbid a full conforming pool-release claim |
 | CASE-POOL-046 | Post-deployment bytecode, configuration, address, chain, or transaction differs from expected intent | Fail verification and publish no successful-deployment claim |
-| CASE-POOL-047 | Pool cannot exactly fund principal, signed holder fee, and maximum reserved operator fee in the same activation boundary | Reject atomically without charging a fee, reserving exposure, or activating the deal |
+| CASE-POOL-047 | Pool cannot exactly fund principal, signed activation fee, optional success holder fee, and maximum reserved operator fee in the same activation boundary | Reject atomically without charging a fee, reserving exposure, or activating the deal |
+| CASE-POOL-053 | Pool-origin activation with nonzero activation fee | Pay full snapshotted activation toll to its recipient at activation; record it as consumed pool exposure; do not unlock it on any later terminal |
+| CASE-POOL-054 | Pool-origin cancel, holder-win, or stalemate without fee-coverage with nonzero success-holder-fee escrow | Unlock full reserved success holder fee to the funding pool or pool credit; pay that success-fee recipient nothing; activation toll stays paid |
+| CASE-POOL-054A | Pool-origin fee-covered stalemate or other provider-positive terminal with nonzero success-holder-fee escrow | Pay full snapshotted success holder fee to its recipient once under ECON-012 / FEE-H-010; record it as consumed exposure |
 | CASE-POOL-048 | Crowdfunding controller and sponsor are the same address but only one deployment-role authorization is supplied | Reject; require separate controller/deployer and sponsor typed consents with independent nonce namespaces |
 | CASE-POOL-049 | Positive initial funding has an allowance but lacks the exact payer's funding authorization | Reject before component creation, nonce consumption, or token movement |
 | CASE-POOL-050 | A new target is shown with a `releaseClass`, `conformanceStatus`, deployed address, or verification result before its immutable manifest exists | Reject the claim and display the target as `UNDEPLOYED`; show separately attributed template or existing-deployment opinions only as advisory context |
 | CASE-POOL-051 | A recommended-token list, template endorsement, or another deployment's qualification is offered instead of the exact target/token acknowledgements | Reject; require the closed acknowledgement set derived from the canonical intent |
 | CASE-POOL-052 | An acknowledgement is missing, extra, duplicated, out of canonical order, signed by another role, or bound to a substituted subject | Reject before any deployment-role or funding nonce, component creation, or token movement |
-| CASE-RATE-001 | Authenticated positive observation matches pair, direction, scale, freshness, and deviation | Record the exact snapshot and permit acceptance when every other condition passes |
+| CASE-RATE-001 | Authenticated positive observation matches pair, direction, scale, freshness, and gross plus both all-in deviations | Record the exact snapshot (including `dealRateGross`, `dealRateProvider`, `dealRatePool`) and permit acceptance when every other condition passes |
 | CASE-RATE-002 | Observation is zero, negative, future, stale, missing, has the wrong observation identity, pair, or direction, or is unauthenticated | Reject acceptance |
-| CASE-RATE-003 | Decimal normalization, deal-rate calculation, or deviation arithmetic overflows or loses unsupported precision | Reject acceptance |
-| CASE-RATE-004 | Deal rate is exactly at maximum deviation | Accept the rate boundary |
+| CASE-RATE-003 | Decimal normalization, deal-rate calculation, poolOutlay addition, or deviation arithmetic overflows or loses unsupported precision | Reject acceptance |
+| CASE-RATE-004 | Any checked rate is exactly at maximum deviation | Accept that rate boundary |
 | CASE-RATE-005 | Existing active deal's source later changes | Preserve its recorded rate snapshot and deal economics |
+| CASE-RATE-006 | `signedCompletionFee >= principal` under RATE_POLICY | Reject acceptance (provider-net rate undefined) |
+| CASE-RATE-007 | Gross rate is inside band but provider-all-in or pool-all-in is outside band | Reject acceptance |
+| CASE-RATE-008 | MANUAL RATE_POLICY acceptance with valid all-in inputs | Snapshot gross and all-in rates without reference deviation checks; still enforce RATE-003A rejects |
+| CASE-RATE-009 | Fee wedge makes no fiat/principal quote satisfy gross and both all-in bands for the snapshotted fees and `maxDeviationBps` | Reject that infeasible acceptance; require new terms, fees, fiat, or wider band |
 
 ---
 
@@ -1117,7 +1236,7 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 
 **CF-LIFE-001 — Closed lifecycle.** The only crowdfunding lifecycle states are ACTIVE, WITHDRAWAL_RUNOFF, DEFAULTED, WINDING_DOWN, and CLOSED. ACTIVE enters WITHDRAWAL_RUNOFF at a withdrawal cutoff and may return to ACTIVE only after a valid finalization-generation commit and every activation condition is restored. ACTIVE or WITHDRAWAL_RUNOFF may enter WINDING_DOWN under CF-WIND-001. Objective default takes precedence over a normal finalization-generation commit and enters DEFAULTED; DEFAULTED proceeds only to WINDING_DOWN and then CLOSED. DEFAULTED, WINDING_DOWN, and CLOSED never return to ACTIVE.
 
-**CF-LIFE-002 — Custody domains.** Idle and otherwise controlled pool assets remain in the pool's dedicated vault. Core-funded active principal and maximum operator-fee exposure are pool receivables held in their protocol custody boundaries. The standing bond and finalized withdrawal liabilities remain in separate dedicated custody and are excluded from available pool liquidity. A raw token balance is never, by itself, authoritative share, NAV, liability, bond, or recovery accounting.
+**CF-LIFE-002 — Custody domains.** Idle and otherwise controlled pool assets remain in the pool's dedicated vault. Core-funded active principal, reserved success-holder-fee escrow (when nonzero), and maximum operator-fee exposure are pool receivables held in their protocol custody boundaries. A paid activation toll has already left pool control at activation and is not a receivable. The standing bond and finalized withdrawal liabilities remain in separate dedicated custody and are excluded from available pool liquidity. A raw token balance is never, by itself, authoritative share, NAV, liability, bond, or recovery accounting.
 
 **CF-LIFE-003 — Canonical journal gate.** Every controlled asset, receivable, terminal delta, liability, recapitalization receipt, slash, and recovery is attributed exactly once in the canonical journal. Before any deposit, withdrawal request or finalization, new exposure, sponsor-minimum decision, default, wind-down, claim checkpoint, or closure action, every relevant canonical terminal record MUST be reconciled. A mismatch or pending required record rejects the NAV-changing action without blocking core settlement or fixed-beneficiary withdrawal.
 
@@ -1135,13 +1254,13 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 
 **CF-SHARE-006.** Deposits reject above maximum pool size, during default, wind-down, or closure, and whenever post-deposit share minting would place sponsor capital or ownership below its minimum.
 
-**CF-SHARE-007.** Share NAV is `controlled idle and vault assets + active principal and operator-fee-reserve receivables at snapshotted carrying value + matured pool credits - fixed withdrawal liabilities - other external pool liabilities`. These categories are mutually exclusive. Standing bonds are excluded until slashed into the pool; expected fiat and expected recapitalization are excluded. Exact received recapitalization becomes a controlled asset once.
+**CF-SHARE-007.** Share NAV is `controlled idle and vault assets + active principal, reserved success-holder-fee (when nonzero), and operator-fee-reserve receivables at snapshotted carrying value + matured pool credits - fixed withdrawal liabilities - other external pool liabilities`. These categories are mutually exclusive. Paid activation tolls are already reflected as reduced controlled assets, not as receivables. Standing bonds are excluded until slashed into the pool; expected fiat and expected recapitalization are excluded. Exact received recapitalization becomes a controlled asset once.
 
 **CF-SHARE-008.** Expected fiat, invoices, reports, quotes, or unverified offchain balances never increase NAV.
 
 **CF-SHARE-009.** Profits and losses accrue pro rata unless a separately versioned and explicitly accepted waterfall defines otherwise.
 
-**CF-SHARE-010.** The accounting journal applies each asset or liability exactly once. Returned principal and unlocked fee reserve move from active receivable to idle asset or pool credit. A provider-positive outcome removes consumed principal and paid operator-fee receivables. Withdrawal finalization leaves backing assets controlled, creates an equal fixed liability, and burns only the corresponding filled shares. Withdrawal payment reduces controlled assets and that liability by the same amount.
+**CF-SHARE-010.** The accounting journal applies each asset or liability exactly once. Returned principal and unlocked success-holder-fee or operator-fee reserves move from active receivable to idle asset or pool credit. Any terminal allocation of principal to the provider side—including stalemate provider gross—removes that consumed principal receivable; paid success-holder-fee and paid operator-fee amounts are removed from receivables only when those fees are actually paid to their recipients. Activation tolls are journaled as consumed at activation. Withdrawal finalization leaves backing assets controlled, creates an equal fixed liability, and burns only the corresponding filled shares. Withdrawal payment reduces controlled assets and that liability by the same amount.
 
 **CF-SHARE-011.** A normal withdrawal cannot reduce total shares to zero while active receivables, non-withdrawal NAV, or unresolved recoveries remain. Wind-down uses its fixed snapshot claim basis even after all original shares are normalized or burned.
 
@@ -1191,7 +1310,7 @@ Crowdfunded liquidity has one normal withdrawal mechanism. No immediate withdraw
 
 **CF-WD-008.** The committed sum of beneficiary liabilities is fully backed in a dedicated withdrawal-liability custody boundary and cannot fund new deals, recapitalization, sponsor minimum, wind-down distributions, or standing-bond obligations. Because commit requires complete active-exposure runoff, each liability remains senior and fixed if a later pool default occurs; unpaid or partly paid balances do not rejoin share NAV.
 
-**CF-WD-009.** Active principal and reserved operator fees are not withdrawable.
+**CF-WD-009.** Active principal, reserved success holder fees, and reserved operator fees are not withdrawable. Paid activation tolls have already left the pool and are not withdrawable.
 
 **CF-WD-010.** `aggregateWithdrawalLiability = sum(liability_i)` and `aggregateFilledShares = sum(filled_i)` over the processed beneficiary records. Both are known before commit and cannot exceed `epochFunding` or `R`. `epochFunding - aggregateWithdrawalLiability` was never assigned to a withdrawal liability; it remains in share NAV and follows later share or final closure-dust accounting. No request, processing, claim, or transaction order can capture it.
 
@@ -1217,9 +1336,25 @@ Crowdfunded liquidity has one normal withdrawal mechanism. No immediate withdraw
 
 **CF-RC-001.** Recapitalization is actual pool tokens returned onchain after offchain activity.
 
-**CF-RC-002.** One immutable recapitalization policy and one obligation owner apply to the entire pool. The policy binds the deterministic obligation formula, accounting-epoch rule, positive recapitalization-deadline offset, completion basis points in `1..10_000`, maximum exposure, immutable late-recovery window or no-expiry selection, and any explicitly selected immutable conversion-rate policy. Pool creation and every deal admission reject unless the maximum possible derived recapitalization deadline plus a finite late-recovery window fits the immutable timestamp type; overflow may never first appear at epoch close or wind-down. Every deal that can consume pool assets binds that exact policy identity and derives its contribution to the canonical obligation from settled amounts and signed quote economics. Selecting another formula, deadline rule, recovery window, or obligation owner requires a new pool identity; a mandate or later terms change cannot create debt for another address.
+**CF-RC-002.** One immutable recapitalization policy and one obligation owner apply to the entire pool. The policy binds the deterministic obligation formula identity (initial V2: full-outlay make-whole under CF-RC-002A), accounting-epoch rule, positive recapitalization-deadline offset, `minimumBps` (completion basis points) in `1..10_000`, maximum exposure, immutable late-recovery window or no-expiry selection, and any explicitly selected immutable conversion-rate policy. Pool creation and every deal admission reject unless the maximum possible derived recapitalization deadline plus a finite late-recovery window fits the immutable timestamp type; overflow may never first appear at epoch close or wind-down. Every deal that can consume pool assets binds that exact policy identity. Selecting another formula, deadline rule, recovery window, or obligation owner requires a new pool identity; a mandate or later terms change cannot create debt for another address.
 
-**CF-RC-003.** At epoch close, canonical deal records determine the aggregate `canonicalObligation`, deadline, and `requiredMinimum = ceil(canonicalObligation * minimumBps / 10_000)` exactly once. No sponsor, operator, reporter, obligation owner, or governance actor supplies or overwrites either amount. A zero aggregate obligation has a zero required minimum, closes successfully, and cannot default.
+**CF-RC-002A — Full-outlay deal contribution (initial V2 default).** For each deal whose canonical pool terminal record falls in the obligation epoch, contribution is denominated in the pool settlement token and derived only from that deal's canonical terminal delta (POOL-SET-001), using checked addition:
+
+- `consumedPrincipal` = principal allocated to the provider side in the terminal delta (zero on cancel and arbitration holder-win; provider gross on release, proof, claim, split, arbitration provider-win, and stalemate);
+- `paidOperatorFee` = operator acceptance fee actually paid in the terminal delta (zero when unlocked or absent);
+- `paidActivationFee` = activation toll paid from the pool at activation for this deal (zero when the snapshotted toll was zero); always included once the deal has a terminal record, including on cancel;
+- `paidSuccessHolderFee` = success holder fee actually paid to its recipient in the terminal delta under FEE-H-010 (zero when unlocked or absent);
+- `dealContribution = consumedPrincipal + paidOperatorFee + paidActivationFee + paidSuccessHolderFee`.
+
+Completion fees, unlocked success-holder-fee amounts, unlocked operator-fee amounts, expected fiat, unrealized profit, bond movements, and offchain reports NEVER enter `dealContribution`. A deal contributes to exactly one epoch—the epoch of its terminal record. Same-token initial V2 pools treat any selected conversion-rate policy as identity on these token amounts; a non-identity conversion requirement needs a new formula identity and pool version. Active deals that have not yet terminated contribute nothing until they terminate.
+
+**CF-RC-003.** At epoch close, canonical records determine the aggregate exactly once:
+
+- `canonicalObligation = sum(dealContribution)` over every deal with a terminal record in that epoch, using checked addition (overflow rejects finalization);
+- `requiredMinimum = ceil(canonicalObligation × minimumBps / 10_000)`, implemented as `floor((canonicalObligation × minimumBps + 10_000 - 1) / 10_000)` with checked multiplication;
+- deadline derived from the immutable policy offset.
+
+No sponsor, operator, reporter, obligation owner, or governance actor supplies or overwrites either amount. A zero aggregate obligation has a zero required minimum, closes successfully, and cannot default. An epoch whose only terminals are cancels with zero activation toll, zero paid success holder fee, and zero paid operator fee (principal returned; success-holder and operator reserves unlocked) has `canonicalObligation = 0` under CF-RC-002A. A cancel after a nonzero activation toll contributes `paidActivationFee` even though principal returned.
 
 **CF-RC-003A.** Populated obligation epochs finalize permissionlessly in strict epoch order through bounded one-epoch checkpoints. Each immutable record binds its canonical terminal-record aggregate, obligation, minimum, deadlines, and released exposure. Empty wall-clock epochs with no canonical contribution require no synthetic record. A due unfinalized populated epoch blocks later risk-increasing or closure work until one caller advances it; no transaction loops across missed epochs.
 
@@ -1297,6 +1432,12 @@ Crowdfunded liquidity has one normal withdrawal mechanism. No immediate withdraw
 | CASE-CF-010 | Tiny requester is alone | Pay no more than the NAV of its filled shares |
 | CASE-CF-011 | Claims arrive in different order | Pay identical economic entitlements |
 | CASE-CF-012 | Recapitalization meets minimum strictly before its deadline | Increase NAV with exact onchain assets and close the obligation without default |
+| CASE-CF-012A | Provider-positive full release terminal in epoch | Add `principal + paidOperatorFee + paidActivationFee + paidSuccessHolderFee` to `canonicalObligation` |
+| CASE-CF-012B | Cancel or fiat-timeout terminal after activation | Add `paidActivationFee`; unlock reserved success-holder and operator fees to the pool |
+| CASE-CF-012C | Fee-covered stalemate terminal | Add `consumedPrincipal` + `paidOperatorFee` + `paidActivationFee` + `paidSuccessHolderFee` under CF-RC-002A / ECON-012 |
+| CASE-CF-012C2 | Stalemate terminal without fee-coverage | Add `consumedPrincipal` + `paidActivationFee`; unlock reserved success-holder and operator fees |
+| CASE-CF-012D | Attempt to include completion fee, expected fiat, or unlocked success-holder/operator fees in obligation | Exclude them; obligation uses CF-RC-002A only |
+| CASE-CF-012E | Pool-origin cancel with nonzero success-holder-fee escrow | Unlock full reserved success holder fee to the pool; do not credit that success-fee recipient; activation toll stays paid and contributes to obligation |
 | CASE-CF-013 | Timely recapitalization is short at the deadline | Preserve permanent objective default eligibility; accept later exact assets only as bounded late recovery |
 | CASE-CF-014 | Objective default exists | Allow permissionless default and wind-down execution |
 | CASE-CF-015 | Active deals exist during wind-down | Continue settlement and attribute every recovery pro rata |
@@ -1309,7 +1450,8 @@ Crowdfunded liquidity has one normal withdrawal mechanism. No immediate withdraw
 | CASE-CF-022 | Default becomes eligible before finalization-generation commit | Reject or invalidate the commit and include every unburned requested share in the wind-down snapshot |
 | CASE-CF-023 | Default occurs after a finalization-generation commit but before claim payment | Preserve the exact segregated withdrawal liability outside wind-down shares |
 | CASE-CF-024 | Withdrawal claim was partly paid before default | Preserve paid value and the exact remaining fixed liability; do not add either to snapshot shares |
-| CASE-CF-025 | Canonical epoch obligation is zero | Close the obligation successfully without default or slash |
+| CASE-CF-025 | Canonical epoch obligation is zero (no terminals, or every `dealContribution` is zero) | Close the obligation successfully without default or slash |
+| CASE-CF-025A | Epoch finalization sum or `requiredMinimum` multiplication overflows | Reject finalization without writing obligation amounts; permit retry only under a corrected implementation (conformance defect if reachable in production parameters) |
 | CASE-CF-026 | Recapitalization is a valid exact partial payment no greater than the remaining amount | Count the exact attributable receipt once; count it as timely only strictly before the deadline and preserve permanent default eligibility afterward |
 | CASE-CF-027 | Multiple defaults compete for a limited standing bond | Apply bond in deadline then epoch-identifier order, capped once per deficit |
 | CASE-CF-028 | Valid late recapitalization arrives after slash but within its acceptance boundary | Treat it as additional recovery; do not reverse default, reduce the penalty base, slash, or priority |
@@ -1380,7 +1522,7 @@ Crowdfunded liquidity has one normal withdrawal mechanism. No immediate withdraw
 
 Mandatory core deliberately provides no one-human, Sybil-resistance, reputation, or exposure-limit guarantee. Participants who require stronger admission assurance opt into an immutable protection profile and accept its extra proof, transaction, dependency, privacy, and fee costs.
 
-**HUM-ADM-001 — Explicit composition.** A Sybil-resistant admission profile identifies an immutable `HumanityVerifier`, `ExposurePolicy`, and `ExposureLedger`, plus every reputation or bond policy it consumes. The selected profile identity, semantic hash, code and configuration identities, dependencies, scope, exposure unit, holder-fee economics where selected, and failure behavior are bound in deal consent or accepted pool terms. The profile creates no generic protocol or module fee channel: any protocol-collected package charge uses the explicitly signed holder-fee channel, while separately defined arbitration, operator, and provider fees retain their own rules. A component name or registry membership is insufficient.
+**HUM-ADM-001 — Explicit composition.** A Sybil-resistant admission profile identifies an immutable `HumanityVerifier`, `ExposurePolicy`, and `ExposureLedger`, plus every reputation or bond policy it consumes. The selected profile identity, semantic hash, code and configuration identities, dependencies, scope, exposure unit, activation-fee and success-holder-fee economics where selected, and failure behavior are bound in deal consent or accepted pool terms. The profile creates no generic protocol or module fee channel: any protocol-collected package charge uses the explicitly signed activation-fee and/or success-holder-fee channels, while separately defined arbitration, operator, and provider fees retain their own rules. A component name or registry membership is insufficient.
 
 **HUM-ADM-002 — Component boundaries.** The HumanityVerifier authenticates the credential, uniqueness assertion, subject or scoped pseudonym, expiry, and nullifier. The ExposurePolicy deterministically maps those authenticated facts and any selected reputation or bond facts to permitted new and aggregate exposure. The ExposureLedger records admitted and released exposure under that exact policy and scope. None of the three components may choose a receiver, terminal outcome, principal allocation, or active-deal transition.
 
@@ -1394,7 +1536,7 @@ Mandatory core deliberately provides no one-human, Sybil-resistance, reputation,
 
 **HUM-ADM-007 — Assurance disclosure.** Interfaces and deployment records MUST distinguish direct use with no Sybil guarantee from each selected progressive-assurance profile. They disclose credential issuer and uniqueness domain, expected linkability, scope, exposure unit and limit, renewal and revocation rules, optional reputation and bond effects, dependency availability, user and sponsor costs, and the residual ability of one human to obtain multiple accepted credentials.
 
-**HUM-ADM-008 — Raw exposure amount.** The initial profile measures a proposed deal's raw token exposure as the maximum new loss borne by its holder side at activation. For a direct deal this is `principal + holderFee`; for a pool-origin deal it is `principal + holderFee + maximumReservedOperatorFee`. A policy may additionally account for separately sponsored bond risk but cannot omit or net the base amount. `POOL` and `INSTANCE_TOKEN` scopes use raw settlement-token units. `INSTANCE_GLOBAL` is valid only when its immutable policy publishes one deterministic conservative normalization for every included asset; otherwise that scope rejects rather than summing incomparable units.
+**HUM-ADM-008 — Raw exposure amount.** The initial profile measures a proposed deal's raw token exposure as the maximum new outlay borne by its holder side at activation. For a direct deal this is `principal + activationFee + successHolderFee`; for a pool-origin deal it is `principal + activationFee + successHolderFee + maximumReservedOperatorFee`. The activation toll is permanent loss at activation; success holder fee and operator fee reserves may unlock on non-provider-positive terminals and MUST still be counted in raw exposure at admission. A policy may additionally account for separately sponsored bond risk but cannot omit or net the base amount. `POOL` and `INSTANCE_TOKEN` scopes use raw settlement-token units. `INSTANCE_GLOBAL` is valid only when its immutable policy publishes one deterministic conservative normalization for every included asset; otherwise that scope rejects rather than summing incomparable units.
 
 ### 16.3 Reputation
 
@@ -1526,7 +1668,7 @@ The mandatory core does not require governance to execute deals. Ecosystem gover
 
 **ECO-001 — Organizational optionality.** Using PluriSwap does not require membership in, a contract with, or payment to the DAO, its legal wrapper, or the PluriSwap company. A DAO-sponsored reference ecosystem that receives fees or enters service contracts MUST identify a legally capable wrapper and disclose its addresses, governing documents, treasury authority, conflicts, and jurisdiction. That organizational requirement is not a protocol execution dependency for independent deployments.
 
-**ECO-002 — Reference-package economics.** The DAO wrapper may sponsor and recommend immutable reference profiles, deployments, interfaces, and protection packages. Their exact fees and recipients remain explicit signed terms under Section 10 and PROFILE-006 through PROFILE-007: the package identity binds the schedule; the protocol enforces those signed fields; clients that offer the package MUST construct them; the protocol never injects a DAO recipient into deals that did not select the package. Independent publishers may offer competing profiles and infrastructure with their own disclosed recipient or zero fee, without DAO permission.
+**ECO-002 — Reference-package economics.** The DAO wrapper may sponsor and recommend immutable reference profiles, deployments, interfaces, and protection packages. Their exact fees and recipients remain explicit signed terms under Section 10 and PROFILE-006 through PROFILE-007: the package identity binds the schedule; the protocol enforces those signed fields; clients that offer the package MUST construct them; the protocol never injects a DAO recipient into deals that did not select the package. Independent publishers may offer competing profiles and infrastructure with their own disclosed recipient or zero fee, without DAO permission. Any DAO-sponsored or ecosystem-recommended package marketed as assured-trade / protection (or equivalent) MUST satisfy PROFILE-008, including a positive activation toll; Core-only silence/claim risk MUST remain visible whenever ARBITRATION is absent.
 
 **ECO-003 — PluriSwap service agreement.** If the DAO wrapper retains or compensates the PluriSwap company, it MUST do so through a fixed, publicly budgeted fee under a disclosed, non-exclusive master services agreement for defined technology, maintenance, support, research, interface, or infrastructure deliverables. Compensation comes from DAO treasury under ordinary governance; it is not an automatic protocol transaction split, percentage of user assets, custody right, or exclusive right to provide any service.
 
@@ -1593,7 +1735,7 @@ The mandatory core does not require governance to execute deals. Ecosystem gover
 | CASE-GOV-013 | Governed registry membership is proposed as base compatibility | Reject or ignore it as an execution condition; it remains advisory or opt-in module-local policy only |
 | CASE-GOV-014 | Governance or module administrator attempts proxy upgrade, pause, or caller revocation affecting active execution | Reject by immutable construction or classify the deployment as non-conformant |
 | CASE-GOV-015 | Independence evidence is missing, expired, contradicted, or invalidated by a control change | Withhold production decentralized status until a qualifying reviewer revalidates the current threshold |
-| CASE-GOV-016 | DAO-sponsored reference package charges a holder fee | Bind the disclosed DAO-wrapper recipient in user consent; do not infer a global fee or recipient |
+| CASE-GOV-016 | DAO-sponsored reference package charges an activation fee and/or completion fee | Bind the disclosed DAO-wrapper recipient in user consent for each such channel; do not infer a global fee or recipient |
 | CASE-GOV-017 | Independent publisher offers another profile, deployment tool, recipient, or zero-fee package | Permit it without DAO or PluriSwap approval when objective compatibility conditions hold |
 | CASE-GOV-018 | PluriSwap is paid under the DAO MSA | Execute only the fixed public treasury obligation through governance; create no onchain user-transaction split or protocol privilege |
 | CASE-GOV-019 | Commercial agreement or recommendation claims exclusive deployment, profile, interface, or execution authority | Ignore it as a protocol condition and classify any implemented gate as non-conformant |
@@ -1754,12 +1896,15 @@ The cases below apply in addition to the feature-specific cases above.
 
 | Case | Situation | Required behavior |
 | --- | --- | --- |
-| CASE-FAIL-020 | Provider never sends or reports fiat | Permit fiat-timeout cancellation by anyone |
+| CASE-FAIL-020 | Provider never sends or reports fiat while deal remains FUNDED | Permit permissionless fiat-timeout cancellation by anyone at or after fiatDeadline (intentional active holder-favorable exit under TIME-005); mark-fiat remains eligible until timeout or another transition wins |
 | CASE-FAIL-021 | Provider falsely reports fiat sent | Holder-side may open Core `DISPUTED` before release deadline (dual-sign or dispute-timeout residual); or release/mutual-resolve; or allow claim if still `FIAT_SENT` after release deadline; and may open ARBITRATION when enabled |
-| CASE-FAIL-022 | Holder refuses to release, does not open `DISPUTED`, and does not open arbitration | Permit claim by anyone after release deadline while still `FIAT_SENT` (non-contest under signed timeouts) |
+| CASE-FAIL-022 | Holder refuses to release, does not open `DISPUTED`, and does not open arbitration | Permit claim by anyone after release deadline while still `FIAT_SENT` (non-contest under signed timeouts); full provider-positive fee economics unchanged |
 | CASE-FAIL-022A | Holder opens `DISPUTED` and parties dual-sign cancel, release, or split before dispute deadline | Execute the signed dual-sign outcome; claim remains unavailable |
 | CASE-FAIL-022B | Holder opens `DISPUTED` and no dual-sign or extension exit before dispute deadline | Anyone may execute CASE-OUT-013 residual by `disputeTimeoutProviderBps` |
+| CASE-FAIL-022C | Package claims assured-trade / protection (or equivalent) but omits ARBITRATION, required BONDS stalemate fields, or a positive activation fee | Reject activation / refuse that label; Core-only path remains available without that label |
 | CASE-FAIL-023 | Parties disagree and ARBITRATION is enabled | Permit open arbitration from `FIAT_SENT` before release deadline or from `DISPUTED` before dispute deadline; dual-sign; or arbitration ruling/timeout stalemate |
+| CASE-FAIL-023A | Fee-covered stalemate versus covered mutual split at 5,000 bps | Charge identical completion, eligible operator acceptance, and success holder fees (ECON-012); do not unlock those success-path fees on the stalemate path; activation toll already paid |
+| CASE-FAIL-023B | Stalemate where `floor(principal / 2) < signedCompletionFee` | Settle 50/50 principal; pay no completion, operator acceptance, or success holder fee; unlock those reserves; activation toll stays paid; apply stalemate bonds if enabled |
 | CASE-FAIL-024 | Arbitrator disappears or censors | Permit arbitration-timeout stalemate; before arbitration open, Core claim/`DISPUTED`/dual-sign/dispute-timeout paths apply; after open, dual-sign and arbitration timeout remain |
 | CASE-FAIL-025 | Payment verifier is unavailable | Preserve manual and timeout lifecycle paths |
 | CASE-FAIL-026 | A restricted action is called by an unauthorized address | Reject without state change |
@@ -1767,14 +1912,14 @@ The cases below apply in addition to the feature-specific cases above.
 | CASE-FAIL-028 | Split, mutual-cancel, or co-signed-release payload is expired, replayed, wrong-domain, wrong-versioned, wrong-deal, or missing a required authorization | Reject |
 | CASE-FAIL-028A | Claim or unilateral holder release is attempted while DISPUTED | Reject without economic change |
 | CASE-FAIL-028B | Open DISPUTED at or after release deadline, by unauthorized opener, or after already disputed | Reject and remain FIAT_SENT or current state |
-| CASE-FAIL-029 | Split exceeds 100 percent, slash exceeds cap, or recipient is invalid | Reject atomically |
+| CASE-FAIL-029 | Split exceeds 100 percent, slash exceeds cap, recipient is invalid, or `providerGross < signedCompletionFee` | Reject atomically |
 | CASE-FAIL-030 | Mandatory extension step attempts reentrancy | Reject re-entry and preserve atomicity |
 | CASE-FAIL-031 | Terminal action is replayed | Reject; no effect repeats |
 | CASE-FAIL-032 | Optional analytics, notification, or reputation materialization fails | Preserve terminal custody and allow idempotent retry |
 | CASE-FAIL-033 | Selected token blocks withdrawal to signed receiver | Preserve matured credit; allow retry or beneficiary-authorized redirection |
 | CASE-FAIL-034 | Token issuer pauses all transfers | Preserve liabilities and attribution; do not grant governance seizure power |
 | CASE-FAIL-035 | Party loses a key | Use only already-signed, proof, arbitration, or permissionless timeout paths; no admin replacement |
-| CASE-FAIL-036 | Nobody submits an eligible timeout | State remains until any address submits it; deadline eligibility does not expire |
+| CASE-FAIL-036 | Nobody submits an eligible timeout | State remains until any address submits it; deadline eligibility does not expire. After fiatDeadline, leaving FUNDED idle is holder non-execution of the active cancel exit and leaves mark-fiat racing by design (TIME-005)—not an automatic cancel and not a defect |
 | CASE-FAIL-037 | Frontend, matcher, relayer, RPC provider, or backend is offline or censoring | Permit direct interaction through any alternative public path |
 | CASE-FAIL-038 | Chain reorganizes recent transactions | Canonical chain state controls; indexers roll back and replay idempotently |
 | CASE-FAIL-039 | MEV actor submits an already-public eligible transition first | Accept only the predetermined outcome and receivers; executor gains no principal discretion |
@@ -1868,7 +2013,7 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-STATE-004.** Every active state has a bounded path to a terminal result without governance or proprietary infrastructure.
 
-**INV-STATE-005.** Every eligible timeout remains permissionlessly executable, including fiat timeout, release claim from `FIAT_SENT`, Core dispute timeout from `DISPUTED`, and arbitration timeout when enabled.
+**INV-STATE-005.** Every eligible timeout remains permissionlessly executable until another valid transition wins, including fiat timeout, release claim from `FIAT_SENT`, Core dispute timeout from `DISPUTED`, and arbitration timeout when enabled. Fiat-timeout eligibility at or after `fiatDeadline` does not auto-cancel the deal or freeze mark-fiat; the intentional race in TIME-005 and CASE-RACE-001 remains.
 
 **INV-STATE-006.** An anyone-callable action has predetermined receivers and economics.
 
@@ -1878,19 +2023,27 @@ An implementation may add an unsupported capability only through an explicitly v
 
 ### 23.4 Fees and bonds
 
-**INV-FEE-001.** A nonzero activation fee is paid exactly once if and only if activation succeeds; zero is valid.
+**INV-FEE-001.** A nonzero activation fee is paid exactly once at successful activation on both direct and pool-origin deals and is never refunded. A nonzero success holder fee is reserved at activation and paid to its recipient at most once on a fee-predicate provider-positive terminal, otherwise unlocked once to the holder-side funder; zero is valid for either channel. Protection packages under PROFILE-008 require a strictly positive activation fee.
 
-**INV-FEE-002.** Completion fee is paid at most once, never exceeds provider gross, and is zero on cancellation, arbitration stalemate, and Core dispute timeout.
+**INV-FEE-002.** Completion fee is paid at most once and never exceeds provider gross. On a mutually signed split it equals the full signed completion fee and the split executes only when provider gross covers that fee. It is zero on cancellation and on Core dispute timeout; on arbitration stalemate it follows stalemate fee-coverage (INV-FEE-005).
 
-**INV-FEE-003.** Operator acceptance fee is paid at most once, comes only from its funding pool, and never exceeds reserved exposure.
+**INV-FEE-003.** Operator acceptance fee is paid at most once, comes only from its funding pool, never exceeds reserved exposure, is zero on cancellation and on protocol stalemate without fee-coverage, and on a covered mutually signed split or fee-covered stalemate equals the full reserved amount absent authenticated operator fault.
 
 **INV-FEE-004.** No DAO, frontend, or infrastructure recipient receives value unless it is the snapshotted signed recipient of an enabled fee channel under Section 10.
+
+**INV-FEE-005.** Protocol stalemate pays completion fee, eligible operator acceptance fee, and success holder fee if and only if stalemate fee-coverage holds, matching a covered mutual split at `providerShareBps = 5_000` (ECON-012). Uncovered stalemate is not provider-positive for fee predicates and unlocks those reserved success-path fees. The activation toll is unaffected.
+
+**INV-FEE-006.** Mutual split MUST NOT discount completion or operator acceptance fees by provider share; below-coverage splits reject without economic effect.
+
+**INV-FEE-007.** Fee-covered protocol stalemate and a covered mutual split at `providerShareBps = 5_000` have identical completion-fee, operator-acceptance-fee, and success-holder-fee incidence (ECON-012). Uncovered stalemate cannot reject the principal 50/50 settlement solely for fee non-coverage.
 
 **INV-BOND-001.** Reserved bonds cannot be withdrawn.
 
 **INV-BOND-002.** Released plus slashed equals reserved for every terminal bond.
 
 **INV-BOND-003.** No slash exceeds its signed cap or uses an unsigned recipient.
+
+**INV-BOND-004.** On protocol stalemate with BONDS enabled, each party role's `slash` equals `toCounterparty + toPenalty`, counterparty credits follow Section 9.1 role routing, and penalty credits go only to the snapshotted `stalematePenaltyRecipient`.
 
 ### 23.5 Proofs, arbitration, and policies
 
@@ -1902,7 +2055,9 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-ARB-001.** Only the selected adapter and immutable policy map a final ruling.
 
-**INV-ARB-002.** Arbitration fees never reduce active principal.
+**INV-ARB-002.** Arbitration fees never reduce active principal and are never reimbursed by completion, operator, activation, or success holder fees.
+
+**INV-ARB-003.** Default arbitration-fee incidence is sunk for every outcome. Optional `holderWinArbFeeCompensation` may credit the opener from the provider bond on authenticated holder win only, within snapshotted caps and ARB-003B token rules.
 
 **INV-POLICY-001.** A policy identifier never changes meaning.
 
@@ -1930,7 +2085,7 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-POOL-005.** Pool creation and settlement do not iterate over all active deals or funders.
 
-**INV-POOL-006.** Principal and maximum operator-fee exposure are deal-attributable and protocol-controlled before a pool deal becomes active.
+**INV-POOL-006.** Principal, paid activation toll, any reserved success holder fee, and maximum operator-fee exposure are deal-attributable before a pool deal becomes active. The activation toll is paid to its recipient at activation under FEE-H-008. Any success holder fee is paid or unlocked exactly once under FEE-H-010.
 
 **INV-POOL-007.** Holder-side pool value returns only to the funding pool or its exact pool credit, and that credit is counted once.
 
@@ -1952,7 +2107,9 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-CF-007.** A finalized withdrawal is exactly backed, subtracted from share NAV once, and remains a separate fixed liability until paid.
 
-**INV-CF-008.** Recapitalization expectations derive only from canonical deal records and immutable accepted formulas.
+**INV-CF-008.** Recapitalization expectations derive only from canonical terminal records under the immutable accepted formula. Initial V2 full-outlay make-whole sets each terminal deal's contribution to `consumedPrincipal + paidOperatorFee + paidActivationFee + paidSuccessHolderFee` and never includes completion fees, unlocked success-holder or operator fees, expected fiat, or offchain reports.
+
+**INV-CF-008A.** `canonicalObligation` equals the checked sum of those deal contributions for the epoch, and `requiredMinimum` equals `ceil(canonicalObligation × minimumBps / 10_000)`.
 
 **INV-CF-009.** Standing-bond scarcity is allocated by deterministic default priority, never caller choice.
 
@@ -2158,6 +2315,7 @@ The current repository and Arbitrum Sepolia deployment are evaluated separately 
 | DISPUTED | Core non-terminal state opened by holder-side authority from `FIAT_SENT` before the release deadline; freezes claim and unilateral release until dual-sign settlement, an enabled extension exit, or dispute-timeout residual |
 | Dispute timeout / DISPUTE_TIMEOUT | Permissionless Core terminal after `disputeDeadline`; allocates principal by snapshotted `disputeTimeoutProviderBps` with stalemate-like fees; not an external court finding and not a burn |
 | `disputeTimeoutProviderBps` | Signed integer in `0..10_000` bound at activation; provider residual share on Core dispute timeout; recommended Core default `5_000` |
+| Fiat-timeout cancellation | Permissionless `FUNDED` → `CANCELLED` exit at or after `fiatDeadline` that returns principal holder-side; intentional **active** holder-favorable exit that races mark-fiat rather than auto-expiring it (TIME-005, CASE-CORE-005, CASE-RACE-001) |
 | Liability | Nominal token amount attributed by protocol accounting to an active deal, matured credit, fee recipient, bond recipient, or pool; actual recovery is conditional under a deficit boundary |
 | Permissionless execution | Ability of any address to submit a valid action when public signed, state, proof, ruling, or deadline conditions hold |
 | Permissionless participation | Ability to use compatible public protocol functions without discretionary identity or commercial approval |
@@ -2169,9 +2327,14 @@ The current repository and Arbitrum Sepolia deployment are evaluated separately 
 | Recommended / endorsed | Ecosystem advisory status maintained by a named authority; never synonymous with exclusive, permissioned, or protocol-authoritative |
 | Release class | Typed evidence-maturity classification of one exact release: EXPERIMENTAL, CANDIDATE, or QUALIFIED; separate from conformance status |
 | Conformance status | Typed disposition of a rule, case, invariant, profile, or scope against this document; separate from release class and endorsement |
-| Stalemate | Protocol 50/50 terminal fallback on the ARBITRATION path when the selected provider refuses or times out (`STALEMATE` state); distinct from Core DISPUTE_TIMEOUT even when residual bps is 50/50 |
+| Provider-positive outcome | Fee-bearing terminal path under Section 9.1 (release, proof release, timeout claim, coverage-satisfying mutual split, arbitration provider win, or fee-covered protocol stalemate under ECON-012); excludes cancellation, uncovered stalemate, and Core dispute timeout |
+| Stalemate | Protocol 50/50 principal fallback on the ARBITRATION path when the selected arbitration adapter authenticates refused/no-decision or the arbitration deadline elapses; not a Mandatory Core state and distinct from Core DISPUTE_TIMEOUT even when residual bps is 50/50. When `floor(principal / 2) >= signedCompletionFee`, success fees match a covered mutual 50/50 split (ECON-012); otherwise those fees unlock unpaid. Default BONDS stalemate slashes each party reservation with half to the counterparty and half to the snapshotted penalty recipient unless other in-range bps are snapshotted |
 | Terminal outcome | Final economic classification; it may be more specific than the stored terminal state |
-| Timeout claim | Core provider-positive RELEASED outcome after the release deadline while still in `FIAT_SENT`, treating holder silence (no release, dual-sign, `DISPUTED`, or arbitration open) as non-contest under signed timeouts; distinct from credit withdrawal or crowdfunding claims; unavailable after `DISPUTED` |
+| Activation fee (toll) | Holder-side fee paid at successful FUNDED on direct and pool-origin deals; non-refundable; spam-prevention and infrastructure cost of opening escrow; required positive on protection packages |
+| Success holder fee | Optional holder-side fee reserved at activation and paid only on fee-predicate provider-positive terminals; otherwise unlocked to the holder-side funder; protection packages default to zero |
+| Assured-trade / protection package | Package or preset that claims disputed-fiat / holder-contest / protection and therefore MUST bind ARBITRATION, BONDS stalemate fields, and a positive activation fee under PROFILE-008; never implied by Core alone |
+| Pre-fiat provider-side penalty | Shared snapshotted provider-bond slash for provider cancel before fiat and for fiat-timeout (`preFiatProviderPenalty`); same formula for both; not a distinct “inactivity” fault label |
+| Timeout claim | Core provider-positive RELEASED outcome after the release deadline while still in `FIAT_SENT`, treating holder silence (no release, dual-sign, `DISPUTED`, or arbitration open) as non-contest under signed timeouts without authenticating fiat; distinct from credit withdrawal or crowdfunding claims; unavailable after `DISPUTED` |
 | Trust-minimized | External trust is explicit, chosen, bounded, inspectable, and unable to override unrelated custody |
 
 ---
