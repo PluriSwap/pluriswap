@@ -79,6 +79,9 @@ Extension-point transitions (`CASE-PAY-*`, `CASE-ARB-*`) MUST revert with `Profi
 | `TECH-CORE-ARCH-005` | Assets are exact-delta ERC-20 tokens and native ETH represented by `NATIVE_ASSET = address(0)`. |
 | `TECH-CORE-ARCH-006` | Settlement is accounting-first: terminal transitions mint irrevocable credits, then optional external transfer on withdraw. |
 | `TECH-CORE-ARCH-007` | Pass-1 deals are direct holder↔provider only. Holder-side authority is always the signed `holder` address. |
+| `TECH-CORE-ARCH-008` | Core deal clocks (`fiat`, `release`, `dispute`) are signed in **whole hours**, minimum 1 hour, maximum **5 days (120 hours)**. |
+| `TECH-CORE-ARCH-009` | Native ETH activation requires `msg.sender == holder` and exact `msg.value`. |
+| `TECH-CORE-ARCH-010` | Document identity hashes are `keccak256` of the **raw file bytes** (Section 1.5). |
 
 ---
 
@@ -91,39 +94,125 @@ Implementations MUST expose these immutables (constructor-set or compile-time co
 | Name | Type | Meaning |
 | --- | --- | --- |
 | `PROTOCOL_ID` | `bytes32` | Canonical identity: `keccak256("pluriswap.protocol.v2")` |
-| `CHARTER_HASH` | `bytes32` | Content hash of ratified `PROTOCOL.md` |
-| `TECH_SPEC_HASH` | `bytes32` | Content hash of the ratified aggregate technical specification |
+| `CHARTER_HASH` | `bytes32` | Content hash of ratified `PROTOCOL.md` (Section 1.5) |
+| `TECH_SPEC_HASH` | `bytes32` | Content hash of the ratified aggregate technical specification (Section 1.5) |
 | `PROTOCOL_VERSION` | `uint32` | `2` |
 | `CHAIN_ID` | `uint64` | Settling chain id (e.g. `42161` Arbitrum One, `421614` Arbitrum Sepolia) |
 | `ESCROW` | `address` | This deployment’s escrow address (`address(this)` at runtime) |
 
 `TECH-CORE-ID-001` — Activation MUST reject if signed terms’ identity fields disagree with the deployment’s immutables.
 
-### 1.2 Numeric ranges
+### 1.2 Numeric ranges and deal clocks
+
+**What `MAX_DURATION` is.** It is **not** a single global timeout. Each deal signs three independent Core clocks:
+
+| Clock | Starts when | Ends at | Permissionless / authority effect |
+| --- | --- | --- | --- |
+| Fiat window | activation success | `fiatDeadline` | Anyone may `fiatTimeoutCancel` at/after deadline while still `Funded` |
+| Release window | `markFiatSent` success | `releaseDeadline` | Anyone may `claim` at/after deadline while still `FiatSent`; holder may `openDispute` only **before** it |
+| Dispute window | `openDispute` success | `disputeDeadline` | Anyone may `disputeTimeout` at/after deadline while still `Disputed` |
+
+Signed fields are **whole hours**. Onchain deadlines convert with `HOUR_SECONDS = 3600`.
 
 | Quantity | Type | Range / rule |
 | --- | --- | --- |
-| Token amounts | `uint256` | `> 0` for principal; fees `>= 0`; no overflow in checked arithmetic |
+| Token amounts | `uint256` | `> 0` for principal; fees `>= 0`; checked arithmetic only |
 | Basis points | `uint16` | `0..=10_000` |
-| Durations (`fiatDuration`, `releaseDuration`, `disputeDuration`) | `uint64` | `>= 1` and `<= MAX_DURATION` |
-| `MAX_DURATION` | `uint64` | `3660 days` (`316_224_000` seconds) |
-| Absolute timestamps / deadlines | `uint64` | Unix seconds; addition MUST NOT overflow `uint64` |
-| Creation expiry | `uint64` | Strictly `> block.timestamp` at activation |
-| Nonces | `uint256` | Unique per signing domain usage as defined below |
-| Decimals (disclosure field) | `uint8` | Bound in terms; NOT used to rescale principal onchain |
+| `fiatDurationHours` | `uint16` | `1..=MAX_DURATION_HOURS` |
+| `releaseDurationHours` | `uint16` | `1..=MAX_DURATION_HOURS` |
+| `disputeDurationHours` | `uint16` | `1..=MAX_DURATION_HOURS` |
+| `MAX_DURATION_HOURS` | `uint16` | `120` (5 days) |
+| `HOUR_SECONDS` | `uint64` | `3600` |
+| Absolute timestamps / deadlines | `uint64` | Unix seconds; checked addition only |
+| `createExpiry` | `uint64` | `block.timestamp < createExpiry <= block.timestamp + MAX_CREATE_LEAD_SECONDS` |
+| `MAX_CREATE_LEAD_SECONDS` | `uint64` | `86_400` (24 hours) — limits stale signed-activation warehouses |
+| Resolution / redirect `expiry` | `uint64` | `block.timestamp < expiry <= block.timestamp + MAX_AUTH_LEAD_SECONDS` at consumption |
+| `MAX_AUTH_LEAD_SECONDS` | `uint64` | `86_400` (24 hours) |
+| Nonces | `uint256` | Per journal in Section 3.7; never reused after success |
+| Decimals (risk-record field) | `uint8` | Offchain disclosure only; NOT used to rescale principal onchain |
 
-`TECH-CORE-NUM-001` — All duration and deadline arithmetic uses checked `uint64` addition. Overflow rejects before state change.
+Deadline derivation (checked `uint64`):
 
-### 1.3 Sentinels
+```text
+fiatDeadline    = activatedAt + uint64(fiatDurationHours)    * HOUR_SECONDS
+releaseDeadline = markedAt    + uint64(releaseDurationHours) * HOUR_SECONDS
+disputeDeadline = disputedAt  + uint64(disputeDurationHours) * HOUR_SECONDS
+```
+
+`TECH-CORE-NUM-001` — Duration and deadline arithmetic uses checked `uint64` addition/multiplication. Overflow or out-of-range hours rejects before state change.
+
+`TECH-CORE-NUM-002` — Partial hours are forbidden in signed terms. Clients MUST present clocks in hours; escrow MUST reject `0` and `> 120`.
+
+### 1.5 Content hashing algorithm
+
+`TECH-CORE-HASH-001` — Normative content hash for charter and technical-specification identity:
+
+```text
+CHARTER_HASH    = keccak256(raw_bytes(PROTOCOL.md))
+TECH_SPEC_HASH  = keccak256(raw_bytes(PLURISWAP_OPEN_PROTOCOL_SPEC.md))
+```
+
+Rules:
+
+1. Hash the **exact file bytes** as published in the ratified git commit (no canonicalization, no line-ending rewrite, no JSON re-encoding).
+2. Algorithm is **keccak256** (EVM native).
+3. Ratification records MUST publish the git commit, file paths, byte lengths, and hashes.
+4. Escrow immutables MUST equal those ratified hashes; deals binding other hashes reject.
+
+`TECH-CORE-HASH-002` — `tokenRiskId` uses the same keccak256 function over the canonical risk-record bytes defined in Section 1.6.
+
+### 1.6 Token risk identity (`tokenRiskId`)
+
+`tokenRiskId` is **not** an allowlist entry and **not** interpreted by escrow for transfer behavior.
+
+It is the content hash of a **TokenRiskRecord** that conforming clients MUST show before signing (`PROTOCOL.md` TOKEN-001, TOKEN-004, TOKEN-006). Parties bind that they accepted a specific risk disclosure for the selected token.
+
+**Canonical preimage (ABI-encoded, then hashed):**
+
+```text
+TokenRiskRecord(
+  uint64  chainId,
+  address token,                 // address(0) for native ETH
+  uint8   decimals,              // 18 for ETH; ERC-20 decimals at disclosure time
+  bool    isNativeEth,
+  bool    issuerCanUpgrade,
+  bool    issuerCanPause,
+  bool    issuerCanFreezeOrBlacklist,
+  bool    hasCallbacksOrHooks,
+  bool    hasPermit,
+  bool    isRebasing,
+  bool    hasTransferFeeOrHaircut,
+  bool    exactBalanceAssumed,   // MUST be true for Core-compatible activation intent
+  bytes32 evidenceUriHash,       // keccak256 of a disclosure URI or document
+  bytes32 notesHash              // keccak256 of free-form notes (may be keccak256(""))
+)
+
+tokenRiskId = keccak256(abi.encode(
+  keccak256("pluriswap.v2.TokenRiskRecord.v1"),
+  chainId, token, decimals, isNativeEth,
+  issuerCanUpgrade, issuerCanPause, issuerCanFreezeOrBlacklist,
+  hasCallbacksOrHooks, hasPermit, isRebasing, hasTransferFeeOrHaircut,
+  exactBalanceAssumed, evidenceUriHash, notesHash
+))
+```
+
+| Rule | Requirement |
+| --- | --- |
+| `TECH-CORE-RISK-001` | `tokenRiskId != bytes32(0)` |
+| `TECH-CORE-RISK-002` | No canonical “unknown / skip disclosure” sentinel. Parties who accept thin disclosure still hash an explicit record (e.g. all risk flags true + notes). |
+| `TECH-CORE-RISK-003` | Escrow stores `tokenRiskId` and checks nonzero + (Pass-1) that `exactBalanceAssumed` cannot be verified onchain from the hash alone — **clients** MUST refuse to build terms with `exactBalanceAssumed = false`. Escrow enforces exact funding deltas regardless. |
+| `TECH-CORE-RISK-004` | Mismatch between signed `token` / `chainId` and the preimage a client displays is a client defect; escrow cannot re-check the preimage unless a future optional attestation profile supplies it. |
+
+### 1.7 Sentinels
 
 | Name | Value | Meaning |
 | --- | --- | --- |
 | `NATIVE_ASSET` | `address(0)` | Native ETH asset key |
 | `BPS_DENOM` | `10_000` | Basis-point denominator |
-| `EMPTY_PROFILE_HASH` | `bytes32(0)` | Profile disabled / absent |
+| `PROFILE_SET_NONE` | `keccak256("pluriswap.profiles.none.v2")` | Pass-1 empty profile set |
 | `NO_DEAL` | `bytes32(0)` | Uninitialized deal id |
 
-### 1.4 Deal and credit identifiers
+### 1.8 Deal and credit identifiers
 
 ```text
 termsHash = keccak256(abi.encode(EIP712_DEAL_TERMS_TYPEHASH, /* canonical field encoding */))
@@ -133,7 +222,6 @@ dealId    = keccak256(abi.encode(PROTOCOL_ID, CHAIN_ID, ESCROW, termsHash))
 `TECH-CORE-ID-002` — `dealId` is deterministic from terms and deployment identity. Relayers cannot choose an alternate id.
 
 `TECH-CORE-ID-003` — Credit keys are `(token, beneficiary)` for ordinary pull credits, plus typed journals for deficit recovery units (Section 10).
-
 ---
 
 ## 2. Types and enums
@@ -254,9 +342,9 @@ DealTerms(
   address providerFeeRecipient,
   uint256 nonce,
   uint64 createExpiry,
-  uint64 fiatDuration,
-  uint64 releaseDuration,
-  uint64 disputeDuration,
+  uint16 fiatDurationHours,
+  uint16 releaseDurationHours,
+  uint16 disputeDurationHours,
   uint16 disputeTimeoutProviderBps,
   bytes32 fiatCurrency,
   uint256 fiatAmount,
@@ -277,11 +365,13 @@ DealTerms(
 | `holderReceiver`, `providerReceiver` | Nonzero; each `!= ESCROW` (`TOKEN-010A`) |
 | `token` | `address(0)` (ETH) or ERC-20 contract with code |
 | `custodyBoundaryId` | Pass-1 MUST equal `keccak256(abi.encode(PROTOCOL_ID, CHAIN_ID, ESCROW, token))` |
-| `tokenRiskId` | Nonzero content-addressed risk record id (client-disclosed; escrow stores, does not interpret) |
+| `tokenRiskId` | Nonzero; Section 1.6 |
 | `principal` | `> 0` |
 | `holderFee`, `providerFee` | `>= 0`; `providerFee <= principal` |
 | Fee recipients | If fee `> 0`, recipient nonzero and `!= ESCROW`; if fee `== 0`, recipient MUST be `address(0)` |
-| Durations | Each in `1..=MAX_DURATION` |
+| Duration hours | Each in `1..=120` |
+| `createExpiry` | Future and within `MAX_CREATE_LEAD_SECONDS` (Section 1.2) |
+| `nonce` | Unused in activation journals (Section 3.7) |
 | `disputeTimeoutProviderBps` | `0..=10_000` |
 | Fiat commitment fields | Each nonzero (`bytes32` / `uint256` as typed); opaque to escrow beyond presence |
 | `profileSetHash` | Pass-1 MUST equal `keccak256("pluriswap.profiles.none.v2")` |
@@ -312,7 +402,9 @@ ResolutionAuthorization(
 
 `TECH-CORE-RES-002` — Both snapshotted holder and provider MUST sign the identical digest. Anyone may relay.
 
-`TECH-CORE-RES-003` — `resolutionNonce` is scoped to `(dealId, action)` and is one-use.
+`TECH-CORE-RES-003` — `resolutionNonce` is scoped to `(dealId, action)` and is one-use (Section 3.7).
+
+`TECH-CORE-RES-004` — At consumption, `expiry` MUST satisfy the lead-time window in Section 1.2.
 
 ### 3.5 CreditRedirectAuthorization
 
@@ -332,15 +424,73 @@ CreditRedirectAuthorization(
 
 `TECH-CORE-CRED-001` — Only the credit beneficiary may authorize redirection. `alternateReceiver` nonzero and `!= ESCROW`.
 
-### 3.6 Nonce journals
+`TECH-CORE-CRED-002` — Redirect nonce rules are in Section 3.7; lead-time rules match Section 1.2.
 
-| Journal | Key | Rule |
-| --- | --- | --- |
-| Activation nonce | `(holder, provider, nonce)` or global `termsHash` spent flag | Spent iff activation succeeds |
-| Resolution nonce | `(dealId, action, resolutionNonce)` | Spent iff resolution succeeds |
-| Redirect nonce | `(beneficiary, token, nonce)` | Spent iff redirect withdraw succeeds |
+### 3.6 Signature security requirements
 
-`TECH-CORE-NONCE-001` — Failed attempts MUST leave nonces unspent (`ACT-007`, `RES-005`).
+`TECH-CORE-SIG-005` — ECDSA signatures MUST be normalized: `v ∈ {27,28}` (or equivalent compact form) and `s` in the lower half of the curve order (EIP-2). Malleable signatures reject.
+
+`TECH-CORE-SIG-006` — Each EIP-712 primary type has a distinct `TYPEHASH`. Activation, resolution, and redirect digests MUST NOT be interchangeable.
+
+`TECH-CORE-SIG-007` — EIP-1271 wallets are a **chosen trust edge**. Escrow MUST use the standard magic-value check and MUST NOT grant the wallet extra custody powers beyond the signed digest. A malicious 1271 implementation can DoS its own deal actions; that cannot spend another deal’s assets (`TRUST-005`).
+
+`TECH-CORE-SIG-008` — Signature verification precedes nonce consumption and external token calls. Failed verification leaves all journals unchanged.
+
+### 3.7 Nonce journals (normative)
+
+Nonces are a primary replay-defense. Pass-1 defines **three disjoint journals**. Success consumes; any revert leaves journals unchanged.
+
+#### 3.7.1 Activation nonce
+
+Deal terms include a single `uint256 nonce`.
+
+Storage:
+
+```solidity
+mapping(bytes32 => bool) public termsHashConsumed;           // termsHash => spent
+mapping(address => mapping(uint256 => bool)) public activationNonceUsed; // party => nonce => spent
+```
+
+On successful `activate` only:
+
+1. Require `!termsHashConsumed[termsHash]`.
+2. Require `!activationNonceUsed[holder][nonce]`.
+3. Require `!activationNonceUsed[provider][nonce]`.
+4. Effects (after all other checks, before/with deal write): set all three to `true`.
+
+`TECH-CORE-NONCE-001` — The same `nonce` value cannot be reused by that holder or that provider for any later activation on this escrow, even with different counterparties or terms.
+
+`TECH-CORE-NONCE-002` — `termsHashConsumed` prevents replaying an identical signed terms blob if nonce journaling were ever bypassed by a client bug.
+
+`TECH-CORE-NONCE-003` — Recommended client practice: sample `nonce` as 256-bit CSPRNG. Escrow does not require sequential nonces (sequential nonces enable cross-wallet privacy leaks and stuck counters).
+
+#### 3.7.2 Resolution nonce
+
+```solidity
+mapping(bytes32 => mapping(uint8 => mapping(uint256 => bool))) public resolutionNonceUsed;
+// dealId => action => resolutionNonce => spent
+```
+
+`TECH-CORE-NONCE-004` — Consumed only when `resolve` succeeds. Scoped to `(dealId, action, resolutionNonce)` so a used cancel nonce cannot block a later split nonce.
+
+`TECH-CORE-NONCE-005` — Cross-deal, cross-action, cross-deployment, or wrong-`dealId` payloads reject without consumption.
+
+#### 3.7.3 Credit-redirect nonce
+
+```solidity
+mapping(address => mapping(address => mapping(uint256 => bool))) public redirectNonceUsed;
+// beneficiary => token => nonce => spent
+```
+
+`TECH-CORE-NONCE-006` — Consumed only on successful `withdrawTo`. Ordinary `withdraw` does not use this journal.
+
+#### 3.7.4 Failure and ordering
+
+`TECH-CORE-NONCE-007` — Failed activation/resolve/withdrawTo MUST leave every nonce bit unspent (`ACT-007`, `RES-005`).
+
+`TECH-CORE-NONCE-008` — Checks-effects: mark nonce spent only after signature, expiry, state, and funding checks pass, and under the reentrancy lock, before external interactions that can fail after partial side effects. If an external transfer can still fail after consumption, the whole transaction MUST revert (including nonce bits) — Solidity revert semantics satisfy this when consumption and external calls share one transaction without catching reverts.
+
+`TECH-CORE-NONCE-009` — Nonces are deployment-local. They do not synchronize across chains or successor escrows; domain binding prevents cross-deployment replay instead.
 
 ---
 
@@ -363,6 +513,9 @@ struct Deal {
     uint256 providerFee;               // signed absolute completion fee
     address providerFeeRecipient;
     uint16 disputeTimeoutProviderBps;
+    uint16 fiatDurationHours;
+    uint16 releaseDurationHours;
+    uint16 disputeDurationHours;
     uint64 activatedAt;
     uint64 fiatDeadline;
     uint64 releaseDeadline;            // 0 until FiatSent
@@ -371,6 +524,7 @@ struct Deal {
     bytes32 termsHash;
     bytes32 tokenRiskId;
     bytes32 custodyBoundaryId;
+    uint256 activationNonce;           // snapshotted for reconstructability
     // fiat commitments stored for reconstructability
     bytes32 fiatCurrency;
     uint256 fiatAmount;
@@ -510,9 +664,9 @@ requiredIn = principal + holderFee
 - If `token == NATIVE_ASSET`: `msg.value == requiredIn`; holder fee credited/transferred as ETH credit to `holderFeeRecipient` (or immediate credit).
 - If ERC-20: `msg.value == 0`; pull `requiredIn` from `msg.sender` **or** from `terms.holder` via allowance — Pass-1 normative rule:
 
-`TECH-CORE-ACT-001` — ERC-20 principal+fee are pulled from `terms.holder` using that holder’s allowance to the escrow. `msg.sender` may be any relayer. Native ETH MUST be supplied as `msg.value` by the transaction sender; for ETH deals the sender MUST be the holder (Pass-1 simplification) **or** a documented paymaster pattern is out of scope — **normative Pass-1:** for `NATIVE_ASSET`, `msg.sender == terms.holder` and `msg.value == requiredIn`.
+`TECH-CORE-ACT-001` — ERC-20 principal+fee are pulled from `terms.holder` using that holder’s allowance to the escrow. `msg.sender` may be any relayer and MUST send `msg.value == 0`.
 
-Rationale: prevents silent third-party ETH funding confusion in Core-only without a permit/paymaster profile.
+`TECH-CORE-ACT-002` — For `NATIVE_ASSET`, require `msg.sender == terms.holder` and `msg.value == requiredIn`. Third-party ETH funding and paymasters are out of scope for Pass 1.
 
 ---
 
@@ -531,11 +685,11 @@ All transitions share:
 **Preconditions**
 
 - Terms validate (Section 3.3).
-- `block.timestamp < createExpiry`.
-- Holder and provider signatures valid over `termsHash` digest.
-- `termsHash` / activation nonce unspent.
+- `block.timestamp < createExpiry <= block.timestamp + MAX_CREATE_LEAD_SECONDS`.
+- Holder and provider signatures valid over deal-terms digest.
+- Activation nonce journals unspent (Section 3.7.1).
 - Boundary not in DEFICIT for `token` (no new exposure).
-- Exact funding received.
+- Exact funding received (`TECH-CORE-ACT-001` / `TECH-CORE-ACT-002`).
 
 **Effects**
 
@@ -543,10 +697,10 @@ All transitions share:
 dealId = H(PROTOCOL_ID, CHAIN_ID, ESCROW, termsHash)
 state = Funded
 activatedAt = block.timestamp
-fiatDeadline = activatedAt + fiatDuration
+fiatDeadline = activatedAt + uint64(fiatDurationHours) * HOUR_SECONDS
 activePrincipal[token] += principal
 if holderFee > 0: credit(holderFeeRecipient, token, holderFee)  // matured immediately
-mark nonce spent
+consume activation nonces (Section 3.7.1)
 ```
 
 Activation fee is non-refundable after success (`FEE-H-003`).
@@ -555,7 +709,7 @@ Activation fee is non-refundable after success (`FEE-H-003`).
 
 - Caller `== provider`.
 - State `Funded`.
-- Effects: `state = FiatSent`; `releaseDeadline = block.timestamp + releaseDuration`.
+- Effects: `state = FiatSent`; `releaseDeadline = block.timestamp + uint64(releaseDurationHours) * HOUR_SECONDS`.
 
 Note: eligible even after `fiatDeadline` if still `Funded` (races timeout — `TIME-005`).
 
@@ -590,7 +744,7 @@ Note: eligible even after `fiatDeadline` if still `Funded` (races timeout — `T
 - Caller `== holder`.
 - State `FiatSent`.
 - `block.timestamp < releaseDeadline` (strict).
-- Effects: `state = Disputed`; `disputedAt = block.timestamp`; `disputeDeadline = disputedAt + disputeDuration`.
+- Effects: `state = Disputed`; `disputedAt = block.timestamp`; `disputeDeadline = disputedAt + uint64(disputeDurationHours) * HOUR_SECONDS`.
 - No fee, no bond (`DISPUTE-007`).
 
 ### 6.8 Dual-sign — `resolve`
@@ -601,7 +755,7 @@ Note: eligible even after `fiatDeadline` if still `Funded` (races timeout — `T
 | `CosignedRelease` | `FiatSent`, `Disputed` | Provider-full, `CosignedRelease` |
 | `Split` | `FiatSent`, `Disputed` | Partial by `providerShareBps`, `MutualSplit` |
 
-Common checks: signatures, `auth` binds `dealId` and identity, `block.timestamp < auth.expiry`, nonce fresh, `auth.action` matches.
+Common checks: signatures, `auth` binds `dealId` and identity, `block.timestamp < auth.expiry <= block.timestamp + MAX_AUTH_LEAD_SECONDS`, resolution nonce fresh (Section 3.7.2), `auth.action` matches.
 
 ### 6.9 CASE-CORE-025 — `disputeTimeout`
 
@@ -811,13 +965,112 @@ Pays `payout`, increments `claimedOf`. Rounding dust remains in the boundary (`T
 
 ---
 
-## 11. Reentrancy and concurrency
+## 11. Security model (Pass-1 Core)
+
+Core security goal: **no unauthorized custody movement, no invented outcome, no cross-deal contamination, and no stuck path that only a privileged actor can unblock.** Offchain fiat honesty remains a chosen-counterparty risk (`PROTOCOL.md` §2–3); this section hardens the machine.
+
+### 11.1 Trust boundaries
+
+| In trust / assumed | Out of trust / must not rely on |
+| --- | --- |
+| Settling chain execution and `block.timestamp` monotonic enough for deadline predicates | Relayers, keepers, indexers, frontends |
+| Signed EIP-712 consent + EIP-1271 magic-value check | Token issuer honesty beyond exact-delta assumption |
+| Immutable escrow bytecode | Any admin, pause, upgrade, or DAO switch |
+| Parties’ key / wallet security | Offchain fiat rails |
+
+`TECH-CORE-SEC-001` — Absence of owner/pause/upgrade is a security requirement, not an omission.
+
+### 11.2 Replay and signature attacks
+
+| Attack | Mitigation |
+| --- | --- |
+| Cross-chain replay | EIP-712 `chainId` + terms `chainId` + live `block.chainid` check |
+| Cross-deployment replay | `verifyingContract` / terms `escrow` bind |
+| Cross-version replay | `PROTOCOL_ID`, `PROTOCOL_VERSION`, charter/tech-spec hashes in payload |
+| Activation replay | `termsHashConsumed` + per-party `activationNonceUsed` (Section 3.7.1) |
+| Resolution replay | Per `(dealId, action, resolutionNonce)` journal |
+| Redirect replay | Per `(beneficiary, token, nonce)` journal |
+| Typed-data confusion | Distinct primary types / TYPEHASHes (`TECH-CORE-SIG-006`) |
+| ECDSA malleability | EIP-2 low-`s` + valid `v` (`TECH-CORE-SIG-005`) |
+| Stale signature warehouse | `createExpiry` / auth expiry lead caps (24h) |
+| Relayer term mutation | Relayer supplies calldata; digest must match stored/signed terms exactly |
+
+`TECH-CORE-SEC-002` — Security tests MUST include successful and failing vectors for every row above.
+
+### 11.3 Custody and token attacks
+
+| Attack | Mitigation |
+| --- | --- |
+| Fee-on-transfer / short transfer | Exact balance-delta funding (`TECH-CORE-TOK-001`) |
+| False ERC-20 return value | Safe transfer patterns + delta check |
+| Reentrant ERC-777/hook token | Nonreentrant guard on all value paths; CEI |
+| ERC-20 path with stray `msg.value` | Require `msg.value == 0` (`TECH-CORE-ACT-001`) |
+| Third-party ETH spoof funding | `msg.sender == holder` for ETH (`TECH-CORE-ACT-002`) |
+| Force-sent ETH / airdrop dust | Surplus is not a liability; cannot fund another deal (`TOKEN-013`) |
+| Receiver reverts to brick settlement | Pull credits; terminalization does not require external transfer success |
+| Self-receiver black hole | Receivers / fee recipients `!= ESCROW` |
+| Approval front-run to wrong escrow | Users approve specific escrow; clients warn; not a protocol bypass |
+| Rebasing / silent balance cut | Exact-asset assumption; unexplained deficit → boundary DEFICIT ledger, no cross-subsidy |
+| Using deal A assets for deal B | Per-deal principal accounting + per-token boundary isolation |
+
+`TECH-CORE-SEC-003` — Implementations MUST ship adversarial token mocks covering every row that is onchain-testable.
+
+### 11.4 State-machine and race attacks
+
+| Attack / concern | Handling |
+| --- | --- |
+| Double terminalization | Terminal state rejects further economic changes |
+| Claim after dispute freeze | `DisputeFreeze` |
+| Open dispute at/after release deadline | Reject; claim eligible instead (`CASE-RACE-003`) |
+| Fiat-timeout vs mark-fiat | Intentional race; first success wins (`TIME-005`) — not a bug |
+| Keeper censorship of timeouts | Anyone may execute; rights persist until competing transition wins |
+| Duplicate relay spam | Later calls revert; no double spend |
+| Unauthorized caller on holder/provider actions | Strict `msg.sender` checks |
+| Dual-sign with one forged side | Both signatures required over identical digest |
+
+`TECH-CORE-SEC-004` — Invariant tests MUST prove: one terminal outcome; principal conservation; fee caps; credit totals match terminal math; nonce monotonic consumption.
+
+### 11.5 Economic griefing within Core (accepted vs closed)
+
+| Behavior | Status |
+| --- | --- |
+| Provider marks fiat falsely; holder silent → claim | Accepted Core silence default; holder defense is free `openDispute` |
+| Holder opens dispute after real fiat → residual risk | Accepted counterparty risk; packages later may add bonds |
+| Nonzero activation fee kept on abort | Accepted (`FEE-H-003`) |
+| Dust principal / spam deals at zero fee | Accepted in Core; clients/packages may require fees |
+| Malicious EIP-1271 wallet DoS its own signatures | Chosen wallet trust; cannot spend others’ funds |
+| Token issuer blacklist after credit mint | Credit remains attributable; issuer risk disclosed via `tokenRiskId` |
+
+`TECH-CORE-SEC-005` — Reviews MUST NOT “fix” accepted rows by adding Core admin powers, hidden fees, or identity gates.
+
+### 11.6 Operational security requirements for clients
+
+Conforming clients MUST:
+
+1. Show every EIP-712 field before signing (amounts, receivers, hours, bps, fee recipients, hashes).
+2. Recompute and display `tokenRiskId` preimage flags.
+3. Verify deployment bytecode / `CHARTER_HASH` / `TECH_SPEC_HASH` against published manifest.
+4. Generate 256-bit random activation and resolution nonces.
+5. Never ask users to sign unbounded `createExpiry` or auth expiry beyond the lead caps.
+6. Default Core clocks to explicit hours (not silent multi-week values).
+
+### 11.7 Required security verification before CANDIDATE
+
+- Unit/integration coverage of Section 11.2–11.4 tables.
+- Stateful fuzzing: conservation, replay, races, deadline edges, fee caps.
+- Static analysis + compiler warnings clean on escrow.
+- No `delegatecall`, `selfdestruct`, upgrade slot, or `tx.origin` auth in escrow.
+- Explicit reentrancy tests with callback tokens on activate, terminalize-linked withdraw, and contributeRecovery.
+
+### 11.8 Reentrancy and concurrency controls
 
 `TECH-CORE-RE-001` — A non-reentrant guard covers `activate`, all state transitions, withdraw paths, and recovery claims.
 
 `TECH-CORE-RE-002` — Checks-effects-interactions: credit accounting updates before external calls.
 
 `TECH-CORE-RE-003` — Token callbacks cannot change deal state or mint unauthorized credits.
+
+`TECH-CORE-RE-004` — View functions are non-mutating and MUST NOT call untrusted contracts.
 
 ---
 
@@ -894,15 +1147,18 @@ The executable-requirements pass MUST include vectors for at least:
 3. Fiat-timeout vs mark-fiat race (both orderings).
 4. Free `openDispute` then dual-sign cancel / co-release / split / dispute timeout at `0`, `5000`, `10000` bps.
 5. Completion fee gross cap on split and residual.
-6. Zero-fee Core deal.
+6. Zero-fee Core deal (recipients `address(0)`).
 7. EIP-1271 holder and provider contract wallets.
-8. Replay across chainId / escrow / nonce.
-9. Exact funding reject (short ERC-20 transfer mock).
-10. Withdraw failure preserves credit; redirect withdraw.
-11. Deficit entry, pro-rata claims, contribute recovery.
-12. Receiver `== escrow` rejected.
-13. Activation after `createExpiry` rejected.
-14. All dual-sign expiry and nonce replay rejects.
+8. Replay across chainId / escrow / activation nonce / termsHash / resolution nonce / redirect nonce.
+9. Exact funding reject (short ERC-20 transfer mock); ERC-20 activate with nonzero `msg.value` reject.
+10. ETH activate with `msg.sender != holder` reject.
+11. Duration hours `0` and `121` reject; deadlines equal `hours * 3600`.
+12. `createExpiry` beyond 24h lead reject; auth expiry beyond 24h lead reject.
+13. Withdraw failure preserves credit; redirect withdraw consumes redirect nonce once.
+14. Deficit entry, pro-rata claims, contribute recovery; no cross-token subsidy.
+15. Receiver `== escrow` rejected; malleable ECDSA `s` rejected.
+16. Same holder nonce with different provider rejected after first success.
+17. Section 11.2–11.4 adversarial matrix cases.
 
 Each vector binds expected storage deltas, events, and balances.
 
@@ -925,24 +1181,31 @@ Deferred to later technical passes (not silent Core features):
 
 ---
 
-## 17. Open points requiring human confirmation before ratification
+## 17. Closed decisions (this revision)
 
-These do not block drafting or prototype coding, but MUST be closed before `TECH_SPEC_HASH` ratification:
+| Topic | Decision |
+| --- | --- |
+| Deal clocks | Signed in **hours**; each clock `1..=120` hours (max **5 days**) |
+| ETH activation | `msg.sender == holder` and exact `msg.value` |
+| Zero fee recipients | MUST be `address(0)` |
+| `tokenRiskId` | Required nonzero hash of canonical `TokenRiskRecord` (Section 1.6); no skip-disclosure sentinel |
+| Content hashing | `keccak256(raw file bytes)` for charter and aggregate tech spec |
+| Nonces | Full journals in Section 3.7 (activation, resolution, redirect) |
+| Auth freshness | 24h max lead for `createExpiry` and resolution/redirect expiry at consumption |
 
-1. **Final `MAX_DURATION` value** — currently `3660 days`; confirm product bound.
-2. **ETH activation sender rule** — Pass-1 requires `msg.sender == holder`; confirm no relayer-ETH exception.
-3. **Fee recipient when fee is zero** — Pass-1 requires `address(0)`; confirm client UX.
-4. **`tokenRiskId` nullity** — Pass-1 requires nonzero; confirm whether a canonical “unknown risk” hash is allowed.
-5. **Gas budgets** — replace provisional numbers with measured Arbitrum traces.
-6. **Charter/tech-spec hash algorithm** — confirm `keccak256` of raw file bytes vs canonicalized encoding.
+## 18. Remaining open points
 
-Until these are closed, this document remains **Draft — Pass 1**.
+1. **Gas budgets** — replace provisional Section 12 numbers with measured Arbitrum traces before QUALIFIED.
+2. **Whether escrow should optionally verify a supplied `TokenRiskRecord` preimage onchain** — Pass-1 stores hash only; onchain preimage check would raise gas and calldata size.
+3. **Default client clock recommendations** (e.g. suggest 24h/24h/24h) — product UX, not escrow consensus.
+
+Until optional items above are closed as needed, this document remains **Draft — Pass 1**, but the Section 17 decisions are binding for this draft.
 
 ---
 
-## 18. Change control
+## 19. Change control
 
-Edits to this document that change signed meaning, custody, transitions, fees, or credit semantics require a new technical-specification version and a new `TECH_SPEC_HASH`. Active deals on prior deployments remain governed by their snapshotted hashes.
+Edits to this document that change signed meaning, custody, transitions, fees, nonces, clocks, or credit semantics require a new technical-specification version and a new `TECH_SPEC_HASH`. Active deals on prior deployments remain governed by their snapshotted hashes.
 
 
 ---

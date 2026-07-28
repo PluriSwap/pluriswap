@@ -20,6 +20,10 @@ These choices are binding for this technical pass and are not reopened by implem
 3. **Target chain family:** Arbitrum (canonical L2 timestamp clock).
 4. **Consent:** EIP-712 typed data; contract parties via EIP-1271.
 5. **Assets:** Exact-balance ERC-20 plus native ETH (`address(0)` sentinel).
+6. **Deal clocks:** Whole hours, `1..=120` (max 5 days) for fiat / release / dispute windows.
+7. **ETH activate:** `msg.sender == holder` with exact `msg.value`.
+8. **Identity hashes:** `keccak256(raw file bytes)` for charter and aggregate tech spec.
+9. **Security posture:** Replay/nonce journals, pull credits, exact funding, no admin surface (see `MANDATORY_CORE.md` §11).
 
 ## Document order
 
