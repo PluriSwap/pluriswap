@@ -6,7 +6,7 @@
 **Pass:** 1 — Direct bilateral Core only  
 **Status:** Draft for technical elaboration (not yet protocol-ratified)  
 **Target runtime:** Arbitrum L2 (One / Sepolia and compatible Orbit chains with EVM timestamp semantics)  
-**Custody architecture:** Single immutable escrow contract per deployment  
+**Custody architecture:** Two mutually bound immutable contracts (Engine + Custody) plus external libraries  
 
 ---
 
@@ -56,17 +56,66 @@ Extension-point transitions (`CASE-PAY-*`, `CASE-ARB-*`) MUST revert with `Profi
 
 | ID | Decision |
 | --- | --- |
-| `TECH-CORE-ARCH-001` | One escrow contract holds all Core custody for the deployment. |
-| `TECH-CORE-ARCH-002` | Escrow bytecode is immutable after creation. No proxy, no admin upgrade, no pause, no arbitrary call. |
-| `TECH-CORE-ARCH-003` | Protocol clock is `block.timestamp` as observed by the escrow on the settling chain. |
-| `TECH-CORE-ARCH-004` | Consent uses EIP-712 typed data. Contract wallets authorize via EIP-1271 `isValidSignature`. |
-| `TECH-CORE-ARCH-005` | Assets are exact-delta ERC-20 tokens and native ETH represented by `NATIVE_ASSET = address(0)`. |
-| `TECH-CORE-ARCH-006` | Settlement is accounting-first: terminal transitions mint irrevocable credits, then optional external transfer on withdraw. |
-| `TECH-CORE-ARCH-007` | Pass-1 deals are direct holder↔provider only. Holder-side authority is always the signed `holder` address. |
-| `TECH-CORE-ARCH-008` | Core deal clocks (`fiat`, `release`, `dispute`) are signed in **whole hours**, minimum 1 hour, maximum **5 days (120 hours)**. |
-| `TECH-CORE-ARCH-009` | Native ETH activation requires `msg.sender == holder` and exact `msg.value`. |
-| `TECH-CORE-ARCH-010` | Document identity hashes are `keccak256` of the **raw file bytes** (Section 1.5). |
-| `TECH-CORE-ARCH-011` | Activation submits and stores the `TokenRiskRecord` preimage; escrow checks it matches signed `tokenRiskId`. |
+| `TECH-CORE-ARCH-001` | **Custody** is the sole Core asset boundary: it holds tokens/ETH, deal records, credits, and deficit ledgers. |
+| `TECH-CORE-ARCH-002` | **Engine** is the sole user-facing state-transition surface for deal lifecycle calls. Both Engine and Custody are immutable after creation. No proxy, no admin upgrade, no pause, no arbitrary call, no post-deploy setter for the peer address. |
+| `TECH-CORE-ARCH-003` | Heavy pure logic lives in **external libraries** (EIP-712 digests, settlement math, token-risk hash/flag checks) to stay under the 24,576-byte runtime limit. |
+| `TECH-CORE-ARCH-004` | Engine and Custody are **mutually bound** at construction (each stores the other’s address as `immutable`). Only the bound Engine may invoke Custody deal-mutation entrypoints. |
+| `TECH-CORE-ARCH-005` | Protocol clock is `block.timestamp` as observed by the settling chain on the contract executing the transition (Engine for auth checks; Custody for recorded timestamps written in the same transaction). |
+| `TECH-CORE-ARCH-006` | Consent uses EIP-712 typed data. Contract wallets authorize via EIP-1271 `isValidSignature`. |
+| `TECH-CORE-ARCH-007` | Assets are exact-delta ERC-20 tokens and native ETH represented by `NATIVE_ASSET = address(0)`. |
+| `TECH-CORE-ARCH-008` | Settlement is accounting-first: terminal transitions mint irrevocable credits, then optional external transfer on withdraw. |
+| `TECH-CORE-ARCH-009` | Pass-1 deals are direct holder↔provider only. Holder-side authority is always the signed `holder` address. |
+| `TECH-CORE-ARCH-010` | Core deal clocks (`fiat`, `release`, `dispute`) are signed in **whole hours**, minimum 1 hour, maximum **5 days (120 hours)**. |
+| `TECH-CORE-ARCH-011` | Native ETH activation requires `msg.sender == holder` and exact `msg.value` on the Engine call; Engine forwards value to Custody atomically. |
+| `TECH-CORE-ARCH-012` | Document identity hashes are `keccak256` of the **raw file bytes** (Section 1.5). |
+| `TECH-CORE-ARCH-013` | Activation submits and stores the `TokenRiskRecord` preimage; hash must match signed `tokenRiskId`. |
+| `TECH-CORE-ARCH-014` | No upgradeable Diamond/proxy custody. Size relief is libraries + the two-contract split only. |
+
+### 0.5 Deployment topology (normative)
+
+```text
+                    users / relayers / keepers
+                              |
+                              v
+                     +------------------+
+                     |  PluriSwapEngine |  <-- EIP-712 verifyingContract
+                     |  (immutable)     |  <-- signatures, transitions, payable activate
+                     +--------+---------+
+                              |
+                              | onlyEngine deal-mutation calls
+                              | (+ forward msg.value on ETH activate)
+                              v
+                     +------------------+
+                     | PluriSwapCustody |  <-- holds ETH/ERC-20
+                     |  (immutable)     |  <-- deals, credits, deficit
+                     +--------+---------+
+                              ^
+                              |
+              permissionless withdraw / claimRecovery
+                              |
+                           anyone
+
+External libraries (linked / called, not custody holders):
+  - PluriSwapEIP712Lib
+  - PluriSwapSettlementLib
+  - PluriSwapRiskLib
+```
+
+**Responsibilities**
+
+| Component | Holds assets? | Stores deals? | User calls? | Peer auth |
+| --- | --- | --- | --- | --- |
+| `PluriSwapEngine` | No (except transient `msg.value` forward) | No | Yes — all lifecycle entrypoints | Immutable `CUSTODY` |
+| `PluriSwapCustody` | Yes | Yes | Yes — only `withdraw`, `withdrawTo`, `contributeRecovery`, `claimRecovery`, views | Immutable `ENGINE`; deal mutations `require(msg.sender == ENGINE)` |
+| External libraries | No | No | Indirect | Stateless pure/view helpers |
+
+**Construction / addressing**
+
+`TECH-CORE-DEP-002` — Peer addresses are constructor immutables only. Deployment MUST use **CREATE2** (or an equivalent deterministic scheme) so each constructor can embed the other’s final address without any initializer, owner, or rewrite.
+
+`TECH-CORE-DEP-003` — Runtime bytecode of Engine and of Custody MUST each independently satisfy the EIP-170 limit. Linked library addresses are fixed in the deployment manifest.
+
+`TECH-CORE-DEP-004` — Future optional profiles MUST be separate modules, not merged into Engine/Custody bytecode. Core entrypoints remain callable without them.
 
 ---
 
@@ -83,9 +132,10 @@ Implementations MUST expose these immutables (constructor-set or compile-time co
 | `TECH_SPEC_HASH` | `bytes32` | Content hash of the ratified aggregate technical specification (Section 1.5) |
 | `PROTOCOL_VERSION` | `uint32` | `2` |
 | `CHAIN_ID` | `uint64` | Settling chain id (e.g. `42161` Arbitrum One, `421614` Arbitrum Sepolia) |
-| `ESCROW` | `address` | This deployment’s escrow address (`address(this)` at runtime) |
+| `ENGINE` | `address` | Deal-engine address (EIP-712 `verifyingContract`) |
+| `CUSTODY` | `address` | Custody / asset-boundary address |
 
-`TECH-CORE-ID-001` — Activation MUST reject if signed terms’ identity fields disagree with the deployment’s immutables.
+`TECH-CORE-ID-001` — Activation MUST reject if signed terms’ identity fields disagree with the deployment’s immutables (`ENGINE`, `CUSTODY`, hashes, version, chain).
 
 ### 1.2 Numeric ranges and deal clocks
 
@@ -213,7 +263,7 @@ tokenRiskId = keccak256(abi.encode(
 
 ```text
 termsHash = keccak256(abi.encode(EIP712_DEAL_TERMS_TYPEHASH, /* canonical field encoding */))
-dealId    = keccak256(abi.encode(PROTOCOL_ID, CHAIN_ID, ESCROW, termsHash))
+dealId    = keccak256(abi.encode(PROTOCOL_ID, CHAIN_ID, ENGINE, CUSTODY, termsHash))
 ```
 
 `TECH-CORE-ID-002` — `dealId` is deterministic from terms and deployment identity. Relayers cannot choose an alternate id.
@@ -294,10 +344,10 @@ enum AssetKind { NativeEth, Erc20 }
 name:              "PluriSwap"
 version:           "2"
 chainId:           CHAIN_ID          // must equal block.chainid at verify time
-verifyingContract: ESCROW
+verifyingContract: ENGINE            // Deal engine, not Custody
 ```
 
-`TECH-CORE-SIG-001` — Verification MUST recompute the domain separator from live `block.chainid` and `address(this)` and reject mismatches. This prevents replay across chains and deployments.
+`TECH-CORE-SIG-001` — Verification MUST recompute the domain separator from live `block.chainid` and `ENGINE` (`address(this)` inside Engine) and reject mismatches. This prevents replay across chains and deployments.
 
 `TECH-CORE-SIG-002` — `PROTOCOL_ID`, `CHARTER_HASH`, `TECH_SPEC_HASH`, and `PROTOCOL_VERSION` are bound **inside deal terms and resolution payloads**, not only in the domain name string.
 
@@ -324,7 +374,8 @@ DealTerms(
   bytes32 techSpecHash,
   uint32 protocolVersion,
   uint64 chainId,
-  address escrow,
+  address engine,
+  address custody,
   address holder,
   address provider,
   address holderReceiver,
@@ -358,14 +409,15 @@ DealTerms(
 | Field | Rule |
 | --- | --- |
 | Identity fields | Exact match to deployment immutables |
+| `engine`, `custody` | Exact `ENGINE` and `CUSTODY` |
 | `holder`, `provider` | Nonzero, distinct |
-| `holderReceiver`, `providerReceiver` | Nonzero; each `!= ESCROW` (`TOKEN-010A`) |
+| `holderReceiver`, `providerReceiver` | Nonzero; each `!= CUSTODY` and `!= ENGINE` (`TOKEN-010A`) |
 | `token` | `address(0)` (ETH) or ERC-20 contract with code |
-| `custodyBoundaryId` | Pass-1 MUST equal `keccak256(abi.encode(PROTOCOL_ID, CHAIN_ID, ESCROW, token))` |
+| `custodyBoundaryId` | Pass-1 MUST equal `keccak256(abi.encode(PROTOCOL_ID, CHAIN_ID, CUSTODY, token))` |
 | `tokenRiskId` | Nonzero; must equal hash of activation `risk` preimage (Section 1.6) |
 | `principal` | `> 0` |
 | `holderFee`, `providerFee` | `>= 0`; `providerFee <= principal` |
-| Fee recipients | If fee `> 0`, recipient nonzero and `!= ESCROW`; if fee `== 0`, recipient MUST be `address(0)` |
+| Fee recipients | If fee `> 0`, recipient nonzero and `!= CUSTODY` and `!= ENGINE`; if fee `== 0`, recipient MUST be `address(0)` |
 | Duration hours | Each in `1..=120` |
 | `createExpiry` | Future and within `MAX_CREATE_LEAD_SECONDS` (Section 1.2) |
 | `nonce` | Unused in activation journals (Section 3.7) |
@@ -386,7 +438,8 @@ ResolutionAuthorization(
   bytes32 techSpecHash,
   uint32 protocolVersion,
   uint64 chainId,
-  address escrow,
+  address engine,
+  address custody,
   bytes32 dealId,
   uint8 action,                 // ResolutionAction
   uint256 resolutionNonce,
@@ -409,7 +462,8 @@ ResolutionAuthorization(
 CreditRedirectAuthorization(
   bytes32 protocolId,
   uint64 chainId,
-  address escrow,
+  address engine,
+  address custody,
   address token,
   address beneficiary,
   address alternateReceiver,
@@ -419,7 +473,9 @@ CreditRedirectAuthorization(
 )
 ```
 
-`TECH-CORE-CRED-001` — Only the credit beneficiary may authorize redirection. `alternateReceiver` nonzero and `!= ESCROW`.
+`TECH-CORE-CRED-001` — Only the credit beneficiary may authorize redirection. `alternateReceiver` nonzero and `!= CUSTODY` and `!= ENGINE`.
+
+`TECH-CORE-CRED-003` — All EIP-712 verification runs on **Engine** (`verifyingContract = ENGINE`). `withdrawTo` is an Engine entrypoint that verifies the redirect auth then calls Custody. Ordinary `withdraw(token, beneficiary)` MAY be called **directly on Custody** (no signature).
 
 `TECH-CORE-CRED-002` — Redirect nonce rules are in Section 3.7; lead-time rules match Section 1.2.
 
@@ -455,7 +511,7 @@ On successful `activate` only:
 3. Require `!activationNonceUsed[provider][nonce]`.
 4. Effects (after all other checks, before/with deal write): set all three to `true`.
 
-`TECH-CORE-NONCE-001` — The same `nonce` value cannot be reused by that holder or that provider for any later activation on this escrow, even with different counterparties or terms.
+`TECH-CORE-NONCE-001` — The same `nonce` value cannot be reused by that holder or that provider for any later activation on this deployment’s Custody, even with different counterparties or terms. Pass-1 nonce journals live on **Custody** and are mutated only through Engine-authenticated calls.
 
 `TECH-CORE-NONCE-002` — `termsHashConsumed` prevents replaying an identical signed terms blob if nonce journaling were ever bypassed by a client bug.
 
@@ -580,29 +636,26 @@ assetsControlled >= activePrincipal + maturedCredits
 
 ## 5. External interfaces
 
-### 5.1 Escrow surface (Pass 1)
+### 5.1 Engine surface (user-facing, Pass 1)
 
 ```solidity
-interface IPluriSwapCore {
-    // --- activation ---
+interface IPluriSwapEngine {
+    function custody() external view returns (address);
+
     function activate(
         DealTerms calldata terms,
-        TokenRiskRecord calldata risk,   // preimage; hash must equal terms.tokenRiskId
+        TokenRiskRecord calldata risk,
         bytes calldata holderSignature,
         bytes calldata providerSignature
     ) external payable returns (bytes32 dealId);
 
-    // --- FUNDED ---
     function markFiatSent(bytes32 dealId) external;
     function providerCancel(bytes32 dealId) external;
     function fiatTimeoutCancel(bytes32 dealId) external;
-
-    // --- FIAT_SENT ---
     function release(bytes32 dealId) external;
     function claim(bytes32 dealId) external;
     function openDispute(bytes32 dealId) external;
 
-    // --- dual-sign (FUNDED / FIAT_SENT / DISPUTED as allowed) ---
     function resolve(
         bytes32 dealId,
         ResolutionAuthorization calldata auth,
@@ -610,37 +663,54 @@ interface IPluriSwapCore {
         bytes calldata providerSignature
     ) external;
 
-    // --- DISPUTED ---
     function disputeTimeout(bytes32 dealId) external;
 
-    // --- credits ---
-    function withdraw(address token, address beneficiary) external;
     function withdrawTo(
         CreditRedirectAuthorization calldata auth,
         bytes calldata beneficiarySignature
     ) external;
 
-    // --- deficit recovery ---
-    function contributeRecovery(address token) external payable;
-    function claimRecovery(address token, address beneficiary) external;
-
-    // --- views ---
-    function getDeal(bytes32 dealId) external view returns (Deal memory);
     function quoteSettlement(bytes32 dealId, OutcomeCode outcome, uint16 providerShareBps)
         external view returns (uint256 holderGross, uint256 providerGross, uint256 providerFeeCollected);
 }
 ```
 
-`TECH-CORE-IFACE-001` — Function names above are normative for Pass-1 ABI compatibility claims. Additional view helpers MAY be added without a protocol version bump if they cannot change state.
+### 5.2 Custody surface (Pass 1)
+
+```solidity
+interface IPluriSwapCustody {
+    function engine() external view returns (address);
+
+    // --- engine-only deal mutations (msg.sender == ENGINE) ---
+    function engineActivate(/* packed activation effects + funding pull */) external payable returns (bytes32 dealId);
+    function engineApplyTransition(bytes32 dealId, /* transition opcode + args */) external;
+    function engineWithdrawTo(address token, address beneficiary, address receiver, uint256 amount) external;
+
+    // --- permissionless value exits / recovery ---
+    function withdraw(address token, address beneficiary) external;
+    function contributeRecovery(address token) external payable;
+    function claimRecovery(address token, address beneficiary) external;
+
+    // --- views ---
+    function getDeal(bytes32 dealId) external view returns (Deal memory);
+    function creditOf(address token, address beneficiary) external view returns (uint256);
+}
+```
+
+`TECH-CORE-IFACE-001` — Engine function names in §5.1 are normative for Pass-1 client ABI claims.
+
+`TECH-CORE-IFACE-002` — Custody `engine*` methods are **not** a public product ABI for wallets. They MUST authenticate `msg.sender == ENGINE`. Exact internal calldata packing MAY use tightly packed structs, but effects MUST equal Sections 6–7.
+
+`TECH-CORE-IFACE-003` — Libraries expose pure functions only (digests, math, risk hash/flags). They MUST NOT hold balances or deal storage.
 
 ### 5.2 Token adapters (internal)
 
 **ERC-20 path**
 
-1. Record `before = balanceOf(escrow)`.
-2. `transferFrom(funder, escrow, amount)` (or pull pattern equivalent).
-3. Require `balanceOf(escrow) - before == amount`.
-4. Reentrancy lock around the full activation/settlement critical section.
+1. Record `before = balanceOf(CUSTODY)`.
+2. `transferFrom(funder, CUSTODY, amount)` (or pull pattern equivalent).
+3. Require `balanceOf(CUSTODY) - before == amount`.
+4. Reentrancy locks on both Engine and Custody critical sections.
 
 **Native ETH path**
 
@@ -663,9 +733,11 @@ requiredIn = principal + holderFee
 - If `token == NATIVE_ASSET`: `msg.value == requiredIn`; holder fee credited/transferred as ETH credit to `holderFeeRecipient` (or immediate credit).
 - If ERC-20: `msg.value == 0`; pull `requiredIn` from `msg.sender` **or** from `terms.holder` via allowance — Pass-1 normative rule:
 
-`TECH-CORE-ACT-001` — ERC-20 principal+fee are pulled from `terms.holder` using that holder’s allowance to the escrow. `msg.sender` may be any relayer and MUST send `msg.value == 0`.
+`TECH-CORE-ACT-001` — ERC-20 principal+fee are pulled from `terms.holder` using that holder’s allowance to **Custody** (not Engine). Engine `msg.sender` may be any relayer and MUST send `msg.value == 0`.
 
-`TECH-CORE-ACT-002` — For `NATIVE_ASSET`, require `msg.sender == terms.holder` and `msg.value == requiredIn`. Third-party ETH funding and paymasters are out of scope for Pass 1.
+`TECH-CORE-ACT-002` — For `NATIVE_ASSET`, require Engine `msg.sender == terms.holder` and `msg.value == requiredIn`. Engine forwards the full value to Custody in the same transaction; if Custody activation reverts, the whole call reverts. Third-party ETH funding and paymasters are out of scope for Pass 1.
+
+`TECH-CORE-ACT-003` — Users never need to send assets to Engine for storage. Engine MUST NOT retain balances across transactions.
 
 ---
 
@@ -694,15 +766,16 @@ All transitions share:
 **Effects**
 
 ```text
-dealId = H(PROTOCOL_ID, CHAIN_ID, ESCROW, termsHash)
+dealId = H(PROTOCOL_ID, CHAIN_ID, ENGINE, CUSTODY, termsHash)
+// Engine verifies sigs/risk/nonces/time; Custody writes state + takes funds
 state = Funded
 activatedAt = block.timestamp
 fiatDeadline = activatedAt + uint64(fiatDurationHours) * HOUR_SECONDS
-store tokenRiskId and full TokenRiskRecord preimage
+store tokenRiskId and full TokenRiskRecord preimage (on Custody)
 activePrincipal[token] += principal
 if holderFee > 0: credit(holderFeeRecipient, token, holderFee)  // matured immediately
-consume activation nonces (Section 3.7.1)
-emit DealActivated + TokenRiskBound
+consume activation nonces on Custody (Section 3.7.1)
+emit DealActivated + TokenRiskBound from Custody
 ```
 
 Activation fee is non-refundable after success (`FEE-H-003`).
@@ -774,7 +847,8 @@ Common checks: signatures, `auth` binds `dealId` and identity, `block.timestamp 
 | `release` or `claim` while `Disputed` | `DisputeFreeze` (`CASE-CORE-027`) |
 | Any state-changing call on terminal deal | `DealTerminal` (`CASE-CORE-020`) |
 | Profile extension entrypoints | `ProfileDisabled` |
-| Receiver equals escrow | `InvalidReceiver` |
+| Receiver equals `CUSTODY` or `ENGINE` | `InvalidReceiver` |
+| Non-engine caller hits Custody `engine*` | `UnauthorizedEngine` |
 
 ### 6.11 Race semantics (implementation)
 
@@ -914,6 +988,7 @@ error InsufficientCredit();
 error Reentrancy();
 error IdentityMismatch();
 error TokenRiskMismatch();       // preimage hash != terms.tokenRiskId or bind/flag fail
+error UnauthorizedEngine();      // Custody deal mutation from non-ENGINE caller
 ```
 
 Custom errors are normative for Pass-1 interface claims; string reverts are non-conformant for these cases.
@@ -984,7 +1059,7 @@ Core security goal: **no unauthorized custody movement, no invented outcome, no 
 | --- | --- |
 | Settling chain execution and `block.timestamp` monotonic enough for deadline predicates | Relayers, keepers, indexers, frontends |
 | Signed EIP-712 consent + EIP-1271 magic-value check | Token issuer honesty beyond exact-delta assumption |
-| Immutable escrow bytecode | Any admin, pause, upgrade, or DAO switch |
+| Immutable Engine + Custody bytecode and mutual bind | Any admin, pause, upgrade, or DAO switch |
 | Parties’ key / wallet security | Offchain fiat rails |
 
 `TECH-CORE-SEC-001` — Absence of owner/pause/upgrade is a security requirement, not an omission.
@@ -994,7 +1069,8 @@ Core security goal: **no unauthorized custody movement, no invented outcome, no 
 | Attack | Mitigation |
 | --- | --- |
 | Cross-chain replay | EIP-712 `chainId` + terms `chainId` + live `block.chainid` check |
-| Cross-deployment replay | `verifyingContract` / terms `escrow` bind |
+| Cross-deployment replay | `verifyingContract = ENGINE` + terms `engine`/`custody` bind |
+| Custody called by spoof engine | Immutable `ENGINE`; `msg.sender` check on every mutation |
 | Cross-version replay | `PROTOCOL_ID`, `PROTOCOL_VERSION`, charter/tech-spec hashes in payload |
 | Activation replay | `termsHashConsumed` + per-party `activationNonceUsed` (Section 3.7.1) |
 | Resolution replay | Per `(dealId, action, resolutionNonce)` journal |
@@ -1017,8 +1093,9 @@ Core security goal: **no unauthorized custody movement, no invented outcome, no 
 | Third-party ETH spoof funding | `msg.sender == holder` for ETH (`TECH-CORE-ACT-002`) |
 | Force-sent ETH / airdrop dust | Surplus is not a liability; cannot fund another deal (`TOKEN-013`) |
 | Receiver reverts to brick settlement | Pull credits; terminalization does not require external transfer success |
-| Self-receiver black hole | Receivers / fee recipients `!= ESCROW` |
-| Approval front-run to wrong escrow | Users approve specific escrow; clients warn; not a protocol bypass |
+| Self-receiver black hole | Receivers / fee recipients `!= CUSTODY` and `!= ENGINE` |
+| Approval front-run to wrong custody | Users approve specific `CUSTODY`; clients warn; not a protocol bypass |
+| Engine retains ETH | Forward-only; activation atomic with Custody; no balance left on Engine |
 | Rebasing / silent balance cut | Exact-asset assumption; unexplained deficit → boundary DEFICIT ledger, no cross-subsidy |
 | Using deal A assets for deal B | Per-deal principal accounting + per-token boundary isolation |
 
@@ -1034,8 +1111,9 @@ Core security goal: **no unauthorized custody movement, no invented outcome, no 
 | Fiat-timeout vs mark-fiat | Intentional race; first success wins (`TIME-005`) — not a bug |
 | Keeper censorship of timeouts | Anyone may execute; rights persist until competing transition wins |
 | Duplicate relay spam | Later calls revert; no double spend |
-| Unauthorized caller on holder/provider actions | Strict `msg.sender` checks |
+| Unauthorized caller on holder/provider actions | Strict `msg.sender` checks on Engine |
 | Dual-sign with one forged side | Both signatures required over identical digest |
+| Direct Custody deal mutation | Blocked unless `msg.sender == ENGINE` |
 
 `TECH-CORE-SEC-004` — Invariant tests MUST prove: one terminal outcome; principal conservation; fee caps; credit totals match terminal math; nonce monotonic consumption.
 
@@ -1057,8 +1135,8 @@ Core security goal: **no unauthorized custody movement, no invented outcome, no 
 Conforming clients MUST:
 
 1. Show every EIP-712 field before signing (amounts, receivers, hours, bps, fee recipients, hashes).
-2. Build, display, and sign over `tokenRiskId`; at activate submit the same `TokenRiskRecord` preimage escrow will store.
-3. Verify deployment bytecode / `CHARTER_HASH` / `TECH_SPEC_HASH` against published manifest.
+2. Build, display, and sign over `tokenRiskId`; at activate submit the same `TokenRiskRecord` preimage Custody will store.
+3. Verify Engine + Custody bytecode, mutual bind, library addresses, `CHARTER_HASH`, and `TECH_SPEC_HASH` against the published manifest.
 4. Generate 256-bit random activation and resolution nonces.
 5. Never ask users to sign unbounded `createExpiry` or auth expiry beyond the lead caps.
 6. Default Core clocks to explicit hours (not silent multi-week values).
@@ -1067,9 +1145,10 @@ Conforming clients MUST:
 
 - Unit/integration coverage of Section 11.2–11.4 tables.
 - Stateful fuzzing: conservation, replay, races, deadline edges, fee caps.
-- Static analysis + compiler warnings clean on escrow.
-- No `delegatecall`, `selfdestruct`, upgrade slot, or `tx.origin` auth in escrow.
-- Explicit reentrancy tests with callback tokens on activate, terminalize-linked withdraw, and contributeRecovery.
+- Static analysis + compiler warnings clean on Engine, Custody, and libraries.
+- No `delegatecall` to untrusted targets, no `selfdestruct`, no upgrade slot, no `tx.origin` auth.
+- Explicit reentrancy tests with callback tokens on activate, withdraw, and contributeRecovery.
+- Size check: each of Engine and Custody runtime bytecode `<= 24576` bytes.
 
 ### 11.8 Reentrancy and concurrency controls
 
@@ -1107,14 +1186,18 @@ A Pass-1 immutable deployment manifest MUST include at minimum:
 
 - manifest schema identity: `pluriswap.v2.manifest.core-only`
 - `CHARTER_HASH`, `TECH_SPEC_HASH`, `PROTOCOL_VERSION`
-- chain id, escrow address, create tx, deployment block
-- compiler version, optimizer settings, bytecode hash (creation + runtime)
-- constructor preimage: `(PROTOCOL_ID, CHARTER_HASH, TECH_SPEC_HASH)` if set in constructor
+- chain id
+- `ENGINE` address, `CUSTODY` address, CREATE2 salts / factories, create txs, deployment blocks
+- each external library address and bytecode hash
+- compiler version, optimizer settings, bytecode hashes (creation + runtime) for Engine, Custody, libraries
+- proof that Engine.custody == CUSTODY and Custody.engine == ENGINE
+- constructor preimages including protocol identity hashes
 - enabled profile set: empty / `profiles.none.v2`
-- governance/emergency: **absent** for Core custody (no roles)
+- governance/emergency: **absent** for Core (no roles)
 - predecessor: present or explicit null sentinel
+- measured runtime code sizes for Engine and Custody
 
-`TECH-CORE-DEP-001` — Core escrow constructor MUST NOT set an owner, pauser, or upgrade admin.
+`TECH-CORE-DEP-001` — Neither Engine nor Custody constructor MAY set an owner, pauser, upgrade admin, or rewriteable peer address.
 
 ---
 
@@ -1158,14 +1241,14 @@ The executable-requirements pass MUST include vectors for at least:
 5. Completion fee gross cap on split and residual.
 6. Zero-fee Core deal (recipients `address(0)`).
 7. EIP-1271 holder and provider contract wallets.
-8. Replay across chainId / escrow / activation nonce / termsHash / resolution nonce / redirect nonce.
+8. Replay across chainId / engine / custody / activation nonce / termsHash / resolution nonce / redirect nonce.
 9. Exact funding reject (short ERC-20 transfer mock); ERC-20 activate with nonzero `msg.value` reject.
 10. ETH activate with `msg.sender != holder` reject.
 11. Duration hours `0` and `121` reject; deadlines equal `hours * 3600`.
 12. `createExpiry` beyond 24h lead reject; auth expiry beyond 24h lead reject.
 13. Withdraw failure preserves credit; redirect withdraw consumes redirect nonce once.
 14. Deficit entry, pro-rata claims, contribute recovery; no cross-token subsidy.
-15. Receiver `== escrow` rejected; malleable ECDSA `s` rejected.
+15. Receiver `== CUSTODY` or `ENGINE` rejected; malleable ECDSA `s` rejected; non-engine Custody mutation rejected.
 16. Same holder nonce with different provider rejected after first success.
 17. Section 11.2–11.4 adversarial matrix cases.
 18. Token risk: matching preimage succeeds and is stored; wrong hash / wrong token / rebase or fee-on-transfer flags / `exactBalanceAssumed=false` revert.
@@ -1203,11 +1286,13 @@ Deferred to later technical passes (not silent Core features):
 | Content hashing | `keccak256(raw file bytes)` for charter and aggregate tech spec |
 | Nonces | Full journals in Section 3.7 (activation, resolution, redirect) |
 | Auth freshness | 24h max lead for `createExpiry` and resolution/redirect expiry at consumption |
+| Contract split | External libraries + immutable **Engine** + immutable **Custody**, CREATE2 mutual bind |
 
 ## 18. Remaining open points
 
 1. **Gas budgets** — replace provisional Section 12 numbers with measured Arbitrum traces before QUALIFIED.
-2. **Default client clock recommendations** (e.g. suggest 24h/24h/24h) — product UX, not escrow consensus.
+2. **Default client clock recommendations** (e.g. suggest 24h/24h/24h) — product UX, not Engine consensus.
+3. **Exact Custody `engine*` calldata packing** — may be finalized at implementation as long as effects match this spec.
 
 Until optional items above are closed as needed, this document remains **Draft — Pass 1**, but the Section 17 decisions are binding for this draft.
 

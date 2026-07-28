@@ -16,7 +16,7 @@ If this directory conflicts with `PROTOCOL.md`, this directory is non-conformant
 These choices are binding for this technical pass and are not reopened by implementation convenience:
 
 1. **Scope:** Mandatory Core only (direct deals). Optional profiles reject at activation.
-2. **Architecture:** One immutable escrow contract per deployment (no custody proxy, no owner, no pause).
+2. **Architecture:** Immutable **Engine** + immutable **Custody**, mutually CREATE2-bound, plus external libraries (no proxy/owner/pause).
 3. **Target chain family:** Arbitrum (canonical L2 timestamp clock).
 4. **Consent:** EIP-712 typed data; contract parties via EIP-1271.
 5. **Assets:** Exact-balance ERC-20 plus native ETH (`address(0)` sentinel).
