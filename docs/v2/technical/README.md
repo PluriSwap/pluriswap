@@ -24,6 +24,7 @@ These choices are binding for this technical pass and are not reopened by implem
 7. **ETH activate:** `msg.sender == holder` with exact `msg.value`.
 8. **Identity hashes:** `keccak256(raw file bytes)` for charter and aggregate tech spec.
 9. **Security posture:** Replay/nonce journals, pull credits, exact funding, no admin surface (see `MANDATORY_CORE.md` §11).
+10. **Token risk:** Sign `tokenRiskId`, submit matching `TokenRiskRecord` preimage at activate; store and emit both.
 
 ## Document order
 

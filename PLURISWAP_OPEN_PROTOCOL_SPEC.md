@@ -82,6 +82,7 @@ Extension-point transitions (`CASE-PAY-*`, `CASE-ARB-*`) MUST revert with `Profi
 | `TECH-CORE-ARCH-008` | Core deal clocks (`fiat`, `release`, `dispute`) are signed in **whole hours**, minimum 1 hour, maximum **5 days (120 hours)**. |
 | `TECH-CORE-ARCH-009` | Native ETH activation requires `msg.sender == holder` and exact `msg.value`. |
 | `TECH-CORE-ARCH-010` | Document identity hashes are `keccak256` of the **raw file bytes** (Section 1.5). |
+| `TECH-CORE-ARCH-011` | Activation submits and stores the `TokenRiskRecord` preimage; escrow checks it matches signed `tokenRiskId`. |
 
 ---
 
@@ -161,32 +162,41 @@ Rules:
 
 `TECH-CORE-HASH-002` — `tokenRiskId` uses the same keccak256 function over the canonical risk-record bytes defined in Section 1.6.
 
-### 1.6 Token risk identity (`tokenRiskId`)
+### 1.6 Token risk identity (`tokenRiskId` + saved preimage)
 
-`tokenRiskId` is **not** an allowlist entry and **not** interpreted by escrow for transfer behavior.
+`tokenRiskId` is **not** an allowlist entry and does **not** make escrow trust the token issuer.
 
-It is the content hash of a **TokenRiskRecord** that conforming clients MUST show before signing (`PROTOCOL.md` TOKEN-001, TOKEN-004, TOKEN-006). Parties bind that they accepted a specific risk disclosure for the selected token.
+Plain language:
 
-**Canonical preimage (ABI-encoded, then hashed):**
+- The **preimage** is the filled-out risk form (`TokenRiskRecord` fields below).
+- `tokenRiskId` is `keccak256` of that form.
+- Parties **sign** `tokenRiskId` inside deal terms.
+- At activation, the caller **submits the form again**; escrow re-hashes it, checks it matches the signed id, checks it matches the deal’s token/chain, **stores both**, and emits them so anyone can verify the parties signed that exact disclosure.
+
+**Canonical preimage struct:**
+
+```solidity
+struct TokenRiskRecord {
+    uint64  chainId;
+    address token;                 // address(0) for native ETH
+    uint8   decimals;              // 18 for ETH; ERC-20 decimals at disclosure time
+    bool    isNativeEth;
+    bool    issuerCanUpgrade;
+    bool    issuerCanPause;
+    bool    issuerCanFreezeOrBlacklist;
+    bool    hasCallbacksOrHooks;
+    bool    hasPermit;
+    bool    isRebasing;
+    bool    hasTransferFeeOrHaircut;
+    bool    exactBalanceAssumed;   // MUST be true for Core activation
+    bytes32 evidenceUriHash;       // keccak256 of a disclosure URI or document
+    bytes32 notesHash;             // keccak256 of free-form notes (may be keccak256(""))
+}
+```
+
+**Hash formula (must match signed `terms.tokenRiskId`):**
 
 ```text
-TokenRiskRecord(
-  uint64  chainId,
-  address token,                 // address(0) for native ETH
-  uint8   decimals,              // 18 for ETH; ERC-20 decimals at disclosure time
-  bool    isNativeEth,
-  bool    issuerCanUpgrade,
-  bool    issuerCanPause,
-  bool    issuerCanFreezeOrBlacklist,
-  bool    hasCallbacksOrHooks,
-  bool    hasPermit,
-  bool    isRebasing,
-  bool    hasTransferFeeOrHaircut,
-  bool    exactBalanceAssumed,   // MUST be true for Core-compatible activation intent
-  bytes32 evidenceUriHash,       // keccak256 of a disclosure URI or document
-  bytes32 notesHash              // keccak256 of free-form notes (may be keccak256(""))
-)
-
 tokenRiskId = keccak256(abi.encode(
   keccak256("pluriswap.v2.TokenRiskRecord.v1"),
   chainId, token, decimals, isNativeEth,
@@ -198,10 +208,13 @@ tokenRiskId = keccak256(abi.encode(
 
 | Rule | Requirement |
 | --- | --- |
-| `TECH-CORE-RISK-001` | `tokenRiskId != bytes32(0)` |
-| `TECH-CORE-RISK-002` | No canonical “unknown / skip disclosure” sentinel. Parties who accept thin disclosure still hash an explicit record (e.g. all risk flags true + notes). |
-| `TECH-CORE-RISK-003` | Escrow stores `tokenRiskId` and checks nonzero + (Pass-1) that `exactBalanceAssumed` cannot be verified onchain from the hash alone — **clients** MUST refuse to build terms with `exactBalanceAssumed = false`. Escrow enforces exact funding deltas regardless. |
-| `TECH-CORE-RISK-004` | Mismatch between signed `token` / `chainId` and the preimage a client displays is a client defect; escrow cannot re-check the preimage unless a future optional attestation profile supplies it. |
+| `TECH-CORE-RISK-001` | `terms.tokenRiskId != bytes32(0)`. |
+| `TECH-CORE-RISK-002` | No canonical “unknown / skip disclosure” sentinel. Thin disclosure still uses an explicit record. |
+| `TECH-CORE-RISK-003` | `activate` MUST take `TokenRiskRecord calldata risk`. Recompute hash; require equality with `terms.tokenRiskId` or revert `TokenRiskMismatch`. |
+| `TECH-CORE-RISK-004` | Require `risk.chainId == terms.chainId`, `risk.token == terms.token`, and `risk.isNativeEth == (terms.token == address(0))`. |
+| `TECH-CORE-RISK-005` | Require `risk.exactBalanceAssumed == true`. Require `risk.isRebasing == false` and `risk.hasTransferFeeOrHaircut == false` (Core exact-funding profile). |
+| `TECH-CORE-RISK-006` | On success, persist **both** `tokenRiskId` and the full `TokenRiskRecord` in deal storage, and emit them on `DealActivated` / `TokenRiskBound`. |
+| `TECH-CORE-RISK-007` | Escrow still does **not** attest that the flags are factually true in the real world—only that the signed hash equals this saved disclosure. Exact transfer checks remain independent. |
 
 ### 1.7 Sentinels
 
@@ -365,7 +378,7 @@ DealTerms(
 | `holderReceiver`, `providerReceiver` | Nonzero; each `!= ESCROW` (`TOKEN-010A`) |
 | `token` | `address(0)` (ETH) or ERC-20 contract with code |
 | `custodyBoundaryId` | Pass-1 MUST equal `keccak256(abi.encode(PROTOCOL_ID, CHAIN_ID, ESCROW, token))` |
-| `tokenRiskId` | Nonzero; Section 1.6 |
+| `tokenRiskId` | Nonzero; must equal hash of activation `risk` preimage (Section 1.6) |
 | `principal` | `> 0` |
 | `holderFee`, `providerFee` | `>= 0`; `providerFee <= principal` |
 | Fee recipients | If fee `> 0`, recipient nonzero and `!= ESCROW`; if fee `== 0`, recipient MUST be `address(0)` |
@@ -522,7 +535,8 @@ struct Deal {
     uint64 disputeDeadline;            // 0 until Disputed
     uint64 disputedAt;                 // 0 until Disputed
     bytes32 termsHash;
-    bytes32 tokenRiskId;
+    bytes32 tokenRiskId;               // signed hash
+    TokenRiskRecord tokenRisk;         // saved preimage checked at activation
     bytes32 custodyBoundaryId;
     uint256 activationNonce;           // snapshotted for reconstructability
     // fiat commitments stored for reconstructability
@@ -589,6 +603,7 @@ interface IPluriSwapCore {
     // --- activation ---
     function activate(
         DealTerms calldata terms,
+        TokenRiskRecord calldata risk,   // preimage; hash must equal terms.tokenRiskId
         bytes calldata holderSignature,
         bytes calldata providerSignature
     ) external payable returns (bytes32 dealId);
@@ -685,6 +700,7 @@ All transitions share:
 **Preconditions**
 
 - Terms validate (Section 3.3).
+- Token-risk preimage validates (Section 1.6): hash == `terms.tokenRiskId`, token/chain bind, Core flags.
 - `block.timestamp < createExpiry <= block.timestamp + MAX_CREATE_LEAD_SECONDS`.
 - Holder and provider signatures valid over deal-terms digest.
 - Activation nonce journals unspent (Section 3.7.1).
@@ -698,9 +714,11 @@ dealId = H(PROTOCOL_ID, CHAIN_ID, ESCROW, termsHash)
 state = Funded
 activatedAt = block.timestamp
 fiatDeadline = activatedAt + uint64(fiatDurationHours) * HOUR_SECONDS
+store tokenRiskId and full TokenRiskRecord preimage
 activePrincipal[token] += principal
 if holderFee > 0: credit(holderFeeRecipient, token, holderFee)  // matured immediately
 consume activation nonces (Section 3.7.1)
+emit DealActivated + TokenRiskBound
 ```
 
 Activation fee is non-refundable after success (`FEE-H-003`).
@@ -852,6 +870,12 @@ event DealActivated(
     uint64 fiatDeadline
 );
 
+event TokenRiskBound(
+    bytes32 indexed dealId,
+    bytes32 indexed tokenRiskId,
+    TokenRiskRecord risk
+);
+
 event FiatMarked(bytes32 indexed dealId, uint64 releaseDeadline);
 
 event DisputeOpened(bytes32 indexed dealId, uint64 disputeDeadline);
@@ -905,6 +929,7 @@ error BoundaryInDeficit();       // rejecting new exposure
 error InsufficientCredit();
 error Reentrancy();
 error IdentityMismatch();
+error TokenRiskMismatch();       // preimage hash != terms.tokenRiskId or bind/flag fail
 ```
 
 Custom errors are normative for Pass-1 interface claims; string reverts are non-conformant for these cases.
@@ -1048,7 +1073,7 @@ Core security goal: **no unauthorized custody movement, no invented outcome, no 
 Conforming clients MUST:
 
 1. Show every EIP-712 field before signing (amounts, receivers, hours, bps, fee recipients, hashes).
-2. Recompute and display `tokenRiskId` preimage flags.
+2. Build, display, and sign over `tokenRiskId`; at activate submit the same `TokenRiskRecord` preimage escrow will store.
 3. Verify deployment bytecode / `CHARTER_HASH` / `TECH_SPEC_HASH` against published manifest.
 4. Generate 256-bit random activation and resolution nonces.
 5. Never ask users to sign unbounded `createExpiry` or auth expiry beyond the lead caps.
@@ -1159,6 +1184,7 @@ The executable-requirements pass MUST include vectors for at least:
 15. Receiver `== escrow` rejected; malleable ECDSA `s` rejected.
 16. Same holder nonce with different provider rejected after first success.
 17. Section 11.2–11.4 adversarial matrix cases.
+18. Token risk: matching preimage succeeds and is stored; wrong hash / wrong token / rebase or fee-on-transfer flags / `exactBalanceAssumed=false` revert.
 
 Each vector binds expected storage deltas, events, and balances.
 
@@ -1188,7 +1214,8 @@ Deferred to later technical passes (not silent Core features):
 | Deal clocks | Signed in **hours**; each clock `1..=120` hours (max **5 days**) |
 | ETH activation | `msg.sender == holder` and exact `msg.value` |
 | Zero fee recipients | MUST be `address(0)` |
-| `tokenRiskId` | Required nonzero hash of canonical `TokenRiskRecord` (Section 1.6); no skip-disclosure sentinel |
+| `tokenRiskId` | Required nonzero hash of canonical `TokenRiskRecord`; no skip-disclosure sentinel |
+| Risk preimage | Submitted at `activate`, hash-checked against signed id, **both hash and full record saved + emitted** |
 | Content hashing | `keccak256(raw file bytes)` for charter and aggregate tech spec |
 | Nonces | Full journals in Section 3.7 (activation, resolution, redirect) |
 | Auth freshness | 24h max lead for `createExpiry` and resolution/redirect expiry at consumption |
@@ -1196,8 +1223,7 @@ Deferred to later technical passes (not silent Core features):
 ## 18. Remaining open points
 
 1. **Gas budgets** — replace provisional Section 12 numbers with measured Arbitrum traces before QUALIFIED.
-2. **Whether escrow should optionally verify a supplied `TokenRiskRecord` preimage onchain** — Pass-1 stores hash only; onchain preimage check would raise gas and calldata size.
-3. **Default client clock recommendations** (e.g. suggest 24h/24h/24h) — product UX, not escrow consensus.
+2. **Default client clock recommendations** (e.g. suggest 24h/24h/24h) — product UX, not escrow consensus.
 
 Until optional items above are closed as needed, this document remains **Draft — Pass 1**, but the Section 17 decisions are binding for this draft.
 
