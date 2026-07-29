@@ -18,7 +18,7 @@ This document freezes the **contract topology, trust boundaries, extension model
 3. Exposes frozen Appendix C surfaces so reference assured rungs and independent packages can attach later **without a Core upgrade** (REF-PKG-009, CORE-SURF-013).
 4. Accounts for Solidity language limits and Arbitrum chain properties that cannot be patched after deploy.
 
-It deliberately does **not** specify ABI, EIP-712 type strings, storage slots, event schemas, or module internals. Those belong in a later `docs/v2/technical/MANDATORY_CORE.md` pass.
+ABI-level detail lives in `docs/v2/technical/MANDATORY_CORE.md`, which derives from this architecture and `PROTOCOL.md`.
 
 ---
 
@@ -273,7 +273,8 @@ An implementation of this architecture is Core-ready only if:
 
 ## 11. Next steps
 
-1. Review and approve this design.
-2. Write the full Mandatory Core technical specification (`docs/v2/technical/MANDATORY_CORE.md`) deriving interfaces, types, formulas, and events from this architecture and `PROTOCOL.md`.
+1. ~~Review and approve this design.~~
+2. ~~Write the full Mandatory Core technical specification (`docs/v2/technical/MANDATORY_CORE.md`).~~ → drafted 2026-07-29.
 3. Produce an implementation plan from that tech spec.
+4. Optional profile tech specs (BONDS, PAYMENT_PROOF, ARBITRATION, POOL, …) against Appendix C surfaces.
 )
