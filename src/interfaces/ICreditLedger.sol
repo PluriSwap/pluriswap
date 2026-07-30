@@ -79,17 +79,19 @@ interface ICreditLedger {
     function checkpointBoundary(address token) external;
 
     /// @notice Deposit attributable recovery into a deficit boundary.
-    /// @dev Reverts DeficitNotImplemented until O(1) encoding is proven (Wave 6).
-    function depositRecovery(address token, address from, uint256 amount) external;
+    /// @dev Exact-pulls attributable recovery, never above the remaining nominal gap.
+    function depositRecovery(address token, address from, uint256 amount)
+        external
+        returns (uint8 reconciliationStatus);
 
     /// @notice Claim recovery from a deficit position (pro-rata).
-    /// @dev Reverts DeficitNotImplemented until O(1) encoding is proven (Wave 6).
+    /// @dev Claims use conservative fixed-point entitlement and may leave bounded dust.
     function claimRecovery(bytes32 positionId, uint256 maxAmount)
         external
         returns (PositionPayoutResult memory);
 
     /// @notice Signed recovery claim to an alternate receiver.
-    /// @dev Reverts DeficitNotImplemented until O(1) encoding is proven (Wave 6).
+    /// @dev Action 2 uses the same payout nonce namespace as other signed payouts.
     function claimRecoveryTo(PositionPayoutAuth calldata auth, bytes calldata signature)
         external
         returns (PositionPayoutResult memory);
@@ -105,6 +107,14 @@ interface ICreditLedger {
     function nominalOutstanding(address token) external view returns (uint256);
     function quarantinedSurplus(address token) external view returns (uint256);
     function inDeficit(address token) external view returns (bool);
+    function deficitPaidAssets(address token) external view returns (uint256);
+    function deficitNominalUnits(address token) external view returns (uint256);
+    function deficitGapCoefficient(address token) external view returns (uint256);
+    function deficitHistoryScale(address token) external view returns (uint256);
+    function deficitHistoryTotal(address token) external view returns (uint256);
+    function deficitGeneration(address token) external view returns (uint256);
+    function deficitRoundingDust(address token) external view returns (uint256);
+    function deficitPrecisionFloor(address token) external view returns (bool);
 
     function positionExists(bytes32 positionId) external view returns (bool);
     function positionNominal(bytes32 positionId) external view returns (uint256);

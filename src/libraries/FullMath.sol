@@ -81,4 +81,19 @@ library FullMath {
             return result;
         }
     }
+
+    /// @dev Returns ceil(a * b / denominator) using the same full-precision product.
+    function mulDivUp(uint256 a, uint256 b, uint256 denominator)
+        internal
+        pure
+        returns (uint256 result)
+    {
+        result = mulDiv(a, b, denominator);
+        if (mulmod(a, b, denominator) != 0) {
+            if (result == type(uint256).max) revert FullMath_Overflow();
+            unchecked {
+                ++result;
+            }
+        }
+    }
 }

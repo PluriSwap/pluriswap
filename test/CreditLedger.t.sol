@@ -28,7 +28,9 @@ import {
     InvalidPositionKind,
     InvalidTokenList,
     InvalidAmount,
-    NonceUsed
+    NonceUsed,
+    RecoveryExceedsGap,
+    DeficitNotActive
 } from "../src/libraries/CoreErrors.sol";
 
 /// @dev Tests the CreditLedger as sole vault with positions and reconciliation.
@@ -628,5 +630,220 @@ contract CreditLedgerTest is Test {
         });
         vm.expectRevert(InvalidAmount.selector);
         ledger.withdrawPositionTo(auth, "");
+    }
+
+    function _createSplitMaturedPositions(bytes32 dealId)
+        internal
+        returns (bytes32 holderPosition, bytes32 providerPosition)
+    {
+        _fundDeal(dealId, 100, 0);
+        bytes32 terminalHash = keccak256(abi.encodePacked("deficit-terminal", dealId));
+        holderPosition = _termPosId(dealId, terminalHash, holderReceiver);
+        providerPosition = _termPosId(dealId, terminalHash, providerReceiver);
+        TerminalAllocation[] memory allocations = new TerminalAllocation[](2);
+        allocations[0] = TerminalAllocation({
+            beneficiary: holderReceiver, amount: 60, positionId: holderPosition
+        });
+        allocations[1] = TerminalAllocation({
+            beneficiary: providerReceiver, amount: 40, positionId: providerPosition
+        });
+        vm.prank(escrow);
+        ledger.settleDealAndReservations(dealId, address(token), terminalHash, allocations);
+    }
+
+    function _enterDeficit(uint256 lostAmount) internal {
+        token.burn(address(ledger), lostAmount);
+        ledger.checkpointBoundary(address(token));
+    }
+
+    function _approveRecovery(uint256 amount) internal {
+        token.mint(address(this), amount);
+        token.approve(address(ledger), amount);
+    }
+
+    function _signPayout(PositionPayoutAuth memory auth) internal view returns (bytes memory) {
+        bytes32 typeHash = keccak256(
+            "PositionPayoutAuth(uint8 action,address token,bytes32 positionId,address beneficiary,address to,uint256 maxAmount,uint256 nonce,uint64 expiry)"
+        );
+        bytes32 digest_ = DealHashing.digest(
+            ledger.DOMAIN_SEPARATOR(),
+            keccak256(
+                abi.encode(
+                    typeHash,
+                    auth.action,
+                    auth.token,
+                    auth.positionId,
+                    auth.beneficiary,
+                    auth.to,
+                    auth.maxAmount,
+                    auth.nonce,
+                    auth.expiry
+                )
+            )
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(holderPk, digest_);
+        return abi.encodePacked(r, s, v);
+    }
+
+    function test_recoveryClaimsUseConservativeProRataAndZeroVaultBalance() public {
+        (bytes32 holderPosition, bytes32 providerPosition) =
+            _createSplitMaturedPositions(keccak256("recovery-pro-rata"));
+        _enterDeficit(50);
+
+        _approveRecovery(25);
+        ledger.depositRecovery(address(token), address(this), 25);
+
+        PositionPayoutResult memory holderResult =
+            ledger.claimRecovery(holderPosition, type(uint256).max);
+        PositionPayoutResult memory providerResult =
+            ledger.claimRecovery(providerPosition, type(uint256).max);
+
+        assertEq(holderResult.code, 3);
+        assertEq(providerResult.code, 3);
+        assertEq(holderResult.paidAmount, 45);
+        assertEq(providerResult.paidAmount, 30);
+        assertEq(ledger.deficitPaidAssets(address(token)), 75);
+        assertEq(ledger.accountedAssets(address(token)), 0);
+        assertEq(ledger.nominalOutstanding(address(token)), 25);
+        assertEq(token.balanceOf(address(ledger)), 0);
+        assertEq(ledger.positionNominal(holderPosition), 15);
+        assertEq(ledger.positionNominal(providerPosition), 10);
+    }
+
+    function test_recoveryFullDepositMakesAllRemainingUnitsClaimable() public {
+        (bytes32 holderPosition, bytes32 providerPosition) =
+            _createSplitMaturedPositions(keccak256("recovery-full"));
+        _enterDeficit(50);
+
+        _approveRecovery(50);
+        ledger.depositRecovery(address(token), address(this), 50);
+
+        ledger.claimRecovery(holderPosition, type(uint256).max);
+        ledger.claimRecovery(providerPosition, type(uint256).max);
+
+        assertEq(token.balanceOf(address(holderReceiver)), 60);
+        assertEq(token.balanceOf(address(providerReceiver)), 40);
+        assertEq(ledger.accountedAssets(address(token)), 0);
+        assertEq(ledger.nominalOutstanding(address(token)), 0);
+        assertTrue(ledger.positionConsumed(holderPosition));
+        assertTrue(ledger.positionConsumed(providerPosition));
+    }
+
+    function test_recoveryCheckpointAfterClaimDoesNotClawBackPaidValue() public {
+        (bytes32 holderPosition, bytes32 providerPosition) =
+            _createSplitMaturedPositions(keccak256("recovery-repeated-loss"));
+        _enterDeficit(50);
+
+        _approveRecovery(25);
+        ledger.depositRecovery(address(token), address(this), 25);
+        PositionPayoutResult memory holderResult =
+            ledger.claimRecovery(holderPosition, type(uint256).max);
+        assertEq(holderResult.paidAmount, 45);
+
+        token.burn(address(ledger), 15);
+        PositionPayoutResult memory checkpoint =
+            ledger.claimRecovery(providerPosition, type(uint256).max);
+        assertEq(checkpoint.code, 6);
+        assertEq(checkpoint.reconciliationStatus, ReconciliationStatus.DeficitCheckpointed);
+        assertEq(token.balanceOf(holderReceiver), 45);
+
+        PositionPayoutResult memory providerResult =
+            ledger.claimRecovery(providerPosition, type(uint256).max);
+        assertEq(providerResult.code, 3);
+        assertEq(providerResult.paidAmount, 15);
+        assertEq(token.balanceOf(holderReceiver), 45);
+        assertEq(token.balanceOf(providerReceiver), 15);
+        assertEq(ledger.accountedAssets(address(token)), 0);
+        assertEq(ledger.nominalOutstanding(address(token)), 40);
+    }
+
+    function test_recoveryFullLossAndRecoveryStartsNewGeneration() public {
+        (bytes32 holderPosition, bytes32 providerPosition) =
+            _createSplitMaturedPositions(keccak256("recovery-generation"));
+        _enterDeficit(100);
+        assertEq(ledger.accountedAssets(address(token)), 0);
+
+        _approveRecovery(100);
+        uint8 status = ledger.depositRecovery(address(token), address(this), 100);
+        assertEq(status, ReconciliationStatus.Unchanged);
+        assertEq(ledger.deficitGapCoefficient(address(token)), 0);
+        assertEq(ledger.deficitHistoryTotal(address(token)), 0);
+
+        ledger.claimRecovery(holderPosition, type(uint256).max);
+        ledger.claimRecovery(providerPosition, type(uint256).max);
+        assertEq(token.balanceOf(holderReceiver), 60);
+        assertEq(token.balanceOf(providerReceiver), 40);
+        assertEq(ledger.nominalOutstanding(address(token)), 0);
+    }
+
+    function test_settlementInDeficitPreservesBoundaryExposure() public {
+        bytes32 dealId = keccak256("recovery-settlement");
+        _fundDeal(dealId, 100, 0);
+        _enterDeficit(50);
+
+        bytes32 terminalHash = keccak256("recovery-settlement-terminal");
+        bytes32 holderPosition = _termPosId(dealId, terminalHash, holderReceiver);
+        bytes32 providerPosition = _termPosId(dealId, terminalHash, providerReceiver);
+        TerminalAllocation[] memory allocations = new TerminalAllocation[](2);
+        allocations[0] = TerminalAllocation({
+            beneficiary: holderReceiver, amount: 60, positionId: holderPosition
+        });
+        allocations[1] = TerminalAllocation({
+            beneficiary: providerReceiver, amount: 40, positionId: providerPosition
+        });
+
+        vm.prank(escrow);
+        uint8 status =
+            ledger.settleDealAndReservations(dealId, address(token), terminalHash, allocations);
+        assertEq(status, ReconciliationStatus.Unchanged);
+        assertEq(ledger.nominalOutstanding(address(token)), 100);
+        assertEq(ledger.accountedAssets(address(token)), 50);
+        assertEq(ledger.positionNominal(holderPosition), 60);
+        assertEq(ledger.positionNominal(providerPosition), 40);
+    }
+
+    function test_recoveryRejectsOverDepositAndCannotStartHealthy() public {
+        vm.expectRevert(DeficitNotActive.selector);
+        ledger.depositRecovery(address(token), address(this), 1);
+
+        _createMaturedHolderPosition(keccak256("recovery-overdeposit"));
+        _enterDeficit(50e18);
+        _approveRecovery(50e18 + 1);
+        vm.expectRevert(RecoveryExceedsGap.selector);
+        ledger.depositRecovery(address(token), address(this), 50e18 + 1);
+        assertEq(ledger.accountedAssets(address(token)), 50e18);
+        assertEq(token.balanceOf(address(ledger)), 50e18);
+    }
+
+    function test_reconciliationOnlyDoesNotConsumeRecoveryNonce() public {
+        bytes32 positionId = _createMaturedHolderPosition(keccak256("recovery-reconcile"));
+        _enterDeficit(50);
+
+        PositionPayoutAuth memory auth = PositionPayoutAuth({
+            action: 2,
+            token: address(token),
+            positionId: positionId,
+            beneficiary: holder,
+            to: providerReceiver,
+            maxAmount: 60,
+            nonce: 900,
+            expiry: uint64(block.timestamp + 1 days)
+        });
+        bytes memory signature = _signPayout(auth);
+
+        token.burn(address(ledger), 10);
+        PositionPayoutResult memory reconciliation = ledger.claimRecoveryTo(auth, signature);
+        assertEq(reconciliation.code, 6);
+        assertEq(reconciliation.reconciliationStatus, ReconciliationStatus.DeficitCheckpointed);
+        assertEq(token.balanceOf(providerReceiver), 0);
+
+        _approveRecovery(60);
+        ledger.depositRecovery(address(token), address(this), 60);
+        PositionPayoutResult memory paid = ledger.claimRecoveryTo(auth, signature);
+        assertEq(paid.code, 3);
+        assertEq(paid.paidAmount, 60);
+
+        vm.expectRevert(NonceUsed.selector);
+        ledger.claimRecoveryTo(auth, signature);
     }
 }

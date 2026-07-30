@@ -8,6 +8,10 @@ contract FullMathWrapper {
     function tryMulDiv(uint256 a, uint256 b, uint256 d) external pure returns (uint256) {
         return FullMath.mulDiv(a, b, d);
     }
+
+    function tryMulDivUp(uint256 a, uint256 b, uint256 d) external pure returns (uint256) {
+        return FullMath.mulDivUp(a, b, d);
+    }
 }
 
 contract FullMathTest is Test {
@@ -26,6 +30,17 @@ contract FullMathTest is Test {
     function test_mulDiv_floor() public {
         assertEq(wrapper.tryMulDiv(100, 3, 7), 42);
         assertEq(wrapper.tryMulDiv(101, 5000, 10000), 50);
+    }
+
+    function test_mulDivUp_ceilsWithoutChangingExactValues() public {
+        assertEq(wrapper.tryMulDivUp(100, 3, 7), 43);
+        assertEq(wrapper.tryMulDivUp(100, 200, 10), 2000);
+        assertEq(wrapper.tryMulDivUp(0, 200, 10), 0);
+    }
+
+    function test_mulDivUp_revert_overflow() public {
+        vm.expectRevert(FullMath.FullMath_Overflow.selector);
+        wrapper.tryMulDivUp(type(uint256).max, type(uint256).max, type(uint256).max - 1);
     }
 
     function test_mulDiv_largeNoOverflow() public {

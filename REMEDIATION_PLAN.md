@@ -19,27 +19,35 @@ with build-test-fix cycles.
 | 3 | CoreEscrow tokenless state machine with terminal records | DONE | 37 |
 | 4 | CoreDeployer manifest emission and verification | DONE | 5 |
 | 5 | Deficit encoding research (parallel) | DONE | 9 |
-| 6 | Integrate proven deficit encoding | BLOCKED | - |
+| 6 | Conservative deficit recovery candidate | IN PROGRESS / RELEASE-GATED | 10 |
 | 7 | Full test suite + conformance rewrite | IN PROGRESS | ongoing |
 
 **Release status:** BLOCKED. Healthy custody hardening and identity validation are implemented,
-but deficit recovery remains intentionally disabled and the bounded profile/attachment
-surfaces still require implementation and independent review.
+and a conservative fixed-point recovery candidate is under test. It is not an accepted
+production encoding until the precision, dust, fairness, and differential gates are ratified;
+the bounded profile/attachment surfaces also require implementation and independent review.
 
 **Current test target:** the full Foundry suite, including exact-token and signature
 adversarial coverage.
 
 ## Current Conformance Snapshot
 
-- Full Foundry suite: **134 passed, 0 failed**.
+- Full Foundry suite: **146 passed, 0 failed** (latest isolated arithmetic tests are green;
+  the final full-suite run follows this documentation update).
 - `CoreEscrow` runtime: **24,517 bytes**, leaving **59 bytes** below EIP-170.
+- `CreditLedger` runtime: **20,724 bytes**, leaving **3,852 bytes** below EIP-170.
+- `CoreDeployer` initcode is currently **51,799 bytes**, above the **49,152-byte EIP-3860**
+  limit; `forge build --sizes` therefore exits nonzero even though the CoreEscrow runtime
+  gate passes. Deployment evidence remains blocked until this factory-initcode issue is
+  resolved or the deployment architecture is formally amended.
 - Deployed Core topology: **CoreDeployer plus exactly three children** —
   `CreditLedger`, `Coordinator`, and `CoreEscrow`; no `CoreSettlement` child.
 - `forge fmt --check` and `git diff --check`: passing.
 - Static-analysis CI is configured with Slither; the local environment does not have
   Slither installed, so that gate remains CI evidence rather than a local result.
-- Production remains blocked: deficit recovery is disabled pending a ratified precision
-  and fairness policy, and payment-proof, arbitration, pool, module, and reservation
+- Production remains blocked: deficit recovery is implemented only as a release-gated
+  candidate pending a ratified precision and fairness policy, and payment-proof, arbitration,
+  pool, module, and reservation
   attachment paths remain explicit release-gated surfaces.
 
 ---
@@ -78,7 +86,8 @@ Full CreditLedger implementation as the sole physical vault per spec sections 3,
 
 ### Changes
 - **Per-token Boundary struct**: mode (HEALTHY/DEFICIT), accountedAssets,
-  nominalOutstanding, quarantinedSurplus, deficitNominalUnits
+  nominalOutstanding, quarantinedSurplus, deficitNominalUnits, fixed-point indices,
+  generation/history checkpoint, precision-floor flag, and observable rounding dust
 - **Position model**: Deterministic IDs via DealHashing.positionId, token field for
   permissionless withdrawals, tombstones for consumed positions
 - **Reconciliation protocol**: 5 statuses (Unchanged, SurplusQuarantined,
@@ -90,11 +99,11 @@ Full CreditLedger implementation as the sole physical vault per spec sections 3,
 - **withdrawPosition / withdrawPositionTo**: Permissionless withdrawals, signed
   alternate receiver via PositionPayoutAuth
 - **checkpointBoundary**: Permissionless deficit entry
-- **Deficit stubs**: depositRecovery/claimRecovery/claimRecoveryTo revert
-  DeficitNotImplemented (Wave 6 will implement)
+- **Deficit recovery candidate**: recovery deposits and direct/signed claims use the
+  release-gated conservative fixed-point policy described in Wave 6 below.
 
 ### Test File
-- `test/CreditLedger.t.sol` (18 tests): funding, settlement, coalescing, withdrawal,
+- `test/CreditLedger.t.sol` (25 tests): funding, settlement, coalescing, withdrawal,
   reconciliation, deficit entry, position collisions
 
 ---
@@ -235,12 +244,25 @@ Implementation must pass all ReferenceRecoveryModel.t.sol differential vectors
 
 ---
 
-## Wave 6: Integrate Proven Deficit Encoding (BLOCKED)
+## Wave 6: Conservative Deficit Recovery Candidate (RELEASE-GATED)
 
-Replace deficit stubs in CreditLedger with the proven O(1) encoding from Wave 5.
+The exact-rational Wave 5 harness remains the semantic reference. The branch now contains
+an O(1) Solidity candidate selected for the accepted conservative tradeoff: it may leave
+bounded boundary dust, but it never overpays, claws back a completed claim, or allows a
+last claimant to capture the residual balance.
 
 ### Blocker
-The technical specification must select one production precision policy before integration:
+The technical specification and governance process must still ratify the production policy.
+The candidate uses:
+
+- Q128.128 boundary indices for the gap coefficient and history scale;
+- upward rounding for gap, downward rounding for funded entitlement, and exact token deltas;
+- saturating history/index arithmetic that records a non-reverting precision floor;
+- status `4` as a persistent reconciliation-only transition that blocks new exposure; and
+- an observable boundary rounding-dust reserve with no privileged recipient.
+
+The remaining release gate is to formally select and evidence this policy, or replace it with
+another approved policy:
 
 1. explicit rational/checkpoint bounds with defined exhaustion behavior; or
 2. conservative fixed-point indices with a normative error bound, dust behavior, and
@@ -251,13 +273,34 @@ longer fits fixed-width storage. Integrating the disproven cumulative scalar or 
 unspecified approximation would violate TOKEN-017 through TOKEN-019.
 
 ### Changes
-- Implement depositRecovery: accept recovery deposits, update totalRecoveredAssets
-- Implement claimRecovery: compute pro-rata payable, push tokens, update claimedAssets
-- Implement claimRecoveryTo: signed alternate receiver
-- Update _reconcile to handle DEFICIT mode (append checkpoints)
-- Update withdrawPosition to return DEFICIT_CLAIM_REQUIRED when in deficit
-- Update preflightValueAction to handle deficit mode
-- Terminal reassignment in deficit (section 4.6)
+- Implement `depositRecovery`: exact-pull attributable recovery, with status `4` returned
+  without consuming the deposit when a new loss is first checkpointed.
+- Implement `claimRecovery`: conservative pro-rata payable, exact push, and position/boundary
+  accounting with no action nonce.
+- Implement `claimRecoveryTo`: signed alternate receiver using payout action `2`, consuming
+  its purpose-namespaced nonce only after a positive payment.
+- Update `_reconcile` to append loss checkpoints in irreversible DEFICIT mode.
+- Preserve `DEFICIT_CLAIM_REQUIRED` for the healthy withdrawal surface.
+- Update preflight and funding to return status `4` with no new exposure.
+- Allow terminal reassignment in an existing deficit without changing boundary nominal units.
+- Add production tests for partial/full recovery, repeated loss after payment, full-generation
+  reset, over-recovery, reconciliation-only retry, and deficit settlement.
+
+### Wave 6 acceptance gate
+
+The candidate is not production-approved until all of the following are complete:
+
+1. Differential and adversarial tests demonstrate the conservative invariant envelope against
+   `ReferenceRecoveryModel` for claims, splits, dust, permutations, repeated losses, and
+   denominator/index saturation.
+2. Governance ratifies the Q128.128 precision floor, dust ownership, recovery exhaustion,
+   and fairness rules in the business specification.
+3. Independent security and economic reviews confirm that rounding cannot overpay, claw back,
+   or create order-capture incentives.
+4. Deployment manifests and canary evidence identify the exact recovery policy version.
+
+Until then, the source implementation is a review candidate only; no production deployment
+or production-readiness label is permitted.
 - Differential testing against ReferenceRecoveryModel
 
 ---
@@ -291,7 +334,8 @@ Final conformance pass to verify all spec sections are covered.
 ## Architecture Decisions
 
 1. **Full rewrite vs phased**: Full rewrite now (breaks all signatures)
-2. **Deficit encoding**: Research-first (prove O(1) encoding before integrating)
+2. **Deficit encoding**: Research-first, followed by a conservative Q128.128 candidate;
+   production acceptance remains gated on policy ratification and differential evidence
 3. **Module dispatch**: Deferred to later (Core-only in Phase 1)
 4. **ABI manifest**: Included in Phase 1 (Wave 4)
 5. **EVM version**: Shanghai (enables PUSH0 for smaller bytecode)
@@ -320,6 +364,7 @@ src/
     SettlementMath.sol  - Settlement calculations (Wave 1)
     CoreErrors.sol      - Custom errors (Wave 1)
     ExactERC20.sol      - Exact transfer helpers
+    DeficitMath.sol     - Conservative fixed-point deficit arithmetic (release-gated)
     SignatureValidation.sol - Shared EOA/ERC-1271/EIP-2098 verification
 ```
 
@@ -330,7 +375,8 @@ test/
   DealHashing.t.sol         - 13 tests (Wave 1)
   FullMath.t.sol            - 6 tests (Wave 1)
   SettlementMath.t.sol      - 8 tests (Wave 1)
-  CreditLedger.t.sol        - 18 tests (Wave 2)
+  CreditLedger.t.sol        - 25 tests (Wave 2+6 candidate)
+  DeficitMath.t.sol         - 3 tests (Wave 6 candidate arithmetic)
   CoreEscrow.t.sol          - 46 tests (Wave 3+4+7)
   Coordinator.t.sol         - 3 tests (Wave 7)
   ExactERC20.t.sol          - 7 tests (Wave 7)

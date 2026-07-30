@@ -46,8 +46,10 @@ error PositionIdCollision();
 // ── Reconciliation / deficit ──────────────────────────────────────────────────
 error ReconciliationFailed(uint8 status);
 error BoundaryInDeficit();
+error DeficitNotActive();
 error QuarantineInsufficient();
-error DeficitNotImplemented();
+error InvalidRecoveryAmount();
+error RecoveryExceedsGap();
 
 // ── Terminal record ───────────────────────────────────────────────────────────
 error TerminalRecordMismatch();
