@@ -2,16 +2,19 @@
 pragma solidity ^0.8.24;
 
 import {ICreditLedger} from "./interfaces/ICreditLedger.sol";
+import {ICoreEscrow} from "./interfaces/ICoreEscrow.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
-import {IERC1271} from "./interfaces/IERC1271.sol";
 import {ExactERC20} from "./libraries/ExactERC20.sol";
 import {DealHashing} from "./libraries/DealHashing.sol";
+import {SignatureValidation} from "./libraries/SignatureValidation.sol";
 import {
     FundingSpec,
     FundingAuth,
     PositionPayoutAuth,
     PositionPayoutResult,
     TerminalAllocation,
+    TerminalRecord,
+    Deal,
     FundingPurpose,
     FundingSourceMode,
     PositionKind,
@@ -19,9 +22,10 @@ import {
     ReconciliationStatus,
     PayoutResultCode
 } from "./libraries/DealTypes.sol";
+import {SettlementMath} from "./libraries/SettlementMath.sol";
 import {
     DeficitNotImplemented,
-    ExactTransferFailed,
+    BoundaryInDeficit,
     Expired,
     FundingAuthInvalid,
     FundingSpecMismatch,
@@ -30,10 +34,15 @@ import {
     PositionAlreadyExists,
     PositionAlreadyConsumed,
     PositionNotFound,
+    InvalidPositionKind,
     ReconciliationFailed,
     SelfReceiver,
     Unauthorized,
-    ZeroAddress
+    ZeroAddress,
+    InvalidTokenList,
+    InvalidPayoutAction,
+    InvalidAmount,
+    InvalidChainId
 } from "./libraries/CoreErrors.sol";
 
 /// @notice Sole physical vault for all Core positions per MANDATORY_CORE.md §3, §4, §8.2.
@@ -49,7 +58,7 @@ contract CreditLedger is ICreditLedger {
     bytes32 private constant _NAME_HASH = keccak256(bytes("PluriSwapCreditLedger"));
     bytes32 private constant _VERSION_HASH = keccak256(bytes("2"));
     bytes32 private constant _PAYOUT_AUTH_TYPEHASH = keccak256(
-        "PositionPayoutAuth(bytes32 positionId,address beneficiary,address to,uint256 maxAmount,uint256 nonce,uint64 expiry)"
+        "PositionPayoutAuth(uint8 action,address token,bytes32 positionId,address beneficiary,address to,uint256 maxAmount,uint256 nonce,uint64 expiry)"
     );
 
     // ── Immutables ──────────────────────────────────────────────────────────────
@@ -87,8 +96,8 @@ contract CreditLedger is ICreditLedger {
 
     // ── Nonces ─────────────────────────────────────────────────────────────────
 
-    mapping(address => mapping(uint256 => bool)) internal _fundingNonceUsed;
-    mapping(address => mapping(uint256 => bool)) internal _payoutNonceUsed;
+    mapping(address => mapping(uint8 => mapping(uint256 => bool))) internal _fundingNonceUsed;
+    mapping(address => mapping(uint8 => mapping(uint256 => bool))) internal _payoutNonceUsed;
 
     // ── Reentrancy ─────────────────────────────────────────────────────────────
 
@@ -108,6 +117,7 @@ contract CreditLedger is ICreditLedger {
 
     constructor(address escrow_, uint64 chainId_) {
         if (escrow_ == address(0)) revert ZeroAddress();
+        if (chainId_ != uint64(block.chainid)) revert InvalidChainId();
         escrow = escrow_;
         chainId = chainId_;
         DOMAIN_SEPARATOR = keccak256(
@@ -115,8 +125,13 @@ contract CreditLedger is ICreditLedger {
         );
     }
 
-    receive() external payable { revert(); }
-    fallback() external payable { revert(); }
+    receive() external payable {
+        revert();
+    }
+
+    fallback() external payable {
+        revert();
+    }
 
     // ── Reconciliation ─────────────────────────────────────────────────────────
 
@@ -135,8 +150,13 @@ contract CreditLedger is ICreditLedger {
             // Surplus quarantined
             b.quarantinedSurplus += (actualRaw - expectedRaw);
             emit BoundaryReconciled(
-                token, ReconciliationStatus.SurplusQuarantined, expectedRaw, actualRaw,
-                b.accountedAssets, b.accountedAssets, b.quarantinedSurplus - (actualRaw - expectedRaw),
+                token,
+                ReconciliationStatus.SurplusQuarantined,
+                expectedRaw,
+                actualRaw,
+                b.accountedAssets,
+                b.accountedAssets,
+                b.quarantinedSurplus - (actualRaw - expectedRaw),
                 b.quarantinedSurplus
             );
             return ReconciliationStatus.SurplusQuarantined;
@@ -148,9 +168,8 @@ contract CreditLedger is ICreditLedger {
 
         // actualRaw < expectedRaw: negative delta
         uint256 negativeDelta = expectedRaw - actualRaw;
-        uint256 absorbed = negativeDelta < b.quarantinedSurplus
-            ? negativeDelta
-            : b.quarantinedSurplus;
+        uint256 absorbed =
+            negativeDelta < b.quarantinedSurplus ? negativeDelta : b.quarantinedSurplus;
         uint256 quarantinedBefore = b.quarantinedSurplus;
         b.quarantinedSurplus -= absorbed;
         uint256 residualLoss = negativeDelta - absorbed;
@@ -158,8 +177,14 @@ contract CreditLedger is ICreditLedger {
         if (residualLoss == 0) {
             // Fully absorbed by quarantine
             emit BoundaryReconciled(
-                token, ReconciliationStatus.QuarantineLossAbsorbed, expectedRaw, actualRaw,
-                b.accountedAssets, b.accountedAssets, quarantinedBefore, b.quarantinedSurplus
+                token,
+                ReconciliationStatus.QuarantineLossAbsorbed,
+                expectedRaw,
+                actualRaw,
+                b.accountedAssets,
+                b.accountedAssets,
+                quarantinedBefore,
+                b.quarantinedSurplus
             );
             return ReconciliationStatus.QuarantineLossAbsorbed;
         }
@@ -169,8 +194,14 @@ contract CreditLedger is ICreditLedger {
         b.mode = BoundaryMode.Deficit;
         b.deficitNominalUnits = b.nominalOutstanding;
         emit BoundaryReconciled(
-            token, ReconciliationStatus.DeficitCheckpointed, expectedRaw, actualRaw,
-            b.accountedAssets + residualLoss, b.accountedAssets, quarantinedBefore, b.quarantinedSurplus
+            token,
+            ReconciliationStatus.DeficitCheckpointed,
+            expectedRaw,
+            actualRaw,
+            b.accountedAssets + residualLoss,
+            b.accountedAssets,
+            quarantinedBefore,
+            b.quarantinedSurplus
         );
         emit DeficitEntered(token, b.deficitNominalUnits, b.accountedAssets);
         return ReconciliationStatus.DeficitCheckpointed;
@@ -186,6 +217,9 @@ contract CreditLedger is ICreditLedger {
         if (msg.sender != escrow) revert Unauthorized();
         statuses = new uint8[](tokens.length);
         for (uint256 i; i < tokens.length; ++i) {
+            if (tokens[i] == address(0) || (i > 0 && tokens[i - 1] >= tokens[i])) {
+                revert InvalidTokenList();
+            }
             statuses[i] = _reconcile(tokens[i]);
         }
     }
@@ -193,6 +227,7 @@ contract CreditLedger is ICreditLedger {
     // ── Escrow-only: funding ─────────────────────────────────────────────────────
 
     function fundDealAndReservations(
+        bytes32 termsHash,
         bytes32 dealId,
         address token,
         uint256 principal,
@@ -204,58 +239,96 @@ contract CreditLedger is ICreditLedger {
         FundingAuth calldata activationFeeFundingAuth,
         bytes calldata principalFundingSig,
         bytes calldata activationFeeFundingSig
-    ) external nonReentrant onlyEscrow {
-        Boundary storage b = _boundaries[token];
+    ) external nonReentrant onlyEscrow returns (uint8 reconciliationStatus) {
         uint8 status = _reconcile(token);
         if (status == ReconciliationStatus.DeficitCheckpointed) {
-            revert ReconciliationFailed(status);
+            return status;
         }
 
-        // Validate and execute principal funding
-        _validateAndFund(
-            token, dealId, principalFunding, principalFundingAuth, principalFundingSig,
-            FundingPurpose.Principal, principal, b
+        // Validate every funding request before any token call, position debit, or nonce use.
+        _validateFundingRequest(
+            termsHash,
+            token,
+            principalFunding,
+            principalFundingAuth,
+            principalFundingSig,
+            FundingPurpose.Principal,
+            principal
         );
 
-        // Validate and execute activation fee funding (if nonzero)
         if (activationFee > 0) {
             if (activationFeeRecipient == address(0)) revert ZeroAddress();
             if (activationFeeRecipient == address(this) || activationFeeRecipient == escrow) {
                 revert SelfReceiver();
             }
-            _validateAndFund(
-                token, dealId, activationFeeFunding, activationFeeFundingAuth,
-                activationFeeFundingSig, FundingPurpose.ActivationFee, activationFee, b
+            _validateFundingRequest(
+                termsHash,
+                token,
+                activationFeeFunding,
+                activationFeeFundingAuth,
+                activationFeeFundingSig,
+                FundingPurpose.ActivationFee,
+                activationFee
+            );
+        }
+
+        // Execute only after all request/auth/source checks have passed.
+        _executeFunding(
+            token, principalFunding, principalFundingAuth, FundingPurpose.Principal, principal
+        );
+
+        if (activationFee > 0) {
+            _executeFunding(
+                token,
+                activationFeeFunding,
+                activationFeeFundingAuth,
+                FundingPurpose.ActivationFee,
+                activationFee
             );
             // Create ACTIVATION_FEE position
             bytes32 feePosId = DealHashing.positionId(
                 DealHashing.custodyBoundaryId(chainId, 2, address(this), token),
-                PositionKind.ActivationFee, dealId, bytes32(0), activationFeeRecipient
+                PositionKind.ActivationFee,
+                dealId,
+                bytes32(0),
+                activationFeeRecipient
             );
-            _createPosition(feePosId, PositionKind.ActivationFee, dealId, bytes32(0),
-                activationFeeRecipient, token, activationFee);
+            _createPosition(
+                feePosId,
+                PositionKind.ActivationFee,
+                dealId,
+                bytes32(0),
+                activationFeeRecipient,
+                token,
+                activationFee
+            );
         }
 
         // Create DEAL position
         bytes32 dealPosId = DealHashing.positionId(
             DealHashing.custodyBoundaryId(chainId, 2, address(this), token),
-            PositionKind.Deal, dealId, bytes32(0), address(0)
+            PositionKind.Deal,
+            dealId,
+            bytes32(0),
+            address(0)
         );
-        _createPosition(dealPosId, PositionKind.Deal, dealId, bytes32(0), address(0), token, principal);
+        _createPosition(
+            dealPosId, PositionKind.Deal, dealId, bytes32(0), address(0), token, principal
+        );
 
         emit DealFunded(dealId, token, principal, activationFee);
+        return status;
     }
 
-    function _validateAndFund(
+    function _validateFundingRequest(
+        bytes32 termsHash,
         address token,
-        bytes32 dealId,
         FundingSpec calldata spec,
         FundingAuth calldata auth,
         bytes calldata sig,
         uint8 expectedPurpose,
-        uint256 expectedAmount,
-        Boundary storage b
-    ) internal {
+        uint256 expectedAmount
+    ) internal view {
         if (spec.purpose != expectedPurpose) revert FundingSpecMismatch();
         if (spec.token != token) revert FundingSpecMismatch();
         if (spec.amount != expectedAmount) revert FundingSpecMismatch();
@@ -270,35 +343,155 @@ contract CreditLedger is ICreditLedger {
 
         // Verify FundingAuth signature (Ledger domain)
         bytes32 specHash = DealHashing.hashFundingSpec(spec);
+        if (auth.termsHash != termsHash) revert FundingAuthInvalid();
         if (auth.fundingSpecHash != specHash) revert FundingSpecMismatch();
         if (auth.purpose != expectedPurpose) revert FundingSpecMismatch();
         if (auth.authority != spec.authority) revert FundingAuthInvalid();
         if (block.timestamp >= auth.expiry) revert Expired();
-        if (_fundingNonceUsed[auth.authority][auth.nonce]) revert NonceUsed();
+        if (_fundingNonceUsed[auth.authority][expectedPurpose][auth.nonce]) revert NonceUsed();
 
         bytes32 authDigest = DealHashing.digest(DOMAIN_SEPARATOR, DealHashing.hashFundingAuth(auth));
-        _verifySigner(auth.authority, authDigest, sig);
+        if (!SignatureValidation.isValid(auth.authority, authDigest, sig)) {
+            revert FundingAuthInvalid();
+        }
 
-        // Execute funding
-        if (spec.sourceMode == FundingSourceMode.WalletPull) {
-            IERC20(token).pullExact(spec.source, expectedAmount);
-        } else {
-            // LEDGER_POSITION: debit from existing matured position
+        if (spec.source != spec.authority) revert InvalidFundingMode();
+        if (spec.sourceMode == FundingSourceMode.LedgerPosition) {
             Position storage sourcePos = _positions[spec.sourcePositionId];
             if (!sourcePos.exists) revert PositionNotFound();
             if (sourcePos.consumed) revert PositionAlreadyConsumed();
+            if (
+                sourcePos.kind != PositionKind.ActivationFee
+                    && sourcePos.kind != PositionKind.DealTerminal
+                    && sourcePos.kind != PositionKind.ReservationTerminal
+            ) revert InvalidPositionKind();
+            if (sourcePos.token != token) revert FundingSpecMismatch();
+            if (_boundaries[token].mode == BoundaryMode.Deficit) revert BoundaryInDeficit();
             if (sourcePos.beneficiary != spec.authority) revert Unauthorized();
             if (sourcePos.nominal < expectedAmount) revert PositionNotFound();
+        }
+    }
+
+    function _executeFunding(
+        address token,
+        FundingSpec calldata spec,
+        FundingAuth calldata auth,
+        uint8 purpose,
+        uint256 expectedAmount
+    ) internal {
+        if (spec.sourceMode == FundingSourceMode.WalletPull) {
+            IERC20(token).pullExact(spec.source, expectedAmount);
+            Boundary storage b = _boundaries[token];
+            b.accountedAssets += expectedAmount;
+            b.nominalOutstanding += expectedAmount;
+        } else {
+            Position storage sourcePos = _positions[spec.sourcePositionId];
             sourcePos.nominal -= expectedAmount;
             if (sourcePos.nominal == 0) sourcePos.consumed = true;
+            // Same-vault movement preserves both boundary totals exactly.
         }
 
-        // Consume funding nonce
-        _fundingNonceUsed[auth.authority][auth.nonce] = true;
+        _fundingNonceUsed[auth.authority][purpose][auth.nonce] = true;
+    }
 
-        // Update accounting
-        b.accountedAssets += expectedAmount;
-        b.nominalOutstanding += expectedAmount;
+    function planSettlement(
+        bytes32 dealId,
+        uint8 terminalState,
+        uint8 outcome,
+        uint16 providerBps,
+        uint64 terminatedAt
+    )
+        external
+        view
+        onlyEscrow
+        returns (
+            TerminalRecord memory terminalRecord,
+            bytes32 terminalHash,
+            TerminalAllocation[] memory allocations
+        )
+    {
+        Deal memory d = ICoreEscrow(escrow).getDeal(dealId);
+        (uint256 holderGross, uint256 providerGross) =
+            SettlementMath.split(d.principal, providerBps);
+        uint256 completionCollected =
+            SettlementMath.completionCollected(d.completionFee, providerGross);
+        uint256 providerNet;
+        unchecked {
+            providerNet = providerGross - completionCollected;
+        }
+
+        terminalRecord = TerminalRecord({
+            chainId: chainId,
+            protocolVersion: 2,
+            escrow: escrow,
+            ledger: address(this),
+            dealId: dealId,
+            terminalState: terminalState,
+            outcome: outcome,
+            operatorFaultCode: 0,
+            operatorFaultEvidenceHash: bytes32(0),
+            token: d.token,
+            principal: d.principal,
+            holderSideReturn: holderGross,
+            providerGross: providerGross,
+            providerNet: providerNet,
+            completionCollected: completionCollected,
+            operatorFeePaid: 0,
+            operatorFeeUnlocked: 0,
+            holderReceiver: d.holderReceiver,
+            providerReceiver: d.providerReceiver,
+            completionFeeRecipient: d.completionFeeRecipient,
+            operatorFeeRecipient: address(0),
+            operatorFeeReturnReceiver: address(0),
+            termsHash: d.termsHash,
+            modulesHash: d.modulesHash,
+            evidenceHash: bytes32(0),
+            reservationsHash: bytes32(0),
+            reservationDispositionsHash: bytes32(0),
+            terminatedAt: terminatedAt
+        });
+        terminalHash = DealHashing.hashTerminalRecord(terminalRecord);
+        uint256 count;
+        if (holderGross > 0) ++count;
+        if (providerNet > 0) ++count;
+        if (completionCollected > 0) ++count;
+        allocations = new TerminalAllocation[](count);
+        uint256 index;
+        if (holderGross > 0) {
+            allocations[index++] = _terminalAllocation(
+                d.custodyBoundaryId, dealId, terminalHash, d.holderReceiver, holderGross
+            );
+        }
+        if (providerNet > 0) {
+            allocations[index++] = _terminalAllocation(
+                d.custodyBoundaryId, dealId, terminalHash, d.providerReceiver, providerNet
+            );
+        }
+        if (completionCollected > 0) {
+            allocations[index] = _terminalAllocation(
+                d.custodyBoundaryId,
+                dealId,
+                terminalHash,
+                d.completionFeeRecipient,
+                completionCollected
+            );
+        }
+    }
+
+    function _terminalAllocation(
+        bytes32 boundaryId,
+        bytes32 dealId,
+        bytes32 terminalHash,
+        address beneficiary,
+        uint256 amount
+    ) private pure returns (TerminalAllocation memory) {
+        return TerminalAllocation({
+            beneficiary: beneficiary,
+            amount: amount,
+            positionId: DealHashing.positionId(
+                boundaryId, PositionKind.DealTerminal, dealId, terminalHash, beneficiary
+            )
+        });
     }
 
     // ── Escrow-only: settlement ──────────────────────────────────────────────────
@@ -308,19 +501,18 @@ contract CreditLedger is ICreditLedger {
         address token,
         bytes32 terminalHash,
         TerminalAllocation[] calldata allocations
-    ) external nonReentrant onlyEscrow {
+    ) external nonReentrant onlyEscrow returns (uint8 reconciliationStatus) {
         uint8 status = _reconcile(token);
         if (status == ReconciliationStatus.DeficitCheckpointed) {
-            revert ReconciliationFailed(status);
+            return status;
         }
 
         Boundary storage b = _boundaries[token];
         bytes32 boundaryId = DealHashing.custodyBoundaryId(chainId, 2, address(this), token);
 
         // Find and consume DEAL position
-        bytes32 dealPosId = DealHashing.positionId(
-            boundaryId, PositionKind.Deal, dealId, bytes32(0), address(0)
-        );
+        bytes32 dealPosId =
+            DealHashing.positionId(boundaryId, PositionKind.Deal, dealId, bytes32(0), address(0));
         Position storage dealPos = _positions[dealPosId];
         if (!dealPos.exists) revert PositionNotFound();
         if (dealPos.consumed) revert PositionAlreadyConsumed();
@@ -346,8 +538,13 @@ contract CreditLedger is ICreditLedger {
                 existing.nominal += alloc.amount;
             } else if (!existing.exists) {
                 _createPosition(
-                    termPosId, PositionKind.DealTerminal, dealId, terminalHash,
-                    alloc.beneficiary, token, alloc.amount
+                    termPosId,
+                    PositionKind.DealTerminal,
+                    dealId,
+                    terminalHash,
+                    alloc.beneficiary,
+                    token,
+                    alloc.amount
                 );
             } else {
                 // Consumed tombstone with same id: collision
@@ -363,6 +560,7 @@ contract CreditLedger is ICreditLedger {
         b.nominalOutstanding += totalAllocated;
 
         emit DealSettled(dealId, token, terminalHash);
+        return status;
     }
 
     // ── Permissionless withdrawals ─────────────────────────────────────────────
@@ -374,7 +572,16 @@ contract CreditLedger is ICreditLedger {
     {
         Position storage pos = _positions[positionId];
         if (!pos.exists) revert PositionNotFound();
-        if (pos.consumed) revert PositionAlreadyConsumed();
+        if (pos.consumed) {
+            return PositionPayoutResult({
+                code: PayoutResultCode.ZeroPayable,
+                reconciliationStatus: ReconciliationStatus.Unchanged,
+                positionId: positionId,
+                receiver: pos.beneficiary,
+                paidAmount: 0,
+                nominalRemaining: 0
+            });
+        }
         if (pos.kind == PositionKind.Deal || pos.kind == PositionKind.Reservation) {
             revert PositionAlreadyConsumed(); // active positions not withdrawable
         }
@@ -384,10 +591,12 @@ contract CreditLedger is ICreditLedger {
         if (pay > available) pay = available;
         if (pay == 0) {
             return PositionPayoutResult({
-                resultCode: PayoutResultCode.ZeroPayable,
-                amountPaid: 0,
-                remainingNominal: pos.nominal,
-                consumed: false
+                code: PayoutResultCode.ZeroPayable,
+                reconciliationStatus: ReconciliationStatus.Unchanged,
+                positionId: positionId,
+                receiver: pos.beneficiary,
+                paidAmount: 0,
+                nominalRemaining: pos.nominal
             });
         }
 
@@ -401,55 +610,98 @@ contract CreditLedger is ICreditLedger {
     {
         Position storage pos = _positions[auth.positionId];
         if (!pos.exists) revert PositionNotFound();
-        if (pos.consumed) revert PositionAlreadyConsumed();
+        if (pos.consumed) {
+            return PositionPayoutResult({
+                code: PayoutResultCode.ZeroPayable,
+                reconciliationStatus: ReconciliationStatus.Unchanged,
+                positionId: auth.positionId,
+                receiver: auth.to,
+                paidAmount: 0,
+                nominalRemaining: 0
+            });
+        }
         if (pos.kind == PositionKind.Deal || pos.kind == PositionKind.Reservation) {
             revert PositionAlreadyConsumed();
         }
+        if (auth.action != 1) revert InvalidPayoutAction();
+        if (auth.token != pos.token) revert FundingSpecMismatch();
         if (auth.beneficiary != pos.beneficiary) revert Unauthorized();
         if (auth.to == address(0)) revert ZeroAddress();
         if (auth.to == address(this) || auth.to == escrow) revert SelfReceiver();
+        if (auth.maxAmount == 0) revert InvalidAmount();
         if (block.timestamp >= auth.expiry) revert Expired();
-        if (_payoutNonceUsed[auth.beneficiary][auth.nonce]) revert NonceUsed();
+        if (_payoutNonceUsed[auth.beneficiary][auth.action][auth.nonce]) revert NonceUsed();
 
         // Verify signature (Ledger domain)
         bytes32 structHash = keccak256(
             abi.encode(
-                _PAYOUT_AUTH_TYPEHASH, auth.positionId, auth.beneficiary, auth.to,
-                auth.maxAmount, auth.nonce, auth.expiry
+                _PAYOUT_AUTH_TYPEHASH,
+                auth.action,
+                auth.token,
+                auth.positionId,
+                auth.beneficiary,
+                auth.to,
+                auth.maxAmount,
+                auth.nonce,
+                auth.expiry
             )
         );
         bytes32 digest_ = DealHashing.digest(DOMAIN_SEPARATOR, structHash);
-        _verifySigner(auth.beneficiary, digest_, signature);
-
-        _payoutNonceUsed[auth.beneficiary][auth.nonce] = true;
+        if (!SignatureValidation.isValid(auth.beneficiary, digest_, signature)) {
+            revert FundingAuthInvalid();
+        }
 
         uint256 available = pos.nominal;
         uint256 pay = auth.maxAmount == type(uint256).max ? available : auth.maxAmount;
         if (pay > available) pay = available;
         if (pay == 0) {
             return PositionPayoutResult({
-                resultCode: PayoutResultCode.ZeroPayable,
-                amountPaid: 0,
-                remainingNominal: pos.nominal,
-                consumed: false
+                code: PayoutResultCode.ZeroPayable,
+                reconciliationStatus: ReconciliationStatus.Unchanged,
+                positionId: auth.positionId,
+                receiver: auth.to,
+                paidAmount: 0,
+                nominalRemaining: pos.nominal
             });
         }
 
-        return _executeWithdraw(auth.positionId, pos, auth.to, pay);
+        PositionPayoutResult memory result = _executeWithdraw(auth.positionId, pos, auth.to, pay);
+        if (
+            result.code == PayoutResultCode.HealthyPartial
+                || result.code == PayoutResultCode.HealthyFull
+        ) {
+            _payoutNonceUsed[auth.beneficiary][auth.action][auth.nonce] = true;
+        }
+        return result;
     }
 
-    function _executeWithdraw(
-        bytes32 positionId,
-        Position storage pos,
-        address to,
-        uint256 pay
-    ) internal returns (PositionPayoutResult memory) {
+    function _executeWithdraw(bytes32 positionId, Position storage pos, address to, uint256 pay)
+        internal
+        returns (PositionPayoutResult memory)
+    {
         address token = _tokenOf(positionId);
         if (token == address(0)) revert PositionNotFound();
 
         uint8 status = _reconcile(token);
         if (status == ReconciliationStatus.DeficitCheckpointed) {
-            revert DeficitNotImplemented();
+            return PositionPayoutResult({
+                code: PayoutResultCode.ReconciliationOnly,
+                reconciliationStatus: status,
+                positionId: positionId,
+                receiver: to,
+                paidAmount: 0,
+                nominalRemaining: pos.nominal
+            });
+        }
+        if (_boundaries[token].mode == BoundaryMode.Deficit) {
+            return PositionPayoutResult({
+                code: PayoutResultCode.DeficitClaimRequired,
+                reconciliationStatus: ReconciliationStatus.DeficitCheckpointed,
+                positionId: positionId,
+                receiver: to,
+                paidAmount: 0,
+                nominalRemaining: pos.nominal
+            });
         }
 
         Boundary storage b = _boundaries[token];
@@ -463,16 +715,19 @@ contract CreditLedger is ICreditLedger {
         emit PositionWithdrawn(positionId, to, pay);
 
         return PositionPayoutResult({
-            resultCode: pos.consumed ? PayoutResultCode.HealthyFull : PayoutResultCode.HealthyPartial,
-            amountPaid: pay,
-            remainingNominal: pos.nominal,
-            consumed: pos.consumed
+            code: pos.consumed ? PayoutResultCode.HealthyFull : PayoutResultCode.HealthyPartial,
+            reconciliationStatus: status,
+            positionId: positionId,
+            receiver: to,
+            paidAmount: pay,
+            nominalRemaining: pos.nominal
         });
     }
 
     // ── Permissionless boundary checkpoint ──────────────────────────────────────
 
     function checkpointBoundary(address token) external nonReentrant {
+        if (token == address(0)) revert ZeroAddress();
         uint8 status = _reconcile(token);
         if (status != ReconciliationStatus.DeficitCheckpointed) {
             revert ReconciliationFailed(status);
@@ -485,11 +740,7 @@ contract CreditLedger is ICreditLedger {
         revert DeficitNotImplemented();
     }
 
-    function claimRecovery(bytes32, uint256)
-        external
-        pure
-        returns (PositionPayoutResult memory)
-    {
+    function claimRecovery(bytes32, uint256) external pure returns (PositionPayoutResult memory) {
         revert DeficitNotImplemented();
     }
 
@@ -535,22 +786,9 @@ contract CreditLedger is ICreditLedger {
         internal
         view
     {
-        if (expected.code.length > 0) {
-            bytes4 magic = IERC1271(expected).isValidSignature(digest_, signature);
-            if (magic != 0x1626ba7e) revert FundingAuthInvalid();
-            return;
+        if (!SignatureValidation.isValid(expected, digest_, signature)) {
+            revert FundingAuthInvalid();
         }
-        if (signature.length != 65) revert FundingAuthInvalid();
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-        assembly ("memory-safe") {
-            r := calldataload(signature.offset)
-            s := calldataload(add(signature.offset, 32))
-            v := byte(0, calldataload(add(signature.offset, 64)))
-        }
-        address signer = ecrecover(digest_, v, r, s);
-        if (signer == address(0) || signer != expected) revert FundingAuthInvalid();
     }
 
     // ── Views ───────────────────────────────────────────────────────────────────

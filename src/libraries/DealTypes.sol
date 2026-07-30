@@ -48,23 +48,24 @@ library Outcome {
 
 enum ModuleRole {
     PaymentProofVerifier, // 0
-    ArbitrationAdapter,   // 1
-    BondVault,            // 2
-    Pool,                  // 3
-    HumanityVerifier,     // 4
-    ReputationPolicy,     // 5
-    RatePolicy,           // 6
-    PackagePolicy          // 7
+    ArbitrationAdapter, // 1
+    BondVault, // 2
+    Pool, // 3
+    HumanityVerifier, // 4
+    ReputationPolicy, // 5
+    RatePolicy, // 6
+    PackagePolicy // 7
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Resolution actions — contiguous 0-2
+// Resolution actions — fixed wire IDs 1-3 per MANDATORY_CORE.md §6.6.
 // ──────────────────────────────────────────────────────────────────────────────
 
 enum ResolutionAction {
-    MutualCancel,  // 0
-    CosignedRelease, // 1
-    Split           // 2
+    Invalid, // 0
+    MutualCancel, // 1
+    CosignedRelease, // 2
+    Split // 3
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -72,10 +73,10 @@ enum ResolutionAction {
 // ──────────────────────────────────────────────────────────────────────────────
 
 enum PoolKind {
-    None,         // 0
-    Owned,        // 1
-    Custom,       // 2
-    Crowdfunded   // 3
+    None, // 0
+    Owned, // 1
+    Custom, // 2
+    Crowdfunded // 3
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -155,10 +156,12 @@ library BoundaryMode {
 // ──────────────────────────────────────────────────────────────────────────────
 
 library PayoutResultCode {
-    uint8 constant HealthyFull = 0;
     uint8 constant HealthyPartial = 1;
-    uint8 constant ZeroPayable = 2;
-    uint8 constant DeficitRouted = 3; // future, after deficit encoding
+    uint8 constant HealthyFull = 2;
+    uint8 constant DeficitPaid = 3;
+    uint8 constant ZeroPayable = 4;
+    uint8 constant DeficitClaimRequired = 5;
+    uint8 constant ReconciliationOnly = 6;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -242,6 +245,9 @@ struct ResolutionAuth {
     uint256 resolutionNonce;
     uint64 expiry;
     uint16 providerShareBps;
+    uint8 operatorFaultCode;
+    bytes32 operatorFaultEvidenceHash;
+    bytes32 reservationDispositionsHash;
     bytes32 extensionsHash;
 }
 
@@ -307,6 +313,8 @@ struct Deal {
 
 /// @notice Position payout authorization per MANDATORY_CORE.md §6.7 — Ledger-domain.
 struct PositionPayoutAuth {
+    uint8 action;
+    address token;
     bytes32 positionId;
     address beneficiary;
     address to;
@@ -317,10 +325,12 @@ struct PositionPayoutAuth {
 
 /// @notice Position payout result per MANDATORY_CORE.md §6.7.
 struct PositionPayoutResult {
-    uint8 resultCode; // PayoutResultCode
-    uint256 amountPaid;
-    uint256 remainingNominal;
-    bool consumed;
+    uint8 code;
+    uint8 reconciliationStatus;
+    bytes32 positionId;
+    address receiver;
+    uint256 paidAmount;
+    uint256 nominalRemaining;
 }
 
 /// @notice Terminal allocation — coalesced output for settlement.
@@ -359,10 +369,7 @@ struct CoreManifestOffchain {
 
 /// @dev Explicit membership check — never ordinal comparison (MANDATORY_CORE.md §2.3).
 function isTerminal(uint8 state) pure returns (bool) {
-    return state == DealState.Released
-        || state == DealState.ResolvedSplit
-        || state == DealState.ResolvedByDisputeTimeout
-        || state == DealState.Cancelled
-        || state == DealState.ResolvedByArbitration
-        || state == DealState.Stalemate;
+    return state == DealState.Released || state == DealState.ResolvedSplit
+        || state == DealState.ResolvedByDisputeTimeout || state == DealState.Cancelled
+        || state == DealState.ResolvedByArbitration || state == DealState.Stalemate;
 }

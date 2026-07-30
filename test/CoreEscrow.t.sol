@@ -17,6 +17,7 @@ import {
     TerminalRecord,
     DealState,
     Outcome,
+    ReconciliationStatus,
     FundingPurpose,
     FundingSourceMode,
     PositionKind,
@@ -31,7 +32,8 @@ import {
     DealExists,
     Expired,
     InvalidBps,
-    TerminalDeal
+    TerminalDeal,
+    InvalidTerms
 } from "../src/libraries/CoreErrors.sol";
 
 contract CoreEscrowTest is Test {
@@ -49,8 +51,25 @@ contract CoreEscrowTest is Test {
     function setUp() public {
         holder = vm.addr(holderPk);
         provider = vm.addr(providerPk);
-        deployer = new CoreDeployer(2, keccak256("charter"), keccak256("tech"), address(this),
-            CoreManifestOffchain(bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0)));
+        deployer = new CoreDeployer(
+            2,
+            keccak256("charter"),
+            keccak256("tech"),
+            address(this),
+            CoreManifestOffchain(
+                bytes32(uint256(1)),
+                bytes32(uint256(2)),
+                bytes32(uint256(3)),
+                bytes32(uint256(4)),
+                bytes32(uint256(5)),
+                bytes32(uint256(6)),
+                bytes32(uint256(7)),
+                bytes32(uint256(8)),
+                bytes32(uint256(9)),
+                bytes32(uint256(10)),
+                bytes32(0)
+            )
+        );
         escrow = deployer.escrow();
         ledger = deployer.ledger();
         token = new MockERC20();
@@ -108,11 +127,13 @@ contract CoreEscrowTest is Test {
         });
     }
 
-    function _fundingAuth(bytes32 termsHash, bytes32 specHash, uint8 purpose, address authority, uint256 nonce)
-        internal
-        view
-        returns (FundingAuth memory)
-    {
+    function _fundingAuth(
+        bytes32 termsHash,
+        bytes32 specHash,
+        uint8 purpose,
+        address authority,
+        uint256 nonce
+    ) internal view returns (FundingAuth memory) {
         return FundingAuth({
             termsHash: termsHash,
             fundingSpecHash: specHash,
@@ -176,31 +197,55 @@ contract CoreEscrowTest is Test {
         p.terms.principalFundingHash = principalSpecHash;
         p.terms.activationFeeFundingHash = activationFee > 0 ? feeSpecHash : bytes32(0);
 
-        dealId = DealHashing.hashDealTerms(p.terms);
+        bytes32 termsHash = DealHashing.hashDealTerms(p.terms);
+        dealId = DealHashing.hashDealId(
+            escrow.chainId(),
+            escrow.protocolVersion(),
+            address(escrow),
+            termsHash,
+            p.terms.holder,
+            p.terms.provider,
+            p.terms.nonce
+        );
 
-        p.principalAuth = _fundingAuth(dealId, principalSpecHash, FundingPurpose.Principal, holder, principalFundingNonce);
+        p.principalAuth = _fundingAuth(
+            termsHash, principalSpecHash, FundingPurpose.Principal, holder, principalFundingNonce
+        );
         p.feeAuth = activationFee > 0
-            ? _fundingAuth(dealId, feeSpecHash, FundingPurpose.ActivationFee, holder, feeFundingNonce)
-            : _fundingAuth(dealId, bytes32(0), FundingPurpose.ActivationFee, holder, feeFundingNonce);
+            ? _fundingAuth(
+                termsHash, feeSpecHash, FundingPurpose.ActivationFee, holder, feeFundingNonce
+            )
+            : _fundingAuth(
+                termsHash, bytes32(0), FundingPurpose.ActivationFee, holder, feeFundingNonce
+            );
 
         // Sign funding auths in Ledger domain
-        p.principalSig = _sign(ledger.DOMAIN_SEPARATOR(), DealHashing.hashFundingAuth(p.principalAuth), holderPk);
+        p.principalSig = _sign(
+            ledger.DOMAIN_SEPARATOR(), DealHashing.hashFundingAuth(p.principalAuth), holderPk
+        );
         p.feeSig = activationFee > 0
             ? _sign(ledger.DOMAIN_SEPARATOR(), DealHashing.hashFundingAuth(p.feeAuth), holderPk)
             : new bytes(0);
 
         // Sign terms in Escrow domain
-        p.holderSig = _sign(escrow.DOMAIN_SEPARATOR(), dealId, holderPk);
-        p.providerSig = _sign(escrow.DOMAIN_SEPARATOR(), dealId, providerPk);
+        p.holderSig = _sign(escrow.DOMAIN_SEPARATOR(), termsHash, holderPk);
+        p.providerSig = _sign(escrow.DOMAIN_SEPARATOR(), termsHash, providerPk);
 
         // Mint and approve
         token.mint(holder, principal + activationFee);
         vm.prank(holder);
         token.approve(address(ledger), type(uint256).max);
 
-        dealId = escrow.activate(
-            p.terms, p.principalSpec, p.feeSpec, p.principalAuth, p.feeAuth,
-            p.principalSig, p.feeSig, p.holderSig, p.providerSig
+        (dealId,) = escrow.activate(
+            p.terms,
+            p.principalSpec,
+            p.feeSpec,
+            p.principalAuth,
+            p.feeAuth,
+            p.principalSig,
+            p.feeSig,
+            p.holderSig,
+            p.providerSig
         );
     }
 
@@ -215,6 +260,9 @@ contract CoreEscrowTest is Test {
             resolutionNonce: nonce,
             expiry: uint64(block.timestamp + 1 days),
             providerShareBps: bps,
+            operatorFaultCode: 0,
+            operatorFaultEvidenceHash: bytes32(0),
+            reservationDispositionsHash: bytes32(0),
             extensionsHash: bytes32(0)
         });
     }
@@ -236,6 +284,73 @@ contract CoreEscrowTest is Test {
         assertEq(escrow.getDeal(dealId).completionFee, 3e18);
     }
 
+    function test_activate_deficitReturnsStatusWithoutCreatingExposure() public {
+        _activate(100e18, 0, 0);
+        token.burn(address(ledger), 50e18);
+
+        bytes32 result = _activateWithNonce(100e18, 0, 0, 2, 3, 4);
+        assertEq(result, bytes32(0));
+        assertFalse(escrow.usedHolderNonce(holder, 2));
+        assertEq(ledger.nominalOutstanding(address(token)), 100e18);
+        assertTrue(ledger.inDeficit(address(token)));
+    }
+
+    function test_mutualResolve_deficitDoesNotConsumeResolutionNonce() public {
+        bytes32 dealId = _activate(100e18, 0, 0);
+        token.burn(address(ledger), 50e18);
+
+        ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.MutualCancel, 77, 0);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+
+        uint8 status = escrow.mutualResolve(dealId, auth, hSig, pSig);
+
+        assertEq(status, ReconciliationStatus.DeficitCheckpointed);
+        assertEq(uint8(escrow.dealState(dealId)), DealState.Funded);
+        assertFalse(escrow.usedResolutionNonce(dealId, ResolutionAction.MutualCancel, 77));
+    }
+
+    function test_activate_rejectsWrongCustodyBoundary() public {
+        DealTerms memory t = _terms(100e18, 0, 0);
+        t.nonce = 2;
+        t.custodyBoundaryId = bytes32(uint256(1));
+
+        FundingSpec memory principalSpec = _fundingSpec(FundingPurpose.Principal, 100e18, holder);
+        FundingSpec memory feeSpec = _fundingSpec(FundingPurpose.ActivationFee, 0, holder);
+        bytes32 principalSpecHash = DealHashing.hashFundingSpec(principalSpec);
+        t.principalFundingHash = principalSpecHash;
+        t.activationFeeFundingHash = bytes32(0);
+        bytes32 termsHash = DealHashing.hashDealTerms(t);
+        FundingAuth memory principalAuth =
+            _fundingAuth(termsHash, principalSpecHash, FundingPurpose.Principal, holder, 10);
+        FundingAuth memory feeAuth =
+            _fundingAuth(termsHash, bytes32(0), FundingPurpose.ActivationFee, holder, 11);
+
+        bytes memory principalSig =
+            _sign(ledger.DOMAIN_SEPARATOR(), DealHashing.hashFundingAuth(principalAuth), holderPk);
+        bytes memory holderSig = _sign(escrow.DOMAIN_SEPARATOR(), termsHash, holderPk);
+        bytes memory providerSig = _sign(escrow.DOMAIN_SEPARATOR(), termsHash, providerPk);
+
+        token.mint(holder, 100e18);
+        vm.prank(holder);
+        token.approve(address(ledger), type(uint256).max);
+
+        vm.expectRevert(InvalidTerms.selector);
+        escrow.activate(
+            t,
+            principalSpec,
+            feeSpec,
+            principalAuth,
+            feeAuth,
+            principalSig,
+            new bytes(0),
+            holderSig,
+            providerSig
+        );
+    }
+
     function test_activate_duplicateRejects() public {
         bytes32 dealId = _activate(100e18, 0, 0);
 
@@ -250,18 +365,36 @@ contract CoreEscrowTest is Test {
         bytes32 psh = DealHashing.hashFundingSpec(ps);
         t.principalFundingHash = psh;
         t.activationFeeFundingHash = bytes32(0);
-        bytes32 did = DealHashing.hashDealTerms(t);
+        bytes32 termsHash = DealHashing.hashDealTerms(t);
+        bytes32 did = DealHashing.hashDealId(
+            escrow.chainId(),
+            escrow.protocolVersion(),
+            address(escrow),
+            termsHash,
+            t.holder,
+            t.provider,
+            t.nonce
+        );
 
-        FundingAuth memory pa = _fundingAuth(did, psh, FundingPurpose.Principal, holder, 1);
-        FundingAuth memory fa = _fundingAuth(did, bytes32(0), FundingPurpose.ActivationFee, holder, 2);
-        bytes memory psig = _sign(ledger.DOMAIN_SEPARATOR(), DealHashing.hashFundingAuth(pa), holderPk);
-        bytes memory hsig = _sign(escrow.DOMAIN_SEPARATOR(), did, holderPk);
-        bytes memory provSig = _sign(escrow.DOMAIN_SEPARATOR(), did, providerPk);
+        FundingAuth memory pa = _fundingAuth(termsHash, psh, FundingPurpose.Principal, holder, 1);
+        FundingAuth memory fa =
+            _fundingAuth(termsHash, bytes32(0), FundingPurpose.ActivationFee, holder, 2);
+        bytes memory psig =
+            _sign(ledger.DOMAIN_SEPARATOR(), DealHashing.hashFundingAuth(pa), holderPk);
+        bytes memory hsig = _sign(escrow.DOMAIN_SEPARATOR(), termsHash, holderPk);
+        bytes memory provSig = _sign(escrow.DOMAIN_SEPARATOR(), termsHash, providerPk);
 
         vm.expectRevert(DealExists.selector);
         escrow.activate(
-            t, ps, _fundingSpec(FundingPurpose.ActivationFee, 0, holder),
-            pa, fa, psig, new bytes(0), hsig, provSig
+            t,
+            ps,
+            _fundingSpec(FundingPurpose.ActivationFee, 0, holder),
+            pa,
+            fa,
+            psig,
+            new bytes(0),
+            hsig,
+            provSig
         );
     }
 
@@ -466,8 +599,10 @@ contract CoreEscrowTest is Test {
         bytes32 dealId = _activate(100e18, 0, 0);
 
         ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.MutualCancel, 1, 0);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         escrow.mutualResolve(dealId, auth, hSig, pSig);
 
@@ -485,8 +620,10 @@ contract CoreEscrowTest is Test {
         escrow.markFiatSent(dealId);
 
         ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.MutualCancel, 1, 0);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         escrow.mutualResolve(dealId, auth, hSig, pSig);
 
@@ -501,8 +638,10 @@ contract CoreEscrowTest is Test {
         escrow.openDispute(dealId, "");
 
         ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.MutualCancel, 1, 0);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         escrow.mutualResolve(dealId, auth, hSig, pSig);
 
@@ -514,9 +653,12 @@ contract CoreEscrowTest is Test {
         vm.prank(provider);
         escrow.markFiatSent(dealId);
 
-        ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.CosignedRelease, 1, 10_000);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        ResolutionAuth memory auth =
+            _resolutionAuth(dealId, ResolutionAction.CosignedRelease, 1, 10_000);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         escrow.mutualResolve(dealId, auth, hSig, pSig);
 
@@ -534,9 +676,12 @@ contract CoreEscrowTest is Test {
         vm.prank(holder);
         escrow.openDispute(dealId, "");
 
-        ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.CosignedRelease, 1, 10_000);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        ResolutionAuth memory auth =
+            _resolutionAuth(dealId, ResolutionAction.CosignedRelease, 1, 10_000);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         escrow.mutualResolve(dealId, auth, hSig, pSig);
 
@@ -549,8 +694,10 @@ contract CoreEscrowTest is Test {
         escrow.markFiatSent(dealId);
 
         ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.Split, 1, 3_000);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         escrow.mutualResolve(dealId, auth, hSig, pSig);
 
@@ -570,8 +717,10 @@ contract CoreEscrowTest is Test {
         escrow.openDispute(dealId, "");
 
         ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.Split, 1, 4_000);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         escrow.mutualResolve(dealId, auth, hSig, pSig);
 
@@ -585,9 +734,12 @@ contract CoreEscrowTest is Test {
     function test_mutualResolve_cosignedRelease_fromFunded_reverts() public {
         bytes32 dealId = _activate(100e18, 0, 0);
 
-        ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.CosignedRelease, 1, 10_000);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        ResolutionAuth memory auth =
+            _resolutionAuth(dealId, ResolutionAction.CosignedRelease, 1, 10_000);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         vm.expectRevert(InvalidState.selector);
         escrow.mutualResolve(dealId, auth, hSig, pSig);
@@ -597,8 +749,10 @@ contract CoreEscrowTest is Test {
         bytes32 dealId = _activate(100e18, 0, 0);
 
         ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.Split, 1, 5_000);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         vm.expectRevert(InvalidState.selector);
         escrow.mutualResolve(dealId, auth, hSig, pSig);
@@ -607,9 +761,12 @@ contract CoreEscrowTest is Test {
     function test_mutualResolve_cancel_wrongBps_reverts() public {
         bytes32 dealId = _activate(100e18, 0, 0);
 
-        ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.MutualCancel, 1, 1_000);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        ResolutionAuth memory auth =
+            _resolutionAuth(dealId, ResolutionAction.MutualCancel, 1, 1_000);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         vm.expectRevert(InvalidBps.selector);
         escrow.mutualResolve(dealId, auth, hSig, pSig);
@@ -619,8 +776,10 @@ contract CoreEscrowTest is Test {
         bytes32 dealId = _activate(100e18, 0, 0);
 
         ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.MutualCancel, 1, 0);
-        bytes memory hSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
-        bytes memory pSig = _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        bytes memory hSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory pSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
 
         escrow.mutualResolve(dealId, auth, hSig, pSig);
 
@@ -715,6 +874,7 @@ contract CoreEscrowTest is Test {
 
         bytes32 th = escrow.getTerminalHash(dealId);
         assertTrue(th != bytes32(0));
+        assertEq(th, DealHashing.hashTerminalRecord(escrow.getTerminalRecord(dealId)));
     }
 
     // ── Manifest tests ──────────────────────────────────────────────────────────
@@ -734,12 +894,28 @@ contract CoreEscrowTest is Test {
         address coordinatorAddr = address(deployer.coordinator());
         address escrowAddr = address(escrow);
         CoreManifestOffchain memory off = CoreManifestOffchain(
-            bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0),
-            bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0)
+            bytes32(uint256(1)),
+            bytes32(uint256(2)),
+            bytes32(uint256(3)),
+            bytes32(uint256(4)),
+            bytes32(uint256(5)),
+            bytes32(uint256(6)),
+            bytes32(uint256(7)),
+            bytes32(uint256(8)),
+            bytes32(uint256(9)),
+            bytes32(uint256(10)),
+            bytes32(0)
         );
         bytes32 expected = DealHashing.hashCoreManifest(
-            uint64(block.chainid), 2, keccak256("charter"), keccak256("tech"),
-            deployerAddr, ledgerAddr, coordinatorAddr, escrowAddr, off
+            uint64(block.chainid),
+            2,
+            keccak256("charter"),
+            keccak256("tech"),
+            deployerAddr,
+            ledgerAddr,
+            coordinatorAddr,
+            escrowAddr,
+            off
         );
         assertEq(deployer.manifestHash(), expected);
     }
@@ -747,14 +923,27 @@ contract CoreEscrowTest is Test {
     function test_manifestHash_differsForDifferentCharter() public {
         bytes32 salt = keccak256("manifest-diff");
         CoreManifestOffchain memory off = CoreManifestOffchain(
-            bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0),
-            bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0)
+            bytes32(uint256(1)),
+            bytes32(uint256(2)),
+            bytes32(uint256(3)),
+            bytes32(uint256(4)),
+            bytes32(uint256(5)),
+            bytes32(uint256(6)),
+            bytes32(uint256(7)),
+            bytes32(uint256(8)),
+            bytes32(uint256(9)),
+            bytes32(uint256(10)),
+            bytes32(0)
         );
         vm.startPrank(address(0x123));
-        CoreDeployer d1 = new CoreDeployer{salt: salt}(2, keccak256("charterA"), keccak256("tech"), address(0x456), off);
+        CoreDeployer d1 = new CoreDeployer{salt: salt}(
+            2, keccak256("charterA"), keccak256("tech"), address(0x456), off
+        );
         vm.stopPrank();
         vm.startPrank(address(0x789));
-        CoreDeployer d2 = new CoreDeployer{salt: salt}(2, keccak256("charterB"), keccak256("tech"), address(0xABC), off);
+        CoreDeployer d2 = new CoreDeployer{salt: salt}(
+            2, keccak256("charterB"), keccak256("tech"), address(0xABC), off
+        );
         vm.stopPrank();
         assertTrue(d1.manifestHash() != d2.manifestHash());
     }
@@ -764,5 +953,25 @@ contract CoreEscrowTest is Test {
         assertEq(deployer.protocolVersion(), 2);
         assertEq(deployer.charterHash(), keccak256("charter"));
         assertEq(deployer.techSpecHash(), keccak256("tech"));
+    }
+
+    function test_deployer_createsExactlyTheTriad() public {
+        assertEq(address(ledger), _createAddress(address(deployer), 1));
+        assertEq(address(deployer.coordinator()), _createAddress(address(deployer), 2));
+        assertEq(address(escrow), _createAddress(address(deployer), 3));
+        assertGt(address(ledger).code.length, 0);
+        assertGt(address(deployer.coordinator()).code.length, 0);
+        assertGt(address(escrow).code.length, 0);
+        assertEq(_createAddress(address(deployer), 4).code.length, 0);
+    }
+
+    function _createAddress(address creator, uint8 nonce) private pure returns (address) {
+        return address(
+            uint160(
+                uint256(
+                    keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), creator, bytes1(nonce)))
+                )
+            )
+        );
     }
 }

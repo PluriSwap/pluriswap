@@ -6,8 +6,6 @@ import {
     DealTerms,
     FundingSpec,
     FundingAuth,
-    ModuleBinding,
-    ModuleRole,
     ResolutionAction,
     ResolutionAuth,
     TerminalRecord
@@ -28,24 +26,24 @@ interface ICoreEscrow {
         bytes calldata activationFeeFundingSig,
         bytes calldata holderSig,
         bytes calldata providerSig
-    ) external returns (bytes32 dealId);
+    ) external returns (bytes32 dealId, uint8 reconciliationStatus);
 
     // ── Core transitions ───────────────────────────────────────────────────────
 
     function markFiatSent(bytes32 dealId) external;
-    function providerCancel(bytes32 dealId) external;
-    function fiatTimeoutCancel(bytes32 dealId) external;
-    function holderRelease(bytes32 dealId) external;
-    function claim(bytes32 dealId) external;
+    function providerCancel(bytes32 dealId) external returns (uint8 reconciliationStatus);
+    function fiatTimeoutCancel(bytes32 dealId) external returns (uint8 reconciliationStatus);
+    function holderRelease(bytes32 dealId) external returns (uint8 reconciliationStatus);
+    function claim(bytes32 dealId) external returns (uint8 reconciliationStatus);
     function openDispute(bytes32 dealId, bytes calldata openData) external;
-    function disputeTimeout(bytes32 dealId) external;
+    function disputeTimeout(bytes32 dealId) external returns (uint8 reconciliationStatus);
 
     function mutualResolve(
         bytes32 dealId,
         ResolutionAuth calldata auth,
         bytes calldata holderSig,
         bytes calldata providerSig
-    ) external;
+    ) external returns (uint8 reconciliationStatus);
 
     // ── Extension surfaces (reject when profile not selected) ──────────────────
 

@@ -37,9 +37,21 @@ contract DealHashingTest is Test {
     }
 
     function test_hashDealTerms_deterministic() public pure {
-        assertEq(
-            DealHashing.hashDealTerms(_emptyTerms()),
-            DealHashing.hashDealTerms(_emptyTerms())
+        assertEq(DealHashing.hashDealTerms(_emptyTerms()), DealHashing.hashDealTerms(_emptyTerms()));
+    }
+
+    function test_hashDealId_isDistinctFromTermsHashAndBindsIdentity() public pure {
+        DealTerms memory terms = _emptyTerms();
+        bytes32 termsHash = DealHashing.hashDealTerms(terms);
+        bytes32 dealId = DealHashing.hashDealId(
+            1, 2, address(9), termsHash, terms.holder, terms.provider, terms.nonce
+        );
+        assertNotEq(dealId, termsHash);
+        assertNotEq(
+            dealId,
+            DealHashing.hashDealId(
+                1, 2, address(9), termsHash, terms.holder, terms.provider, terms.nonce + 1
+            )
         );
     }
 
@@ -105,6 +117,9 @@ contract DealHashingTest is Test {
             resolutionNonce: 1,
             expiry: 1_700_000_000,
             providerShareBps: 0,
+            operatorFaultCode: 0,
+            operatorFaultEvidenceHash: bytes32(0),
+            reservationDispositionsHash: bytes32(0),
             extensionsHash: bytes32(0)
         });
         assertEq(DealHashing.hashResolution(r), DealHashing.hashResolution(r));
@@ -113,14 +128,17 @@ contract DealHashingTest is Test {
     function test_positionId_deterministic() public pure {
         bytes32 id = DealHashing.positionId(
             bytes32(uint256(1)), // custodyBoundaryId
-            1,                   // kind = DEAL
+            1, // kind = DEAL
             bytes32(uint256(2)), // sourceId = dealId
-            bytes32(0),           // terminalHash = zero for active
-            address(0)            // beneficiary = zero for DEAL
+            bytes32(0), // terminalHash = zero for active
+            address(0) // beneficiary = zero for DEAL
         );
-        assertEq(id, DealHashing.positionId(
-            bytes32(uint256(1)), 1, bytes32(uint256(2)), bytes32(0), address(0)
-        ));
+        assertEq(
+            id,
+            DealHashing.positionId(
+                bytes32(uint256(1)), 1, bytes32(uint256(2)), bytes32(0), address(0)
+            )
+        );
     }
 
     function test_custodyBoundaryId_deterministic() public pure {
@@ -141,7 +159,7 @@ contract DealHashingTest is Test {
             ledger: address(0x1ED),
             dealId: bytes32(uint256(1)),
             terminalState: 16, // Released
-            outcome: 1,        // VoluntaryRelease
+            outcome: 1, // VoluntaryRelease
             operatorFaultCode: 0,
             operatorFaultEvidenceHash: bytes32(0),
             token: address(0x70C),

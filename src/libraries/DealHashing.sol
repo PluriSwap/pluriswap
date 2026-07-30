@@ -35,7 +35,11 @@ library DealHashing {
     );
 
     bytes32 constant RESOLUTION_TYPEHASH = keccak256(
-        "ResolutionAuth(bytes32 dealId,uint8 action,uint256 resolutionNonce,uint64 expiry,uint16 providerShareBps,bytes32 extensionsHash)"
+        "ResolutionAuth(bytes32 dealId,uint8 action,uint256 resolutionNonce,uint64 expiry,uint16 providerShareBps,uint8 operatorFaultCode,bytes32 operatorFaultEvidenceHash,bytes32 reservationDispositionsHash,bytes32 extensionsHash)"
+    );
+
+    bytes32 constant DEAL_ID_TYPEHASH = keccak256(
+        "PluriSwapDealId(uint64 chainId,uint32 protocolVersion,address escrow,bytes32 termsHash,address holder,address provider,uint256 nonce)"
     );
 
     bytes32 constant TERMINAL_RECORD_TYPEHASH = keccak256(
@@ -153,6 +157,29 @@ library DealHashing {
         );
     }
 
+    function hashDealId(
+        uint64 chainId_,
+        uint32 protocolVersion_,
+        address escrow,
+        bytes32 termsHash,
+        address holder,
+        address provider,
+        uint256 nonce
+    ) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                DEAL_ID_TYPEHASH,
+                chainId_,
+                protocolVersion_,
+                escrow,
+                termsHash,
+                holder,
+                provider,
+                nonce
+            )
+        );
+    }
+
     function hashResolution(ResolutionAuth memory a) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
@@ -162,6 +189,9 @@ library DealHashing {
                 a.resolutionNonce,
                 a.expiry,
                 a.providerShareBps,
+                a.operatorFaultCode,
+                a.operatorFaultEvidenceHash,
+                a.reservationDispositionsHash,
                 a.extensionsHash
             )
         );

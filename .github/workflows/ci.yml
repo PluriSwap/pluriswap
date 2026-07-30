@@ -1,0 +1,37 @@
+name: Mandatory Core CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  foundry:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - run: forge fmt --check
+      - name: Build and enforce CoreEscrow bytecode limit
+        run: |
+          forge build --sizes | tee /tmp/forge-sizes.txt
+          awk -F'|' '
+            /\| CoreEscrow[[:space:]]*\|/ {
+              gsub(/[ ,]/, "", $3)
+              found = 1
+              if ($3 >= 24576) exit 1
+            }
+            END { if (!found) exit 1 }
+          ' /tmp/forge-sizes.txt
+      - run: forge test
+      - run: git diff --check
+
+  static-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - run: python -m pip install --upgrade slither-analyzer
+      - run: slither . --exclude-dependencies

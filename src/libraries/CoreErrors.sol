@@ -24,6 +24,9 @@ error FundingSpecMismatch();
 error FundingAuthInvalid();
 error InvalidFundingMode();
 error FundingFailed();
+error InvalidTokenList();
+error InvalidPayoutAction();
+error InvalidAmount();
 
 // ── Module ────────────────────────────────────────────────────────────────────
 error ModuleNotAllowed();

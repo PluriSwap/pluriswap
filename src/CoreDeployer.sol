@@ -6,6 +6,12 @@ import {CreditLedger} from "./CreditLedger.sol";
 import {Coordinator} from "./Coordinator.sol";
 import {DealHashing} from "./libraries/DealHashing.sol";
 import {CoreManifestOffchain} from "./libraries/DealTypes.sol";
+import {
+    InvalidChainId,
+    InvalidTerms,
+    ManifestMismatch,
+    ZeroAddress
+} from "./libraries/CoreErrors.sol";
 
 /// @notice Deploys the Mandatory Core triad and computes the immutable manifest hash per §13.
 contract CoreDeployer {
@@ -25,7 +31,21 @@ contract CoreDeployer {
         address coordinatorOwner,
         CoreManifestOffchain memory offchain
     ) {
-        if (coordinatorOwner == address(0)) revert();
+        if (protocolVersion_ != 2 || charterHash_ == bytes32(0) || techSpecHash_ == bytes32(0)) {
+            revert InvalidTerms();
+        }
+        if (coordinatorOwner == address(0)) revert ZeroAddress();
+        if (block.chainid > type(uint64).max) revert InvalidChainId();
+        if (
+            offchain.buildHash == bytes32(0) || offchain.deploymentMethodHash == bytes32(0)
+                || offchain.coreDeployerArtifactHash == bytes32(0)
+                || offchain.factoryArtifactHash == bytes32(0)
+                || offchain.ledgerArtifactHash == bytes32(0)
+                || offchain.coordinatorArtifactHash == bytes32(0)
+                || offchain.escrowArtifactHash == bytes32(0)
+                || offchain.capabilityHash == bytes32(0) || offchain.governanceHash == bytes32(0)
+                || offchain.verificationHash == bytes32(0)
+        ) revert ManifestMismatch();
 
         uint64 chainId_ = uint64(block.chainid);
 
@@ -46,6 +66,7 @@ contract CoreDeployer {
             escrowPredicted,
             offchain
         );
+        if (manifestHash_ == bytes32(0)) revert ManifestMismatch();
 
         // Deploy triad with real manifest hash
         ledger = new CreditLedger(escrowPredicted, chainId_);
@@ -64,6 +85,21 @@ contract CoreDeployer {
         require(address(escrow) == escrowPredicted, "CoreDeployer: escrow address mismatch");
         require(address(ledger) == ledgerPredicted, "CoreDeployer: ledger mismatch");
         require(address(coordinator) == coordinatorPredicted, "CoreDeployer: coordinator mismatch");
+        if (
+            address(ledger).code.length == 0 || address(coordinator).code.length == 0
+                || address(escrow).code.length == 0
+        ) {
+            revert ManifestMismatch();
+        }
+        if (ledger.escrow() != address(escrow) || coordinator.escrow() != address(escrow)) {
+            revert ManifestMismatch();
+        }
+        if (
+            address(escrow.ledger()) != address(ledger)
+                || address(escrow.coordinator()) != address(coordinator)
+        ) {
+            revert ManifestMismatch();
+        }
 
         // Store immutables
         manifestHash = manifestHash_;
@@ -79,9 +115,7 @@ contract CoreDeployer {
         return address(
             uint160(
                 uint256(
-                    keccak256(
-                        abi.encodePacked(bytes1(0xd6), bytes1(0x94), deployer, bytes1(nonce))
-                    )
+                    keccak256(abi.encodePacked(bytes1(0xd6), bytes1(0x94), deployer, bytes1(nonce)))
                 )
             )
         );

@@ -6,7 +6,8 @@ import {
     FundingAuth,
     PositionPayoutAuth,
     PositionPayoutResult,
-    TerminalAllocation
+    TerminalAllocation,
+    TerminalRecord
 } from "../libraries/DealTypes.sol";
 
 interface ICreditLedger {
@@ -21,6 +22,7 @@ interface ICreditLedger {
     /// @notice Fund a deal: validate funding specs/auths, exact-pull or debit, create positions.
     /// @dev Escrow-only. Atomic: all-or-nothing rollback on any failure.
     function fundDealAndReservations(
+        bytes32 termsHash,
         bytes32 dealId,
         address token,
         uint256 principal,
@@ -32,7 +34,7 @@ interface ICreditLedger {
         FundingAuth calldata activationFeeFundingAuth,
         bytes calldata principalFundingSig,
         bytes calldata activationFeeFundingSig
-    ) external;
+    ) external returns (uint8 reconciliationStatus);
 
     /// @notice Settle a deal: consume deal position, create coalesced terminal positions.
     /// @dev Escrow-only. No token transfer; reassigns existing positions.
@@ -41,7 +43,23 @@ interface ICreditLedger {
         address token,
         bytes32 terminalHash,
         TerminalAllocation[] calldata allocations
-    ) external;
+    ) external returns (uint8 reconciliationStatus);
+
+    /// @notice Bound, read-only terminal planning used by Core before reassignment.
+    function planSettlement(
+        bytes32 dealId,
+        uint8 terminalState,
+        uint8 outcome,
+        uint16 providerBps,
+        uint64 terminatedAt
+    )
+        external
+        view
+        returns (
+            TerminalRecord memory terminalRecord,
+            bytes32 terminalHash,
+            TerminalAllocation[] memory allocations
+        );
 
     // ── Permissionless withdrawals ─────────────────────────────────────────────
 
@@ -106,9 +124,13 @@ interface ICreditLedger {
         uint256 quarantinedSurplusBefore,
         uint256 quarantinedSurplusAfter
     );
-    event DealFunded(bytes32 indexed dealId, address indexed token, uint256 principal, uint256 activationFee);
+    event DealFunded(
+        bytes32 indexed dealId, address indexed token, uint256 principal, uint256 activationFee
+    );
     event DealSettled(bytes32 indexed dealId, address indexed token, bytes32 terminalHash);
-    event PositionCreated(bytes32 indexed positionId, uint8 kind, address indexed beneficiary, uint256 nominal);
+    event PositionCreated(
+        bytes32 indexed positionId, uint8 kind, address indexed beneficiary, uint256 nominal
+    );
     event PositionConsumed(bytes32 indexed positionId);
     event PositionWithdrawn(bytes32 indexed positionId, address to, uint256 amount);
     event DeficitEntered(address indexed token, uint256 nominalUnits, uint256 assets);

@@ -14,23 +14,23 @@ contract DeployCore is Script {
     function run() external {
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address broadcaster = vm.addr(pk);
-        bytes32 charterHash = vm.envOr("CHARTER_HASH", keccak256("charter"));
-        bytes32 techSpecHash = vm.envOr("TECH_SPEC_HASH", keccak256("tech"));
+        bytes32 charterHash = vm.envBytes32("CHARTER_HASH");
+        bytes32 techSpecHash = vm.envBytes32("TECH_SPEC_HASH");
         address owner = vm.envOr("COORDINATOR_OWNER", broadcaster);
         // ASCII "pluriswap.core.v2" left-aligned in bytes32 (matches deploy.toml.example).
         bytes32 salt = vm.envOr("SALT_CORE", bytes32("pluriswap.core.v2"));
 
         CoreManifestOffchain memory offchain = CoreManifestOffchain({
-            buildHash: vm.envOr("BUILD_HASH", bytes32(0)),
-            deploymentMethodHash: vm.envOr("DEPLOYMENT_METHOD_HASH", bytes32(0)),
-            coreDeployerArtifactHash: vm.envOr("DEPLOYER_ARTIFACT_HASH", bytes32(0)),
-            factoryArtifactHash: bytes32(0),
-            ledgerArtifactHash: vm.envOr("LEDGER_ARTIFACT_HASH", bytes32(0)),
-            coordinatorArtifactHash: vm.envOr("COORDINATOR_ARTIFACT_HASH", bytes32(0)),
-            escrowArtifactHash: vm.envOr("ESCROW_ARTIFACT_HASH", bytes32(0)),
-            capabilityHash: vm.envOr("CAPABILITY_HASH", bytes32(0)),
-            governanceHash: vm.envOr("GOVERNANCE_HASH", bytes32(0)),
-            verificationHash: vm.envOr("VERIFICATION_HASH", bytes32(0)),
+            buildHash: vm.envBytes32("BUILD_HASH"),
+            deploymentMethodHash: vm.envBytes32("DEPLOYMENT_METHOD_HASH"),
+            coreDeployerArtifactHash: vm.envBytes32("DEPLOYER_ARTIFACT_HASH"),
+            factoryArtifactHash: vm.envBytes32("FACTORY_ARTIFACT_HASH"),
+            ledgerArtifactHash: vm.envBytes32("LEDGER_ARTIFACT_HASH"),
+            coordinatorArtifactHash: vm.envBytes32("COORDINATOR_ARTIFACT_HASH"),
+            escrowArtifactHash: vm.envBytes32("ESCROW_ARTIFACT_HASH"),
+            capabilityHash: vm.envBytes32("CAPABILITY_HASH"),
+            governanceHash: vm.envBytes32("GOVERNANCE_HASH"),
+            verificationHash: vm.envBytes32("VERIFICATION_HASH"),
             predecessorManifestHash: bytes32(0)
         });
 

@@ -9,6 +9,7 @@ import {
     PositionKind,
     FundingPurpose,
     FundingSourceMode,
+    ResolutionAction,
     isTerminal
 } from "../src/libraries/DealTypes.sol";
 
@@ -95,5 +96,12 @@ contract DealTypesTest is Test {
     function test_FundingSourceMode_ids() public pure {
         assertEq(FundingSourceMode.WalletPull, 1);
         assertEq(FundingSourceMode.LedgerPosition, 2);
+    }
+
+    function test_ResolutionAction_wireIds() public pure {
+        assertEq(uint8(ResolutionAction.Invalid), 0);
+        assertEq(uint8(ResolutionAction.MutualCancel), 1);
+        assertEq(uint8(ResolutionAction.CosignedRelease), 2);
+        assertEq(uint8(ResolutionAction.Split), 3);
     }
 }

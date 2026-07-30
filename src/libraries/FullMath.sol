@@ -8,7 +8,11 @@ library FullMath {
     error FullMath_DivByZero();
     error FullMath_Overflow();
 
-    function mulDiv(uint256 a, uint256 b, uint256 denominator) internal pure returns (uint256 result) {
+    function mulDiv(uint256 a, uint256 b, uint256 denominator)
+        internal
+        pure
+        returns (uint256 result)
+    {
         unchecked {
             // 512-bit multiply [prod1 prod0]
             uint256 prod0; // Lower 256 bits

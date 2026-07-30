@@ -17,6 +17,7 @@ contract SettlementMathTest is Test {
     function setUp() public {
         wrapper = new SettlementMathWrapper();
     }
+
     function test_split_zeroBps() public pure {
         (uint256 holder, uint256 prov) = SettlementMath.split(1000, 0);
         assertEq(holder, 1000);
@@ -60,5 +61,4 @@ contract SettlementMathTest is Test {
         vm.expectRevert();
         wrapper.tryCheckedAdd64(type(uint64).max, 1);
     }
-
 }
