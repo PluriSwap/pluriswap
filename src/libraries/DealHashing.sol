@@ -7,7 +7,11 @@ import {
     ResolutionAuth,
     FundingSpec,
     FundingAuth,
-    TerminalRecord
+    TerminalRecord,
+    CoreManifestOffchain,
+    MANIFEST_SCHEMA_ID,
+    MANIFEST_SCHEMA_VERSION,
+    DEPLOYMENT_KIND_MANDATORY_CORE
 } from "./DealTypes.sol";
 
 /// @notice EIP-712 hashing for all typed structs per MANDATORY_CORE.md §§6.2-6.7, §11.2, §3.3.
@@ -231,5 +235,52 @@ library DealHashing {
 
     function digest(bytes32 domainSeparator, bytes32 structHash) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
+    }
+
+    // ── Manifest (§13) ──────────────────────────────────────────────────────────
+
+    bytes32 constant MANDATORY_CORE_MANIFEST_V1_TYPEHASH = keccak256(
+        "MandatoryCoreManifestV1(bytes32 schemaId,uint16 schemaVersion,uint8 deploymentKind,uint64 chainId,uint32 protocolVersion,bytes32 charterHash,bytes32 techSpecHash,bytes32 buildHash,bytes32 deploymentMethodHash,bytes32 coreDeployerArtifactHash,bytes32 factoryArtifactHash,bytes32 ledgerArtifactHash,bytes32 coordinatorArtifactHash,bytes32 escrowArtifactHash,address coreDeployer,address ledger,address coordinator,address escrow,bytes32 capabilityHash,bytes32 governanceHash,bytes32 verificationHash,bytes32 predecessorManifestHash)"
+    );
+
+    /// @dev Computes manifestHash from on-chain + off-chain fields per §13.1.
+    function hashCoreManifest(
+        uint64 chainId_,
+        uint32 protocolVersion_,
+        bytes32 charterHash_,
+        bytes32 techSpecHash_,
+        address coreDeployer,
+        address ledger_,
+        address coordinator_,
+        address escrow_,
+        CoreManifestOffchain memory offchain
+    ) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                MANDATORY_CORE_MANIFEST_V1_TYPEHASH,
+                MANIFEST_SCHEMA_ID,
+                MANIFEST_SCHEMA_VERSION,
+                DEPLOYMENT_KIND_MANDATORY_CORE,
+                chainId_,
+                protocolVersion_,
+                charterHash_,
+                techSpecHash_,
+                offchain.buildHash,
+                offchain.deploymentMethodHash,
+                offchain.coreDeployerArtifactHash,
+                offchain.factoryArtifactHash,
+                offchain.ledgerArtifactHash,
+                offchain.coordinatorArtifactHash,
+                offchain.escrowArtifactHash,
+                coreDeployer,
+                ledger_,
+                coordinator_,
+                escrow_,
+                offchain.capabilityHash,
+                offchain.governanceHash,
+                offchain.verificationHash,
+                offchain.predecessorManifestHash
+            )
+        );
     }
 }

@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Script, console2} from "forge-std/Script.sol";
 import {CoreDeployer} from "../src/CoreDeployer.sol";
+import {CoreManifestOffchain} from "../src/libraries/DealTypes.sol";
 
 /// @notice CREATE2-deploys `CoreDeployer`, which creates Ledger + Coordinator + Escrow.
 /// @dev Child addresses are deterministic from the factory address (CREATE nonces 1..3).
@@ -19,9 +20,23 @@ contract DeployCore is Script {
         // ASCII "pluriswap.core.v2" left-aligned in bytes32 (matches deploy.toml.example).
         bytes32 salt = vm.envOr("SALT_CORE", bytes32("pluriswap.core.v2"));
 
+        CoreManifestOffchain memory offchain = CoreManifestOffchain({
+            buildHash: vm.envOr("BUILD_HASH", bytes32(0)),
+            deploymentMethodHash: vm.envOr("DEPLOYMENT_METHOD_HASH", bytes32(0)),
+            coreDeployerArtifactHash: vm.envOr("DEPLOYER_ARTIFACT_HASH", bytes32(0)),
+            factoryArtifactHash: bytes32(0),
+            ledgerArtifactHash: vm.envOr("LEDGER_ARTIFACT_HASH", bytes32(0)),
+            coordinatorArtifactHash: vm.envOr("COORDINATOR_ARTIFACT_HASH", bytes32(0)),
+            escrowArtifactHash: vm.envOr("ESCROW_ARTIFACT_HASH", bytes32(0)),
+            capabilityHash: vm.envOr("CAPABILITY_HASH", bytes32(0)),
+            governanceHash: vm.envOr("GOVERNANCE_HASH", bytes32(0)),
+            verificationHash: vm.envOr("VERIFICATION_HASH", bytes32(0)),
+            predecessorManifestHash: bytes32(0)
+        });
+
         bytes memory initCode = abi.encodePacked(
             type(CoreDeployer).creationCode,
-            abi.encode(PROTOCOL_VERSION, charterHash, techSpecHash, owner)
+            abi.encode(PROTOCOL_VERSION, charterHash, techSpecHash, owner, offchain)
         );
         bytes32 initCodeHash = keccak256(initCode);
 
@@ -40,7 +55,7 @@ contract DeployCore is Script {
         vm.startBroadcast(pk);
 
         CoreDeployer deployed = new CoreDeployer{salt: salt}(
-            PROTOCOL_VERSION, charterHash, techSpecHash, owner
+            PROTOCOL_VERSION, charterHash, techSpecHash, owner, offchain
         );
 
         vm.stopBroadcast();

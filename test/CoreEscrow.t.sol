@@ -19,7 +19,8 @@ import {
     Outcome,
     FundingPurpose,
     FundingSourceMode,
-    PositionKind
+    PositionKind,
+    CoreManifestOffchain
 } from "../src/libraries/DealTypes.sol";
 import {
     InvalidState,
@@ -48,7 +49,8 @@ contract CoreEscrowTest is Test {
     function setUp() public {
         holder = vm.addr(holderPk);
         provider = vm.addr(providerPk);
-        deployer = new CoreDeployer(2, keccak256("charter"), keccak256("tech"), address(this));
+        deployer = new CoreDeployer(2, keccak256("charter"), keccak256("tech"), address(this),
+            CoreManifestOffchain(bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0)));
         escrow = deployer.escrow();
         ledger = deployer.ledger();
         token = new MockERC20();
@@ -713,5 +715,54 @@ contract CoreEscrowTest is Test {
 
         bytes32 th = escrow.getTerminalHash(dealId);
         assertTrue(th != bytes32(0));
+    }
+
+    // ── Manifest tests ──────────────────────────────────────────────────────────
+
+    function test_manifestHash_nonZero() public {
+        assertTrue(deployer.manifestHash() != bytes32(0));
+    }
+
+    function test_manifestHash_matchesEscrow() public {
+        assertEq(deployer.manifestHash(), escrow.manifestHash());
+    }
+
+    function test_manifestHash_deterministic() public {
+        // Compute expected manifest hash from known addresses
+        address deployerAddr = address(deployer);
+        address ledgerAddr = address(ledger);
+        address coordinatorAddr = address(deployer.coordinator());
+        address escrowAddr = address(escrow);
+        CoreManifestOffchain memory off = CoreManifestOffchain(
+            bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0),
+            bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0)
+        );
+        bytes32 expected = DealHashing.hashCoreManifest(
+            uint64(block.chainid), 2, keccak256("charter"), keccak256("tech"),
+            deployerAddr, ledgerAddr, coordinatorAddr, escrowAddr, off
+        );
+        assertEq(deployer.manifestHash(), expected);
+    }
+
+    function test_manifestHash_differsForDifferentCharter() public {
+        bytes32 salt = keccak256("manifest-diff");
+        CoreManifestOffchain memory off = CoreManifestOffchain(
+            bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0),
+            bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0)
+        );
+        vm.startPrank(address(0x123));
+        CoreDeployer d1 = new CoreDeployer{salt: salt}(2, keccak256("charterA"), keccak256("tech"), address(0x456), off);
+        vm.stopPrank();
+        vm.startPrank(address(0x789));
+        CoreDeployer d2 = new CoreDeployer{salt: salt}(2, keccak256("charterB"), keccak256("tech"), address(0xABC), off);
+        vm.stopPrank();
+        assertTrue(d1.manifestHash() != d2.manifestHash());
+    }
+
+    function test_deployer_storesIdentityFields() public {
+        assertEq(deployer.chainId(), uint64(block.chainid));
+        assertEq(deployer.protocolVersion(), 2);
+        assertEq(deployer.charterHash(), keccak256("charter"));
+        assertEq(deployer.techSpecHash(), keccak256("tech"));
     }
 }

@@ -13,6 +13,7 @@ import {
     FundingPurpose,
     FundingSourceMode,
     PositionKind,
+    CoreManifestOffchain,
     BoundaryMode,
     ReconciliationStatus
 } from "../src/libraries/DealTypes.sol";
@@ -44,7 +45,8 @@ contract CreditLedgerTest is Test {
         holder = vm.addr(holderPk);
         bytes32 salt = keccak256("ledger-test");
         deployer = new CoreDeployer{salt: salt}(
-            2, keccak256("charter"), keccak256("tech"), address(this)
+            2, keccak256("charter"), keccak256("tech"), address(this),
+            CoreManifestOffchain(bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0), bytes32(0))
         );
         ledger = deployer.ledger();
         escrow = address(deployer.escrow());

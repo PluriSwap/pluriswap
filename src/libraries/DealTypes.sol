@@ -331,6 +331,29 @@ struct TerminalAllocation {
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Deployment manifest per MANDATORY_CORE.md §13
+// ──────────────────────────────────────────────────────────────────────────────
+
+bytes32 constant MANIFEST_SCHEMA_ID = keccak256("pluriswap.mandatory-core.manifest.v1");
+uint16 constant MANIFEST_SCHEMA_VERSION = 1;
+uint8 constant DEPLOYMENT_KIND_MANDATORY_CORE = 1;
+
+/// @notice Off-chain manifest fields that cannot be computed on-chain.
+struct CoreManifestOffchain {
+    bytes32 buildHash;
+    bytes32 deploymentMethodHash;
+    bytes32 coreDeployerArtifactHash;
+    bytes32 factoryArtifactHash;
+    bytes32 ledgerArtifactHash;
+    bytes32 coordinatorArtifactHash;
+    bytes32 escrowArtifactHash;
+    bytes32 capabilityHash;
+    bytes32 governanceHash;
+    bytes32 verificationHash;
+    bytes32 predecessorManifestHash;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Predicates
 // ──────────────────────────────────────────────────────────────────────────────
 
