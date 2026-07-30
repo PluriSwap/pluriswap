@@ -24,6 +24,8 @@ interface ICreditLedger {
         bytes calldata signature
     ) external;
 
+    function syncDeficit(address token) external;
+
     function claimRecovery(address token, address beneficiary) external;
 
     function creditOf(address token, address beneficiary) external view returns (uint256);

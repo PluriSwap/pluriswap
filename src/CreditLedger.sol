@@ -10,6 +10,7 @@ import {
     Expired,
     InsufficientCredit,
     InvalidSignature,
+    InvalidState,
     NonceUsed,
     SelfReceiver,
     Unauthorized,
@@ -118,14 +119,22 @@ contract CreditLedger is ICreditLedger {
         _withdraw(token, beneficiary, to, pay);
     }
 
+    /// @notice Persist DEFICIT if token assets are below liabilities. Anyone may call.
+    function syncDeficit(address token) external nonReentrant {
+        _enterDeficitIfNeeded(token);
+        if (!_inDeficit[token]) revert InvalidState();
+    }
+
     function claimRecovery(address token, address beneficiary) external nonReentrant {
-        if (!_inDeficit[token]) revert InsufficientCredit();
+        _enterDeficitIfNeeded(token);
+        if (!_inDeficit[token]) revert InvalidState();
+        _ensureUnits(token, beneficiary);
+
         uint256 units = _units[token][beneficiary];
         if (units == 0) revert InsufficientCredit();
 
         uint256 totalUnits = _totalRecoveryUnits[token];
-        uint256 entitled =
-            (_cumulativeDistributable[token] * units) / totalUnits;
+        uint256 entitled = (_cumulativeDistributable[token] * units) / totalUnits;
         uint256 already = _claimed[token][beneficiary];
         if (entitled <= already) revert InsufficientCredit();
         uint256 pay = entitled - already;
@@ -142,9 +151,10 @@ contract CreditLedger is ICreditLedger {
         address toBeneficiary,
         uint256 units
     ) external onlyEscrow nonReentrant {
-        if (!_inDeficit[token]) revert DeficitActive();
+        if (!_inDeficit[token]) revert InvalidState();
         if (toBeneficiary == address(0)) revert ZeroAddress();
         if (toBeneficiary == address(this) || toBeneficiary == escrow) revert SelfReceiver();
+        _ensureUnits(token, fromBeneficiary);
         if (_units[token][fromBeneficiary] < units) revert InsufficientCredit();
 
         _units[token][fromBeneficiary] -= units;
@@ -176,11 +186,11 @@ contract CreditLedger is ICreditLedger {
 
     function _withdraw(address token, address beneficiary, address to, uint256 amount) internal {
         if (amount == 0) revert InsufficientCredit();
-        _enterDeficitIfNeeded(token);
-        if (_inDeficit[token]) {
-            _ensureUnits(token, beneficiary);
-            revert DeficitActive();
-        }
+        // Do not enter-and-revert in one call (state would roll back). Callers/keepers use
+        // syncDeficit or claimRecovery to persist DEFICIT first when undercollateralized.
+        if (_inDeficit[token]) revert DeficitActive();
+        uint256 assets = IERC20(token).balanceOf(address(this));
+        if (assets < _liabilities[token]) revert DeficitActive();
 
         uint256 bal = _credits[token][beneficiary];
         if (bal < amount) revert InsufficientCredit();
