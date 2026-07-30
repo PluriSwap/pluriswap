@@ -939,17 +939,18 @@ Verify `CreditWithdrawAuth` from `beneficiary`; `to` â‰  Escrow/Ledger; amount â
 
 ### 10.3 Deficit
 
-Before increasing liabilities or paying ordinary withdraw:
+Before increasing liabilities or paying ordinary withdraw, observe assets vs liabilities. Persisting DEFICIT MUST succeed in a call that does not revert afterward (`syncDeficit` or `claimRecovery`). A withdrawing call that only reverts MUST NOT be relied on to persist DEFICIT (EVM rollback).
 
 ```text
 if assets < liabilities after observing external loss:
-    inDeficit[token] = true  // irreversible
+    inDeficit[token] = true  // irreversible (via syncDeficit / claimRecovery)
     totalUnits = liabilities
-    assign each beneficiary units = their nominal credit
+    assign each beneficiary units = their nominal credit (lazy on first touch is permitted)
     reject new liability increases
+    reject ordinary withdraw (DeficitActive)
 ```
 
-Claimable:
+Claimable via `claimRecovery`:
 
 ```text
 entitled = floor(cumulativeDistributable * units / totalUnits)
@@ -1181,6 +1182,7 @@ mapping(address => mapping(uint256 => bool)) withdrawNonceUsed;
 | --- | --- | --- |
 | 0.1.0 | 2026-07-29 | Initial draft |
 | 0.2.0 | 2026-07-29 | Full algorithms, storage, EIP-712, interfaces, invariant map |
+| 0.2.1 | 2026-07-29 | Add `syncDeficit` / `claimRecovery`; deficit persistence note |
 
 When normative bytes change, new deployments MUST use a new `techSpecHash`. Active deals on prior deployments remain governed by their activation binding (VER-003).
 )
