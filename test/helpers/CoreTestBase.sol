@@ -7,7 +7,14 @@ import {CreditLedger} from "../../src/CreditLedger.sol";
 import {Coordinator} from "../../src/Coordinator.sol";
 import {MockERC20} from "./MockERC20.sol";
 import {DealSigUtils} from "./DealSigUtils.sol";
-import {DealTerms, ModuleIdentity, DealState, Outcome} from "../../src/libraries/DealTypes.sol";
+import {
+    DealTerms,
+    ModuleIdentity,
+    DealState,
+    Outcome,
+    ResolutionAction,
+    ResolutionAuth
+} from "../../src/libraries/DealTypes.sol";
 
 abstract contract CoreTestBase is Test {
     CoreEscrow escrow;
@@ -75,5 +82,35 @@ abstract contract CoreTestBase is Test {
         bytes memory holderSig = DealSigUtils.signDeal(holderPk, domainSep, t);
         bytes memory providerSig = DealSigUtils.signDeal(providerPk, domainSep, t);
         dealId = escrow.activate(t, holderSig, providerSig, "");
+    }
+
+    function _markFiat(bytes32 dealId) internal {
+        vm.prank(provider);
+        escrow.markFiatSent(dealId);
+    }
+
+    function _openDispute(bytes32 dealId) internal {
+        vm.prank(holder);
+        escrow.openDispute(dealId, "");
+    }
+
+    function _mutualResolve(
+        bytes32 dealId,
+        ResolutionAction action,
+        uint256 resolutionNonce,
+        uint16 providerShareBps
+    ) internal {
+        ResolutionAuth memory auth;
+        auth.dealId = dealId;
+        auth.action = action;
+        auth.resolutionNonce = resolutionNonce;
+        auth.expiry = uint64(block.timestamp + 1 days);
+        auth.providerShareBps = providerShareBps;
+        escrow.mutualResolve(
+            dealId,
+            auth,
+            DealSigUtils.signResolution(holderPk, domainSep, auth),
+            DealSigUtils.signResolution(providerPk, domainSep, auth)
+        );
     }
 }
