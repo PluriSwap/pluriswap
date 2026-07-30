@@ -363,6 +363,12 @@ interface ICreditLedger {
         bytes signature
     ) external;
 
+    /// @notice Persist DEFICIT when assets < liabilities. Anyone may call.
+    /// @dev Ordinary withdraw MUST NOT enter-and-revert in one call (state would roll back).
+    function syncDeficit(address token) external;
+
+    function claimRecovery(address token, address beneficiary) external;
+
     function creditOf(address token, address beneficiary) external view returns (uint256);
     function liabilityOf(address token) external view returns (uint256);
     function assetsOf(address token) external view returns (uint256);
