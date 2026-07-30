@@ -1,0 +1,51 @@
+# PluriSwap deployment credentials
+# Copy to deploy.toml and fill in values (deploy.toml is gitignored).
+# Each package section may use a different wallet.
+
+[core]
+# Hex private key for the Core deployer wallet (0x-prefixed)
+private_key = "0xYOUR_CORE_DEPLOYER_PRIVATE_KEY"
+
+# RPC endpoint (Arbitrum One / Sepolia / local anvil)
+rpc_url = "https://arb1.arbitrum.io/rpc"
+
+# Coordinator allowlist owner (defaults to deployer address derived from private_key if empty)
+coordinator_owner = ""
+
+# Content hashes bound into CoreEscrow immutables (0x-prefixed bytes32)
+charter_hash = "0x0000000000000000000000000000000000000000000000000000000000000001"
+tech_spec_hash = "0x0000000000000000000000000000000000000000000000000000000000000002"
+
+# Broadcast transactions (false = simulation only)
+broadcast = true
+
+# Verify contracts on the block explorer after deploy
+verify = false
+
+# Explorer API key (Arbiscan / Etherscan-compatible). Required when verify = true
+etherscan_api_key = ""
+
+# Optional custom verifier URL (leave empty for Foundry defaults)
+verifier_url = ""
+
+# Optional chain alias for forge (e.g. arbitrum, arbitrum-sepolia). Leave empty to use rpc_url only.
+chain = "arbitrum"
+
+# ---------------------------------------------------------------------------
+# Future packages (each may use its own wallet)
+# ---------------------------------------------------------------------------
+# [bonds]
+# private_key = "0xYOUR_BONDS_DEPLOYER_PRIVATE_KEY"
+# rpc_url = "https://arb1.arbitrum.io/rpc"
+# broadcast = true
+# verify = false
+# etherscan_api_key = ""
+# chain = "arbitrum"
+#
+# [payment_proof]
+# private_key = "0x..."
+# rpc_url = "https://arb1.arbitrum.io/rpc"
+#
+# [arbitration]
+# private_key = "0x..."
+# rpc_url = "https://arb1.arbitrum.io/rpc"

@@ -29,16 +29,17 @@ forge build --sizes
 
 ### Deploy (local / Arbitrum)
 
-Deploy order uses nonce prediction so `CreditLedger` and `Coordinator` bind the Escrow address before it exists:
+Per-package credentials live in `deploy.toml` (gitignored). Start from the example:
 
 ```bash
-export PRIVATE_KEY=0x...
-export CHARTER_HASH=0x...   # optional
-export TECH_SPEC_HASH=0x... # optional
-export COORDINATOR_OWNER=0x... # optional; defaults to deployer
+cp deploy.toml.example deploy.toml
+# edit [core] private_key, rpc_url, hashes, etc.
 
-forge script script/DeployCore.s.sol --rpc-url $RPC_URL --broadcast
+./deploy.sh --core           # broadcast per deploy.toml
+./deploy.sh --core --dry-run # simulate only
 ```
+
+Each TOML section (`[core]`, later `[bonds]`, …) may use a different wallet. Deploy order uses nonce prediction so `CreditLedger` and `Coordinator` bind the Escrow address before it exists.
 
 ### Milestone scope
 
