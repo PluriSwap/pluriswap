@@ -1,19 +1,106 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {DealTerms, ModuleIdentity, ResolutionAuth} from "./DealTypes.sol";
+import {
+    DealTerms,
+    ModuleBinding,
+    ResolutionAuth,
+    FundingSpec,
+    FundingAuth,
+    TerminalRecord
+} from "./DealTypes.sol";
 
+/// @notice EIP-712 hashing for all typed structs per MANDATORY_CORE.md §§6.2-6.7, §11.2, §3.3.
 library DealHashing {
-    bytes32 internal constant DEAL_TERMS_TYPEHASH = keccak256(
-        "DealTerms(address holder,address provider,address holderReceiver,address providerReceiver,address token,bytes32 tokenRiskHash,bytes32 custodyBoundaryId,uint256 principal,uint256 activationFee,address activationFeeRecipient,uint256 completionFee,address completionFeeRecipient,uint256 nonce,uint64 createExpiry,uint64 fiatDuration,uint64 releaseDuration,uint64 disputeDuration,uint16 disputeTimeoutProviderBps,bytes32 fiatCurrency,uint256 fiatAmount,bytes32 paymentMethod,bytes32 payeeCommitment,bytes32 paymentReferenceCommitment,uint32 profileFlags,bytes32 packageId,bytes32 packageHash,bytes32 modulesHash,bytes32 extensionsHash)"
+    // ── Typehashes ────────────────────────────────────────────────────────────
+
+    bytes32 constant DEAL_TERMS_TYPEHASH = keccak256(
+        "DealTerms(address holder,address provider,address holderReceiver,address providerReceiver,address token,bytes32 principalFundingHash,bytes32 activationFeeFundingHash,bytes32 tokenRiskHash,bytes32 custodyBoundaryId,uint256 principal,uint256 activationFee,address activationFeeRecipient,uint256 completionFee,address completionFeeRecipient,uint256 nonce,uint64 createExpiry,uint64 fiatDuration,uint64 releaseDuration,uint64 disputeDuration,uint16 disputeTimeoutProviderBps,bytes32 fiatCurrency,uint256 fiatAmount,bytes32 paymentMethod,bytes32 payeeCommitment,bytes32 paymentReferenceCommitment,uint32 profileFlags,bytes32 packageSelectionHash,bytes32 packageContestTermsHash,bytes32 poolAuthorityHash,bytes32 arbitrationTermsHash,bytes32 reservationsHash,bytes32 modulesHash,bytes32 extensionsHash)"
     );
 
-    bytes32 internal constant RESOLUTION_TYPEHASH = keccak256(
+    bytes32 constant FUNDING_SPEC_TYPEHASH = keccak256(
+        "FundingSpec(uint8 purpose,uint8 sourceMode,address token,uint256 amount,address source,bytes32 sourcePositionId,address authority)"
+    );
+
+    bytes32 constant FUNDING_AUTH_TYPEHASH = keccak256(
+        "FundingAuth(bytes32 termsHash,bytes32 fundingSpecHash,uint8 purpose,address authority,uint256 nonce,uint64 expiry)"
+    );
+
+    bytes32 constant MODULE_BINDING_TYPEHASH = keccak256(
+        "ModuleBinding(uint8 role,address module,bytes32 runtimeCodeHash,bytes32 policyHash,bytes32 manifestHash,bytes32 apiId,bytes32 moduleTermsHash,uint32 capabilityMask)"
+    );
+
+    bytes32 constant RESOLUTION_TYPEHASH = keccak256(
         "ResolutionAuth(bytes32 dealId,uint8 action,uint256 resolutionNonce,uint64 expiry,uint16 providerShareBps,bytes32 extensionsHash)"
     );
 
-    function modulesHash(ModuleIdentity[] memory modules) internal pure returns (bytes32) {
-        return keccak256(abi.encode(modules));
+    bytes32 constant TERMINAL_RECORD_TYPEHASH = keccak256(
+        "PluriSwapTerminalRecord(uint64 chainId,uint32 protocolVersion,address escrow,address ledger,bytes32 dealId,uint8 terminalState,uint8 outcome,uint8 operatorFaultCode,bytes32 operatorFaultEvidenceHash,address token,uint256 principal,uint256 holderSideReturn,uint256 providerGross,uint256 providerNet,uint256 completionCollected,uint256 operatorFeePaid,uint256 operatorFeeUnlocked,address holderReceiver,address providerReceiver,address completionFeeRecipient,address operatorFeeRecipient,address operatorFeeReturnReceiver,bytes32 termsHash,bytes32 modulesHash,bytes32 evidenceHash,bytes32 reservationsHash,bytes32 reservationDispositionsHash,uint64 terminatedAt)"
+    );
+
+    bytes32 constant POSITION_ID_V1_TYPEHASH = keccak256(
+        "PluriSwapPositionIdV1(bytes32 custodyBoundaryId,uint8 kind,bytes32 sourceId,bytes32 terminalHash,address beneficiary)"
+    );
+
+    bytes32 constant CUSTODY_BOUNDARY_TYPEHASH = keccak256(
+        "PluriSwapCustodyBoundary(uint64 chainId,uint32 protocolVersion,address ledger,address token)"
+    );
+
+    // ── Hash functions ─────────────────────────────────────────────────────────
+
+    function hashFundingSpec(FundingSpec memory f) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                FUNDING_SPEC_TYPEHASH,
+                f.purpose,
+                f.sourceMode,
+                f.token,
+                f.amount,
+                f.source,
+                f.sourcePositionId,
+                f.authority
+            )
+        );
+    }
+
+    function hashFundingAuth(FundingAuth memory a) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                FUNDING_AUTH_TYPEHASH,
+                a.termsHash,
+                a.fundingSpecHash,
+                a.purpose,
+                a.authority,
+                a.nonce,
+                a.expiry
+            )
+        );
+    }
+
+    function hashModuleBinding(ModuleBinding memory m) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                MODULE_BINDING_TYPEHASH,
+                m.role,
+                m.module,
+                m.runtimeCodeHash,
+                m.policyHash,
+                m.manifestHash,
+                m.apiId,
+                m.moduleTermsHash,
+                m.capabilityMask
+            )
+        );
+    }
+
+    /// @dev Sorted/unique bindings; zero count → bytes32(0).
+    function modulesHash(ModuleBinding[] memory bindings) internal pure returns (bytes32) {
+        if (bindings.length == 0) return bytes32(0);
+        bytes32[] memory hashes = new bytes32[](bindings.length);
+        for (uint256 i; i < bindings.length; ++i) {
+            hashes[i] = hashModuleBinding(bindings[i]);
+        }
+        return keccak256(abi.encodePacked(hashes));
     }
 
     function extensionsHash(bytes memory extensions) internal pure returns (bytes32) {
@@ -22,8 +109,6 @@ library DealHashing {
     }
 
     function hashDealTerms(DealTerms memory t) internal pure returns (bytes32) {
-        bytes32 mods = modulesHash(t.modules);
-        bytes32 exts = extensionsHash(t.extensions);
         return keccak256(
             abi.encode(
                 DEAL_TERMS_TYPEHASH,
@@ -32,6 +117,8 @@ library DealHashing {
                 t.holderReceiver,
                 t.providerReceiver,
                 t.token,
+                t.principalFundingHash,
+                t.activationFeeFundingHash,
                 t.tokenRiskHash,
                 t.custodyBoundaryId,
                 t.principal,
@@ -51,25 +138,94 @@ library DealHashing {
                 t.payeeCommitment,
                 t.paymentReferenceCommitment,
                 t.profileFlags,
-                t.packageId,
-                t.packageHash,
-                mods,
-                exts
+                t.packageSelectionHash,
+                t.packageContestTermsHash,
+                t.poolAuthorityHash,
+                t.arbitrationTermsHash,
+                t.reservationsHash,
+                t.modulesHash,
+                t.extensionsHash
             )
         );
     }
 
-    function hashResolution(ResolutionAuth memory auth) internal pure returns (bytes32) {
+    function hashResolution(ResolutionAuth memory a) internal pure returns (bytes32) {
         return keccak256(
             abi.encode(
                 RESOLUTION_TYPEHASH,
-                auth.dealId,
-                uint8(auth.action),
-                auth.resolutionNonce,
-                auth.expiry,
-                auth.providerShareBps,
-                extensionsHash(auth.extensions)
+                a.dealId,
+                a.action,
+                a.resolutionNonce,
+                a.expiry,
+                a.providerShareBps,
+                a.extensionsHash
             )
+        );
+    }
+
+    function hashTerminalRecord(TerminalRecord memory r) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                TERMINAL_RECORD_TYPEHASH,
+                r.chainId,
+                r.protocolVersion,
+                r.escrow,
+                r.ledger,
+                r.dealId,
+                r.terminalState,
+                r.outcome,
+                r.operatorFaultCode,
+                r.operatorFaultEvidenceHash,
+                r.token,
+                r.principal,
+                r.holderSideReturn,
+                r.providerGross,
+                r.providerNet,
+                r.completionCollected,
+                r.operatorFeePaid,
+                r.operatorFeeUnlocked,
+                r.holderReceiver,
+                r.providerReceiver,
+                r.completionFeeRecipient,
+                r.operatorFeeRecipient,
+                r.operatorFeeReturnReceiver,
+                r.termsHash,
+                r.modulesHash,
+                r.evidenceHash,
+                r.reservationsHash,
+                r.reservationDispositionsHash,
+                r.terminatedAt
+            )
+        );
+    }
+
+    function positionId(
+        bytes32 custodyBoundaryId_,
+        uint8 kind,
+        bytes32 sourceId,
+        bytes32 terminalHash_,
+        address beneficiary
+    ) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                POSITION_ID_V1_TYPEHASH,
+                custodyBoundaryId_,
+                kind,
+                sourceId,
+                terminalHash_,
+                beneficiary
+            )
+        );
+    }
+
+    function custodyBoundaryId(
+        uint64 chainId_,
+        uint32 protocolVersion_,
+        address ledger,
+        address token
+    ) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(CUSTODY_BOUNDARY_TYPEHASH, chainId_, protocolVersion_, ledger, token)
         );
     }
 

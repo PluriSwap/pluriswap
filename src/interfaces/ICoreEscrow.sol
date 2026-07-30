@@ -3,21 +3,34 @@ pragma solidity ^0.8.24;
 
 import {
     Deal,
-    DealState,
     DealTerms,
-    ModuleIdentity,
+    FundingSpec,
+    FundingAuth,
+    ModuleBinding,
     ModuleRole,
     ResolutionAction,
-    ResolutionAuth
+    ResolutionAuth,
+    TerminalRecord
 } from "../libraries/DealTypes.sol";
 
 interface ICoreEscrow {
+    // ── Activation ────────────────────────────────────────────────────────────
+
+    /// @notice Activate a deal with typed funding specs and authorizations.
+    /// @dev Core-only: profileFlags must be 0; all optional hash fields canonical zero.
     function activate(
         DealTerms calldata terms,
-        bytes calldata holderSignature,
-        bytes calldata providerSignature,
-        bytes calldata activationData
+        FundingSpec calldata principalFunding,
+        FundingSpec calldata activationFeeFunding,
+        FundingAuth calldata principalFundingAuth,
+        FundingAuth calldata activationFeeFundingAuth,
+        bytes calldata principalFundingSig,
+        bytes calldata activationFeeFundingSig,
+        bytes calldata holderSig,
+        bytes calldata providerSig
     ) external returns (bytes32 dealId);
+
+    // ── Core transitions ───────────────────────────────────────────────────────
 
     function markFiatSent(bytes32 dealId) external;
     function providerCancel(bytes32 dealId) external;
@@ -30,23 +43,24 @@ interface ICoreEscrow {
     function mutualResolve(
         bytes32 dealId,
         ResolutionAuth calldata auth,
-        bytes calldata holderSignature,
-        bytes calldata providerSignature
+        bytes calldata holderSig,
+        bytes calldata providerSig
     ) external;
+
+    // ── Extension surfaces (reject when profile not selected) ──────────────────
 
     function submitPaymentProof(bytes32 dealId, bytes calldata proofData) external;
     function openArbitration(bytes32 dealId, bytes calldata openData) external payable;
     function submitArbitrationRuling(bytes32 dealId, bytes calldata rulingData) external;
     function arbitrationTimeout(bytes32 dealId) external;
 
-    function getDeal(bytes32 dealId) external view returns (Deal memory);
-    function dealState(bytes32 dealId) external view returns (DealState);
-    function termsHashOf(bytes32 dealId) external view returns (bytes32);
-    function moduleOf(bytes32 dealId, ModuleRole role)
-        external
-        view
-        returns (ModuleIdentity memory);
+    // ── Views ──────────────────────────────────────────────────────────────────
 
+    function getDeal(bytes32 dealId) external view returns (Deal memory);
+    function dealState(bytes32 dealId) external view returns (uint8);
+    function termsHashOf(bytes32 dealId) external view returns (bytes32);
+    function getTerminalRecord(bytes32 dealId) external view returns (TerminalRecord memory);
+    function getTerminalHash(bytes32 dealId) external view returns (bytes32);
     function usedHolderNonce(address holder, uint256 nonce) external view returns (bool);
     function usedResolutionNonce(bytes32 dealId, ResolutionAction action, uint256 nonce)
         external
@@ -56,4 +70,5 @@ interface ICoreEscrow {
     function DOMAIN_SEPARATOR() external view returns (bytes32);
     function charterHash() external view returns (bytes32);
     function techSpecHash() external view returns (bytes32);
+    function manifestHash() external view returns (bytes32);
 }

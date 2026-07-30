@@ -1,78 +1,212 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-enum DealState {
-    None,
-    Funded,
-    FiatSent,
-    Disputed,
-    Released,
-    ResolvedSplit,
-    ResolvedByDisputeTimeout,
-    Cancelled,
-    ArbitrationActive,
-    ResolvedByArbitration,
-    Stalemate
+// ──────────────────────────────────────────────────────────────────────────────
+// Deal states — fixed uint8 wire/storage IDs per MANDATORY_CORE.md §2.3
+// Terminal states at 16-21; ordinal comparison is forbidden.
+// ──────────────────────────────────────────────────────────────────────────────
+
+library DealState {
+    uint8 constant None = 0;
+    uint8 constant Funded = 1;
+    uint8 constant FiatSent = 2;
+    uint8 constant Disputed = 3;
+    uint8 constant ArbitrationActive = 4;
+    // 5-15 reserved
+    uint8 constant Released = 16;
+    uint8 constant ResolvedSplit = 17;
+    uint8 constant ResolvedByDisputeTimeout = 18;
+    uint8 constant Cancelled = 19;
+    uint8 constant ResolvedByArbitration = 20;
+    uint8 constant Stalemate = 21;
 }
 
-enum Outcome {
-    None,
-    VoluntaryRelease,
-    CosignedRelease,
-    PaymentProofRelease,
-    TimeoutClaim,
-    ProviderCancel,
-    FiatTimeoutCancel,
-    MutualCancel,
-    MutualSplit,
-    ArbitrationHolderWin,
-    ArbitrationProviderWin,
-    ArbitrationRefused,
-    ArbitrationTimeout,
-    DisputeTimeout
+// ──────────────────────────────────────────────────────────────────────────────
+// Outcomes — fixed uint8 IDs per MANDATORY_CORE.md §2.4
+// ──────────────────────────────────────────────────────────────────────────────
+
+library Outcome {
+    uint8 constant Invalid = 0;
+    uint8 constant VoluntaryRelease = 1;
+    uint8 constant CosignedRelease = 2;
+    uint8 constant PaymentProofRelease = 3;
+    uint8 constant TimeoutClaim = 4;
+    uint8 constant ProviderCancel = 5;
+    uint8 constant FiatTimeoutCancel = 6;
+    uint8 constant MutualCancel = 7;
+    uint8 constant MutualSplit = 8;
+    uint8 constant ArbitrationHolderWin = 9;
+    uint8 constant ArbitrationProviderWin = 10;
+    uint8 constant ArbitrationRefused = 11;
+    uint8 constant ArbitrationTimeout = 12;
+    uint8 constant DisputeTimeout = 13;
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Module roles — contiguous 0-7 per MANDATORY_CORE.md §2.5
+// ──────────────────────────────────────────────────────────────────────────────
 
 enum ModuleRole {
-    PaymentProofVerifier,
-    ArbitrationAdapter,
-    BondVault,
-    Pool,
-    HumanityVerifier,
-    ReputationPolicy,
-    RatePolicy,
-    PackagePolicy
+    PaymentProofVerifier, // 0
+    ArbitrationAdapter,   // 1
+    BondVault,            // 2
+    Pool,                  // 3
+    HumanityVerifier,     // 4
+    ReputationPolicy,     // 5
+    RatePolicy,           // 6
+    PackagePolicy          // 7
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Resolution actions — contiguous 0-2
+// ──────────────────────────────────────────────────────────────────────────────
 
 enum ResolutionAction {
-    MutualCancel,
-    CosignedRelease,
-    Split
+    MutualCancel,  // 0
+    CosignedRelease, // 1
+    Split           // 2
 }
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Pool kind — contiguous 0-3 per MANDATORY_CORE.md §2.5
+// ──────────────────────────────────────────────────────────────────────────────
+
+enum PoolKind {
+    None,         // 0
+    Owned,        // 1
+    Custom,       // 2
+    Crowdfunded   // 3
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Funding purpose / source mode — start at 1 per MANDATORY_CORE.md §6.4
+// ──────────────────────────────────────────────────────────────────────────────
+
+library FundingPurpose {
+    uint8 constant Principal = 1;
+    uint8 constant ActivationFee = 2;
+}
+
+library FundingSourceMode {
+    uint8 constant WalletPull = 1;
+    uint8 constant LedgerPosition = 2;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Position kinds — start at 1 per MANDATORY_CORE.md §3.3
+// ──────────────────────────────────────────────────────────────────────────────
+
+library PositionKind {
+    uint8 constant Deal = 1;
+    uint8 constant ActivationFee = 2;
+    uint8 constant DealTerminal = 3;
+    uint8 constant Reservation = 4;
+    uint8 constant ReservationTerminal = 5;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Profile flags — uint32 bitfield per MANDATORY_CORE.md §2.5
+// ──────────────────────────────────────────────────────────────────────────────
 
 library ProfileFlags {
-    uint32 internal constant PAYMENT_PROOF = 1 << 0;
-    uint32 internal constant ARBITRATION = 1 << 1;
-    uint32 internal constant BONDS = 1 << 2;
-    uint32 internal constant POOL = 1 << 3;
-    uint32 internal constant REPUTATION = 1 << 4;
-    uint32 internal constant HUMANITY = 1 << 5;
-    uint32 internal constant RATE_POLICY = 1 << 6;
-    uint32 internal constant CROWDFUNDED_POOL = 1 << 7;
+    uint32 constant PaymentProof = 1 << 0;
+    uint32 constant Arbitration = 1 << 1;
+    uint32 constant Bonds = 1 << 2;
+    uint32 constant Pool = 1 << 3;
+    uint32 constant Reputation = 1 << 4;
+    uint32 constant Humanity = 1 << 5;
+    uint32 constant RatePolicy = 1 << 6;
+    uint32 constant CrowdfundedPool = 1 << 7;
 }
 
-struct ModuleIdentity {
-    ModuleRole role;
+// ──────────────────────────────────────────────────────────────────────────────
+// Operator-fault classification per MANDATORY_CORE.md §2.6
+// ──────────────────────────────────────────────────────────────────────────────
+
+library OperatorFaultCode {
+    uint8 constant NoFault = 0;
+    uint8 constant MutualFault = 1;
+    uint8 constant AuthenticatedFault = 2;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Reconciliation statuses per MANDATORY_CORE.md §4.2
+// ──────────────────────────────────────────────────────────────────────────────
+
+library ReconciliationStatus {
+    uint8 constant Unchanged = 0;
+    uint8 constant SurplusQuarantined = 1;
+    uint8 constant ReservedInvalid = 2; // never returned; malformed
+    uint8 constant QuarantineLossAbsorbed = 3;
+    uint8 constant DeficitCheckpointed = 4;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Boundary mode per MANDATORY_CORE.md §3.2
+// ──────────────────────────────────────────────────────────────────────────────
+
+library BoundaryMode {
+    uint8 constant Healthy = 0;
+    uint8 constant Deficit = 1;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Payout result codes per MANDATORY_CORE.md §6.7
+// ──────────────────────────────────────────────────────────────────────────────
+
+library PayoutResultCode {
+    uint8 constant HealthyFull = 0;
+    uint8 constant HealthyPartial = 1;
+    uint8 constant ZeroPayable = 2;
+    uint8 constant DeficitRouted = 3; // future, after deficit encoding
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Structs
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// @notice Module binding per MANDATORY_CORE.md §6.2 — 8 fields.
+struct ModuleBinding {
+    uint8 role;
     address module;
-    bytes32 codehash;
+    bytes32 runtimeCodeHash;
     bytes32 policyHash;
+    bytes32 manifestHash;
+    bytes32 apiId;
+    bytes32 moduleTermsHash;
+    uint32 capabilityMask;
 }
 
+/// @notice Funding specification per MANDATORY_CORE.md §6.4.
+struct FundingSpec {
+    uint8 purpose; // FundingPurpose
+    uint8 sourceMode; // FundingSourceMode
+    address token;
+    uint256 amount;
+    address source;
+    bytes32 sourcePositionId;
+    address authority;
+}
+
+/// @notice Funding authorization per MANDATORY_CORE.md §6.4 — Ledger-domain.
+struct FundingAuth {
+    bytes32 termsHash;
+    bytes32 fundingSpecHash;
+    uint8 purpose; // FundingPurpose
+    address authority;
+    uint256 nonce;
+    uint64 expiry;
+}
+
+/// @notice Deal terms per MANDATORY_CORE.md §6.4 — EIP-712 struct (all fixed-size).
 struct DealTerms {
     address holder;
     address provider;
     address holderReceiver;
     address providerReceiver;
     address token;
+    bytes32 principalFundingHash;
+    bytes32 activationFeeFundingHash;
     bytes32 tokenRiskHash;
     bytes32 custodyBoundaryId;
     uint256 principal;
@@ -92,15 +226,61 @@ struct DealTerms {
     bytes32 payeeCommitment;
     bytes32 paymentReferenceCommitment;
     uint32 profileFlags;
-    bytes32 packageId;
-    bytes32 packageHash;
-    ModuleIdentity[] modules;
-    bytes extensions;
+    bytes32 packageSelectionHash;
+    bytes32 packageContestTermsHash;
+    bytes32 poolAuthorityHash;
+    bytes32 arbitrationTermsHash;
+    bytes32 reservationsHash;
+    bytes32 modulesHash;
+    bytes32 extensionsHash;
 }
 
+/// @notice Resolution authorization per MANDATORY_CORE.md §6.6 — EIP-712 struct.
+struct ResolutionAuth {
+    bytes32 dealId;
+    uint8 action; // ResolutionAction
+    uint256 resolutionNonce;
+    uint64 expiry;
+    uint16 providerShareBps;
+    bytes32 extensionsHash;
+}
+
+/// @notice Terminal record per MANDATORY_CORE.md §11.1 — 27 fields.
+struct TerminalRecord {
+    uint64 chainId;
+    uint32 protocolVersion;
+    address escrow;
+    address ledger;
+    bytes32 dealId;
+    uint8 terminalState;
+    uint8 outcome;
+    uint8 operatorFaultCode;
+    bytes32 operatorFaultEvidenceHash;
+    address token;
+    uint256 principal;
+    uint256 holderSideReturn;
+    uint256 providerGross;
+    uint256 providerNet;
+    uint256 completionCollected;
+    uint256 operatorFeePaid;
+    uint256 operatorFeeUnlocked;
+    address holderReceiver;
+    address providerReceiver;
+    address completionFeeRecipient;
+    address operatorFeeRecipient;
+    address operatorFeeReturnReceiver;
+    bytes32 termsHash;
+    bytes32 modulesHash;
+    bytes32 evidenceHash;
+    bytes32 reservationsHash;
+    bytes32 reservationDispositionsHash;
+    uint64 terminatedAt;
+}
+
+/// @notice Deal storage — runtime state machine + snapshotted fields.
 struct Deal {
-    DealState state;
-    Outcome outcome;
+    uint8 state; // DealState
+    uint8 outcome; // Outcome
     address holder;
     address provider;
     address holderReceiver;
@@ -119,24 +299,47 @@ struct Deal {
     uint64 disputeDuration;
     uint64 disputeDeadline;
     uint32 profileFlags;
-    bytes32 packageId;
-    bytes32 packageHash;
     bytes32 termsHash;
     bytes32 custodyBoundaryId;
-    bytes32 tokenRiskHash;
-    bytes32 extensionsHash;
-    ModuleIdentity[8] modules;
+    bytes32 modulesHash;
+    bytes32 terminalHash;
 }
 
-struct ResolutionAuth {
-    bytes32 dealId;
-    ResolutionAction action;
-    uint256 resolutionNonce;
+/// @notice Position payout authorization per MANDATORY_CORE.md §6.7 — Ledger-domain.
+struct PositionPayoutAuth {
+    bytes32 positionId;
+    address beneficiary;
+    address to;
+    uint256 maxAmount; // type(uint256).max = sentinel (all payable)
+    uint256 nonce;
     uint64 expiry;
-    uint16 providerShareBps;
-    bytes extensions;
 }
 
-function isTerminal(DealState s) pure returns (bool) {
-    return uint8(s) >= uint8(DealState.Released);
+/// @notice Position payout result per MANDATORY_CORE.md §6.7.
+struct PositionPayoutResult {
+    uint8 resultCode; // PayoutResultCode
+    uint256 amountPaid;
+    uint256 remainingNominal;
+    bool consumed;
+}
+
+/// @notice Terminal allocation — coalesced output for settlement.
+struct TerminalAllocation {
+    address beneficiary;
+    uint256 amount;
+    bytes32 positionId;
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+// Predicates
+// ──────────────────────────────────────────────────────────────────────────────
+
+/// @dev Explicit membership check — never ordinal comparison (MANDATORY_CORE.md §2.3).
+function isTerminal(uint8 state) pure returns (bool) {
+    return state == DealState.Released
+        || state == DealState.ResolvedSplit
+        || state == DealState.ResolvedByDisputeTimeout
+        || state == DealState.Cancelled
+        || state == DealState.ResolvedByArbitration
+        || state == DealState.Stalemate;
 }

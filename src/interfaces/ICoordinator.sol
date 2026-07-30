@@ -1,26 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ModuleRole} from "../libraries/DealTypes.sol";
+import {ModuleBinding} from "../libraries/DealTypes.sol";
 
 interface ICoordinator {
-    function isAllowed(
-        ModuleRole role,
-        address module,
-        bytes32 codehash,
-        bytes32 policyHash
-    ) external view returns (bool);
+    /// @notice Check if a complete module binding tuple is admitted.
+    function isAllowed(ModuleBinding calldata binding) external view returns (bool);
 
-    function allow(ModuleRole role, address module, bytes32 codehash, bytes32 policyHash)
-        external;
+    /// @notice Admit a complete module binding tuple for future activations.
+    function allow(ModuleBinding calldata binding) external;
 
-    function disallow(ModuleRole role, address module, bytes32 codehash, bytes32 policyHash)
-        external;
+    /// @notice Remove a complete module binding tuple for future activations.
+    function disallow(ModuleBinding calldata binding) external;
 
-    event ModuleAllowed(
-        ModuleRole indexed role, address indexed module, bytes32 codehash, bytes32 policyHash
-    );
-    event ModuleDisallowed(
-        ModuleRole indexed role, address indexed module, bytes32 codehash, bytes32 policyHash
-    );
+    event ModuleAllowed(ModuleBinding binding);
+    event ModuleDisallowed(ModuleBinding binding);
 }

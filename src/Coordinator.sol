@@ -2,9 +2,11 @@
 pragma solidity ^0.8.24;
 
 import {ICoordinator} from "./interfaces/ICoordinator.sol";
-import {ModuleRole} from "./libraries/DealTypes.sol";
+import {ModuleBinding, ModuleRole} from "./libraries/DealTypes.sol";
 import {Unauthorized, ZeroAddress} from "./libraries/CoreErrors.sol";
 
+/// @notice Module admission registry for future activations per MANDATORY_CORE.md §8.3.
+/// @dev Admitted tuples may change only for future deals; active snapshots are immutable.
 contract Coordinator is ICoordinator {
     uint64 public immutable chainId;
     address public immutable escrow;
@@ -24,36 +26,27 @@ contract Coordinator is ICoordinator {
         owner = owner_;
     }
 
-    function _key(ModuleRole role, address module, bytes32 codehash, bytes32 policyHash)
-        internal
-        pure
-        returns (bytes32)
-    {
-        return keccak256(abi.encode(role, module, codehash, policyHash));
+    function _key(ModuleBinding memory b) internal pure returns (bytes32) {
+        return keccak256(
+            abi.encode(
+                b.role, b.module, b.runtimeCodeHash, b.policyHash, b.manifestHash, b.apiId,
+                b.moduleTermsHash, b.capabilityMask
+            )
+        );
     }
 
-    function isAllowed(ModuleRole role, address module, bytes32 codehash, bytes32 policyHash)
-        external
-        view
-        returns (bool)
-    {
-        return _allowed[_key(role, module, codehash, policyHash)];
+    function isAllowed(ModuleBinding calldata binding) external view returns (bool) {
+        return _allowed[_key(binding)];
     }
 
-    function allow(ModuleRole role, address module, bytes32 codehash, bytes32 policyHash)
-        external
-        onlyOwner
-    {
-        if (module == address(0)) revert ZeroAddress();
-        _allowed[_key(role, module, codehash, policyHash)] = true;
-        emit ModuleAllowed(role, module, codehash, policyHash);
+    function allow(ModuleBinding calldata binding) external onlyOwner {
+        if (binding.module == address(0)) revert ZeroAddress();
+        _allowed[_key(binding)] = true;
+        emit ModuleAllowed(binding);
     }
 
-    function disallow(ModuleRole role, address module, bytes32 codehash, bytes32 policyHash)
-        external
-        onlyOwner
-    {
-        _allowed[_key(role, module, codehash, policyHash)] = false;
-        emit ModuleDisallowed(role, module, codehash, policyHash);
+    function disallow(ModuleBinding calldata binding) external onlyOwner {
+        _allowed[_key(binding)] = false;
+        emit ModuleDisallowed(binding);
     }
 }
