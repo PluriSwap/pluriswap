@@ -2120,6 +2120,8 @@ Closed deployment method ids are `1 DIRECT_CORE_DEPLOYER` and `2 CREATE2_FACTORY
 
 For method `1`, the transaction sender creates CoreDeployer directly and `factory`, `salt`, and `factoryArtifactHash` are zero. For method `2`, the declared factory CREATE2-creates CoreDeployer and those fields are nonzero and match its artifact/address. `transactionSender` MUST equal the sender of the transaction that initiates CoreDeployer creation. `coreDeployerInitCodeHash`, top-level and deployment-method CoreDeployer address, all child addresses, actual create order, and creation transaction hashes MUST recompute from the published sender/nonces, preimages, receipts, and live chain facts.
 
+CoreDeployer creation and triad-child creation MAY be separate transactions. In that case, CoreDeployer MUST expose a one-time deployment-only finalizer bound to the explicit deployment operator in its constructor. The finalizer MUST validate the canonical Ledger, Coordinator, and Escrow creation bytecode plus exact constructor arguments before issuing CREATE operations in the order Ledger, Coordinator, Escrow; the finalizer MUST atomically validate the resulting addresses, code, and reverse links, then permanently disable itself. No Core child is usable before finalization, and the deployment operator has no protocol authority after finalization. `DeploymentTransactionV1` MUST include both the CoreDeployer-creation transaction and the child-finalization transaction; each `ChildCreationV1.transactionHash` MUST identify the transaction that created that child.
+
 Capability identity:
 
 ```text

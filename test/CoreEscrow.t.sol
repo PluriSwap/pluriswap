@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {CoreDeployer} from "../src/CoreDeployer.sol";
 import {CoreEscrow} from "../src/CoreEscrow.sol";
 import {CreditLedger} from "../src/CreditLedger.sol";
+import {Coordinator} from "../src/Coordinator.sol";
 import {MockERC20} from "./helpers/MockERC20.sol";
 import {DealHashing} from "../src/libraries/DealHashing.sol";
 import {SettlementMath} from "../src/libraries/SettlementMath.sol";
@@ -52,15 +53,17 @@ contract CoreEscrowTest is Test {
         holder = vm.addr(holderPk);
         provider = vm.addr(providerPk);
         deployer = new CoreDeployer(
+            1,
             2,
             keccak256("charter"),
             keccak256("tech"),
+            address(this),
             address(this),
             CoreManifestOffchain(
                 bytes32(uint256(1)),
                 bytes32(uint256(2)),
                 bytes32(uint256(3)),
-                bytes32(uint256(4)),
+                bytes32(0),
                 bytes32(uint256(5)),
                 bytes32(uint256(6)),
                 bytes32(uint256(7)),
@@ -70,6 +73,28 @@ contract CoreEscrowTest is Test {
                 bytes32(0)
             )
         );
+
+        bytes memory ledgerInitCode = abi.encodePacked(
+            type(CreditLedger).creationCode,
+            abi.encode(address(deployer.escrow()), deployer.chainId())
+        );
+        bytes memory coordinatorInitCode = abi.encodePacked(
+            type(Coordinator).creationCode,
+            abi.encode(deployer.chainId(), address(deployer.escrow()), address(this))
+        );
+        bytes memory escrowInitCode = abi.encodePacked(
+            type(CoreEscrow).creationCode,
+            abi.encode(
+                deployer.chainId(),
+                deployer.protocolVersion(),
+                deployer.charterHash(),
+                deployer.techSpecHash(),
+                address(deployer.ledger()),
+                address(deployer.coordinator()),
+                deployer.manifestHash()
+            )
+        );
+        deployer.deployTriad(ledgerInitCode, coordinatorInitCode, escrowInitCode);
         escrow = deployer.escrow();
         ledger = deployer.ledger();
         token = new MockERC20();
@@ -897,7 +922,7 @@ contract CoreEscrowTest is Test {
             bytes32(uint256(1)),
             bytes32(uint256(2)),
             bytes32(uint256(3)),
-            bytes32(uint256(4)),
+            bytes32(0),
             bytes32(uint256(5)),
             bytes32(uint256(6)),
             bytes32(uint256(7)),
@@ -937,12 +962,12 @@ contract CoreEscrowTest is Test {
         );
         vm.startPrank(address(0x123));
         CoreDeployer d1 = new CoreDeployer{salt: salt}(
-            2, keccak256("charterA"), keccak256("tech"), address(0x456), off
+            2, 2, keccak256("charterA"), keccak256("tech"), address(0x456), address(this), off
         );
         vm.stopPrank();
         vm.startPrank(address(0x789));
         CoreDeployer d2 = new CoreDeployer{salt: salt}(
-            2, keccak256("charterB"), keccak256("tech"), address(0xABC), off
+            2, 2, keccak256("charterB"), keccak256("tech"), address(0xABC), address(this), off
         );
         vm.stopPrank();
         assertTrue(d1.manifestHash() != d2.manifestHash());

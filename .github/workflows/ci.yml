@@ -13,6 +13,7 @@ jobs:
       - run: forge fmt --check
       - name: Build and enforce CoreEscrow bytecode limit
         run: |
+          set -o pipefail
           forge build --sizes | tee /tmp/forge-sizes.txt
           awk -F'|' '
             /\| CoreEscrow[[:space:]]*\|/ {

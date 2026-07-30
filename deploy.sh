@@ -25,7 +25,7 @@ Usage:
   ./deploy.sh --help
 
 Flags:
-  --core       Deploy Mandatory Core (CreditLedger + Coordinator + CoreEscrow)
+  --core       Deploy Mandatory Core in two stages (deployer, then triad)
   --dry-run    Simulate only (overrides broadcast = true in deploy.toml)
   --help       Show this help
 
@@ -81,13 +81,26 @@ ensure_deploy_toml() {
 
 load_section() {
   local section="$1"
-  local pk rpc owner charter tech broadcast verify api_key verifier chain
+  local pk rpc owner operator charter tech build deployment_method deployer_artifact
+  local factory_artifact ledger_artifact coordinator_artifact escrow_artifact
+  local capability governance verification salt broadcast verify api_key verifier chain
 
   pk="$(toml_get "$section" private_key "$DEPLOY_TOML")"
   rpc="$(toml_get "$section" rpc_url "$DEPLOY_TOML")"
   owner="$(toml_get "$section" coordinator_owner "$DEPLOY_TOML")"
+  operator="$(toml_get "$section" deployment_operator "$DEPLOY_TOML")"
   charter="$(toml_get "$section" charter_hash "$DEPLOY_TOML")"
   tech="$(toml_get "$section" tech_spec_hash "$DEPLOY_TOML")"
+  build="$(toml_get "$section" build_hash "$DEPLOY_TOML")"
+  deployment_method="$(toml_get "$section" deployment_method_hash "$DEPLOY_TOML")"
+  deployer_artifact="$(toml_get "$section" deployer_artifact_hash "$DEPLOY_TOML")"
+  factory_artifact="$(toml_get "$section" factory_artifact_hash "$DEPLOY_TOML")"
+  ledger_artifact="$(toml_get "$section" ledger_artifact_hash "$DEPLOY_TOML")"
+  coordinator_artifact="$(toml_get "$section" coordinator_artifact_hash "$DEPLOY_TOML")"
+  escrow_artifact="$(toml_get "$section" escrow_artifact_hash "$DEPLOY_TOML")"
+  capability="$(toml_get "$section" capability_hash "$DEPLOY_TOML")"
+  governance="$(toml_get "$section" governance_hash "$DEPLOY_TOML")"
+  verification="$(toml_get "$section" verification_hash "$DEPLOY_TOML")"
   salt="$(toml_get "$section" salt "$DEPLOY_TOML")"
   broadcast="$(toml_get "$section" broadcast "$DEPLOY_TOML")"
   verify="$(toml_get "$section" verify "$DEPLOY_TOML")"
@@ -99,19 +112,52 @@ load_section() {
   [[ "$pk" != *"YOUR_"* ]] || die "[$section].private_key still has a placeholder — edit deploy.toml"
   [[ -n "$rpc" ]] || die "[$section].rpc_url is required"
 
+  require_address() {
+    local name="$1"
+    local value="$2"
+    [[ "$value" =~ ^0x[0-9a-fA-F]{40}$ ]] || die "[$section].$name must be a 20-byte address"
+    [[ "$value" != "0x0000000000000000000000000000000000000000" ]] || die "[$section].$name cannot be zero"
+  }
+
+  require_hash() {
+    local name="$1"
+    local value="$2"
+    [[ "$value" =~ ^0x[0-9a-fA-F]{64}$ ]] || die "[$section].$name must be a bytes32 hash"
+    [[ "$value" != "0x0000000000000000000000000000000000000000000000000000000000000000" ]] || die "[$section].$name cannot be zero"
+  }
+
+  require_address coordinator_owner "$owner"
+  require_address deployment_operator "$operator"
+  require_hash charter_hash "$charter"
+  require_hash tech_spec_hash "$tech"
+  require_hash build_hash "$build"
+  require_hash deployment_method_hash "$deployment_method"
+  require_hash deployer_artifact_hash "$deployer_artifact"
+  require_hash factory_artifact_hash "$factory_artifact"
+  require_hash ledger_artifact_hash "$ledger_artifact"
+  require_hash coordinator_artifact_hash "$coordinator_artifact"
+  require_hash escrow_artifact_hash "$escrow_artifact"
+  require_hash capability_hash "$capability"
+  require_hash governance_hash "$governance"
+  require_hash verification_hash "$verification"
+  require_hash salt "$salt"
+
   export PRIVATE_KEY="$pk"
-  export CHARTER_HASH="${charter:-}"
-  export TECH_SPEC_HASH="${tech:-}"
-  if [[ -n "${salt:-}" ]]; then
-    export SALT_CORE="$salt"
-  else
-    unset SALT_CORE 2>/dev/null || true
-  fi
-  if [[ -n "${owner:-}" ]]; then
-    export COORDINATOR_OWNER="$owner"
-  else
-    unset COORDINATOR_OWNER 2>/dev/null || true
-  fi
+  export CHARTER_HASH="$charter"
+  export TECH_SPEC_HASH="$tech"
+  export BUILD_HASH="$build"
+  export DEPLOYMENT_METHOD_HASH="$deployment_method"
+  export DEPLOYER_ARTIFACT_HASH="$deployer_artifact"
+  export FACTORY_ARTIFACT_HASH="$factory_artifact"
+  export LEDGER_ARTIFACT_HASH="$ledger_artifact"
+  export COORDINATOR_ARTIFACT_HASH="$coordinator_artifact"
+  export ESCROW_ARTIFACT_HASH="$escrow_artifact"
+  export CAPABILITY_HASH="$capability"
+  export GOVERNANCE_HASH="$governance"
+  export VERIFICATION_HASH="$verification"
+  export SALT_CORE="$salt"
+  export COORDINATOR_OWNER="$owner"
+  export DEPLOYMENT_OPERATOR="$operator"
 
   # shellcheck disable=SC2034
   SECTION_RPC_URL="$rpc"
@@ -165,7 +211,7 @@ deploy_core() {
   echo "==> Deploying Mandatory Core (CREATE2)"
   echo "    rpc:  $SECTION_RPC_URL"
   echo "    chain:${SECTION_CHAIN:-"(from rpc)"}"
-  echo "    salt: ${SECTION_SALT:-"(default pluriswap.core.v2)"}"
+  echo "    salt: ${SECTION_SALT}"
   echo "    broadcast: $SECTION_BROADCAST"
   echo "    verify: $SECTION_VERIFY"
   forge "${args[@]}"

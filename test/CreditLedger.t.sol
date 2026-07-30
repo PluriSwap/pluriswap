@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {Test} from "forge-std/Test.sol";
 import {CreditLedger} from "../src/CreditLedger.sol";
 import {CoreDeployer} from "../src/CoreDeployer.sol";
+import {CoreEscrow} from "../src/CoreEscrow.sol";
+import {Coordinator} from "../src/Coordinator.sol";
 import {MockERC20} from "./helpers/MockERC20.sol";
 import {DealHashing} from "../src/libraries/DealHashing.sol";
 import {
@@ -54,8 +56,10 @@ contract CreditLedgerTest is Test {
         bytes32 salt = keccak256("ledger-test");
         deployer = new CoreDeployer{salt: salt}(
             2,
+            2,
             keccak256("charter"),
             keccak256("tech"),
+            address(this),
             address(this),
             CoreManifestOffchain(
                 bytes32(uint256(1)),
@@ -71,6 +75,27 @@ contract CreditLedgerTest is Test {
                 bytes32(0)
             )
         );
+        bytes memory ledgerInitCode = abi.encodePacked(
+            type(CreditLedger).creationCode,
+            abi.encode(address(deployer.escrow()), deployer.chainId())
+        );
+        bytes memory coordinatorInitCode = abi.encodePacked(
+            type(Coordinator).creationCode,
+            abi.encode(deployer.chainId(), address(deployer.escrow()), address(this))
+        );
+        bytes memory escrowInitCode = abi.encodePacked(
+            type(CoreEscrow).creationCode,
+            abi.encode(
+                deployer.chainId(),
+                deployer.protocolVersion(),
+                deployer.charterHash(),
+                deployer.techSpecHash(),
+                address(deployer.ledger()),
+                address(deployer.coordinator()),
+                deployer.manifestHash()
+            )
+        );
+        deployer.deployTriad(ledgerInitCode, coordinatorInitCode, escrowInitCode);
         ledger = deployer.ledger();
         escrow = address(deployer.escrow());
         token = new MockERC20();

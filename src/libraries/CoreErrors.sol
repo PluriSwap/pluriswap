@@ -57,5 +57,7 @@ error DuplicateSettlement();
 
 // ── Deployment / manifest ─────────────────────────────────────────────────────
 error ManifestMismatch();
+error InvalidChildInitCode();
+error DeploymentAlreadyFinalized();
 error CrowdfundGated();
 error InvalidChainId();

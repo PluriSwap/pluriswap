@@ -32,14 +32,13 @@ adversarial coverage.
 
 ## Current Conformance Snapshot
 
-- Full Foundry suite: **146 passed, 0 failed** (latest isolated arithmetic tests are green;
-  the final full-suite run follows this documentation update).
+- Full Foundry suite: **157 passed, 0 failed**.
 - `CoreEscrow` runtime: **24,517 bytes**, leaving **59 bytes** below EIP-170.
 - `CreditLedger` runtime: **20,724 bytes**, leaving **3,852 bytes** below EIP-170.
-- `CoreDeployer` initcode is currently **51,799 bytes**, above the **49,152-byte EIP-3860**
-  limit; `forge build --sizes` therefore exits nonzero even though the CoreEscrow runtime
-  gate passes. Deployment evidence remains blocked until this factory-initcode issue is
-  resolved or the deployment architecture is formally amended.
+- `CoreDeployer` now uses staged child creation; its initcode is **5,699 bytes**, below the
+  **49,152-byte EIP-3860** limit. The finalizer creates Ledger / Coordinator / Escrow with
+  CREATE nonces 1–3 and validates canonical initcode, exact constructor arguments, and
+  reverse links before becoming permanently inert.
 - Deployed Core topology: **CoreDeployer plus exactly three children** —
   `CreditLedger`, `Coordinator`, and `CoreEscrow`; no `CoreSettlement` child.
 - `forge fmt --check` and `git diff --check`: passing.
@@ -318,6 +317,8 @@ Final conformance pass to verify all spec sections are covered.
   limit. Any future attachment implementation must preserve this limit or reduce the
   current Core surface before it can be accepted.
 - CoreDeployer now rejects placeholder manifest inputs and verifies reverse links.
+- CoreDeployer deployment is now two-phase: CoreDeployer creation followed by one authorized,
+  atomic triad-finalization transaction. The deployment manifest records both transactions.
 
 ### Changes
 - Conformance matrix: verify every spec section has corresponding tests
