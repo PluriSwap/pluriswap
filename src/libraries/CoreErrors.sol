@@ -33,7 +33,7 @@ error ModuleBindingMismatch();
 // ── Positions ─────────────────────────────────────────────────────────────────
 error PositionNotFound();
 error PositionAlreadyExists();
-error PositionConsumed();
+error PositionAlreadyConsumed();
 error PositionNotActive();
 error PositionNotClaimable();
 error PositionNotSplittable();
