@@ -88,6 +88,7 @@ load_section() {
   owner="$(toml_get "$section" coordinator_owner "$DEPLOY_TOML")"
   charter="$(toml_get "$section" charter_hash "$DEPLOY_TOML")"
   tech="$(toml_get "$section" tech_spec_hash "$DEPLOY_TOML")"
+  salt="$(toml_get "$section" salt "$DEPLOY_TOML")"
   broadcast="$(toml_get "$section" broadcast "$DEPLOY_TOML")"
   verify="$(toml_get "$section" verify "$DEPLOY_TOML")"
   api_key="$(toml_get "$section" etherscan_api_key "$DEPLOY_TOML")"
@@ -101,6 +102,11 @@ load_section() {
   export PRIVATE_KEY="$pk"
   export CHARTER_HASH="${charter:-}"
   export TECH_SPEC_HASH="${tech:-}"
+  if [[ -n "${salt:-}" ]]; then
+    export SALT_CORE="$salt"
+  else
+    unset SALT_CORE 2>/dev/null || true
+  fi
   if [[ -n "${owner:-}" ]]; then
     export COORDINATOR_OWNER="$owner"
   else
@@ -114,6 +120,7 @@ load_section() {
   SECTION_ETHERSCAN_API_KEY="${api_key:-}"
   SECTION_VERIFIER_URL="${verifier:-}"
   SECTION_CHAIN="${chain:-}"
+  SECTION_SALT="${salt:-}"
 }
 
 truthy() {
@@ -155,9 +162,10 @@ deploy_core() {
     fi
   fi
 
-  echo "==> Deploying Mandatory Core"
+  echo "==> Deploying Mandatory Core (CREATE2)"
   echo "    rpc:  $SECTION_RPC_URL"
   echo "    chain:${SECTION_CHAIN:-"(from rpc)"}"
+  echo "    salt: ${SECTION_SALT:-"(default pluriswap.core.v2)"}"
   echo "    broadcast: $SECTION_BROADCAST"
   echo "    verify: $SECTION_VERIFY"
   forge "${args[@]}"

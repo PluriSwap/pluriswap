@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {CoreEscrow} from "../../src/CoreEscrow.sol";
 import {CreditLedger} from "../../src/CreditLedger.sol";
 import {Coordinator} from "../../src/Coordinator.sol";
+import {CoreDeployer} from "../../src/CoreDeployer.sol";
 import {MockERC20} from "./MockERC20.sol";
 import {DealSigUtils} from "./DealSigUtils.sol";
 import {
@@ -20,6 +21,7 @@ abstract contract CoreTestBase is Test {
     CoreEscrow escrow;
     CreditLedger ledger;
     Coordinator coordinator;
+    CoreDeployer coreDeployer;
     MockERC20 token;
 
     uint256 holderPk = 0xA11CE;
@@ -36,17 +38,13 @@ abstract contract CoreTestBase is Test {
         holder = vm.addr(holderPk);
         provider = vm.addr(providerPk);
 
-        uint64 chainId_ = uint64(block.chainid);
-        address deployer = address(this);
-        uint64 nonce = uint64(vm.getNonce(deployer));
-        address escrowPredicted = vm.computeCreateAddress(deployer, nonce + 2);
-
-        ledger = new CreditLedger(escrowPredicted, chainId_);
-        coordinator = new Coordinator(chainId_, escrowPredicted, address(this));
-        escrow = new CoreEscrow(
-            chainId_, 2, keccak256("charter"), keccak256("tech"), address(ledger), address(coordinator)
+        bytes32 salt = keccak256(abi.encodePacked("pluriswap.core.test", address(this)));
+        coreDeployer = new CoreDeployer{salt: salt}(
+            2, keccak256("charter"), keccak256("tech"), address(this)
         );
-        require(address(escrow) == escrowPredicted, "escrow addr");
+        ledger = coreDeployer.ledger();
+        coordinator = coreDeployer.coordinator();
+        escrow = coreDeployer.escrow();
 
         token = new MockERC20();
         domainSep = escrow.DOMAIN_SEPARATOR();

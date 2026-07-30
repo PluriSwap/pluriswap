@@ -1,14 +1,17 @@
-# Mandatory Core (Foundry) Implementation Plan
+# SUPERSEDED — Mandatory Core (Foundry) Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+**Status:** Superseded on 2026-07-29 by the production-remediation specification sequence.
+**Do not execute this plan.** Its numbered tasks, milestone rules, interface shapes, deficit model, deployment steps, and commit instructions are historical and no longer authorized.
 
-**Goal:** Implement immutable PluriSwap Mandatory Core (`CoreEscrow` + `CreditLedger` + `Coordinator`) on Foundry for Arbitrum, matching `docs/v2/technical/MANDATORY_CORE.md` v0.2.0 for Core-only deals (extension entrypoints exist and revert `ProfileDisabled`).
+**Current authorities:**
 
-**Architecture:** Three non-upgradeable contracts. Escrow owns the deal state machine and principal; Ledger owns pull credits and deficit accounting; Coordinator allowlists modules for new activations only. Packages are selected in EIP-712 deal terms; settlement never callbacks out — Escrow credits the Ledger, then anyone withdraws.
+- `PROTOCOL.md`
+- `docs/superpowers/specs/2026-07-29-core-architecture-immutability-design.md` revision 0.3.0-rc1
+- `docs/v2/technical/MANDATORY_CORE.md` 0.3.0-rc1
 
-**Tech Stack:** Foundry (`forge`, `cast`, `anvil`), Solidity `^0.8.24`, `forge-std`, OpenZeppelin contracts only for `ReentrancyGuard` + `ECDSA`/`EIP712` utilities if needed (prefer minimal copies in-repo to keep custody surface inspectable). Target chain: Arbitrum (tests on local anvil / Arbitrum fork optional later).
+The replacement work first proves the independent funded/gap recovery reference model, then freezes interfaces and rewrites the sole-vault Core. In particular, CreditLedger—not Escrow—is the physical vault, generic package surfaces must be functional rather than permanent stubs, and the 0.2.x cumulative-scalar deficit design is withdrawn.
 
-**Spec refs:** `PROTOCOL.md`, `docs/v2/technical/MANDATORY_CORE.md`, `docs/superpowers/specs/2026-07-29-core-architecture-immutability-design.md`
+The body below is retained only as non-normative history explaining the discarded prototype sequence.
 
 ---
 

@@ -8,7 +8,17 @@
 
 **Document authority:** Highest-level definition of PluriSwap business behavior
 
-**Last substantive review:** 2026-07-27 (econ review closed: fees/bonds, free DISPUTED, pool arb payer, CF punitive, exposure conservative, package defaults)
+**Last substantive review:** 2026-07-30 (Mandatory Core production-remediation freeze: sole custody-boundary role, semantic reconciliation outcomes, typed signed pool-kind authority, fault-predicate reservations, split-only dynamic disposition, and no in-place predecessor upgrade)
+
+**Current control objective:** Freeze a production-conformant V2 Core before `RAT-002`; prototype code or a prior deployment is not promoted by this document.
+
+### Document-control history
+
+| Date | Control change |
+| --- | --- |
+| 2026-07-28 | Economic review closed; reference SKU v1, REP-014, party/operator court-skin, PAY-013 hybrid payment-proof sequence, Arbitrum access, Human Passport, and Kleros recorded |
+| 2026-07-29 | Custody/deficit authorities and independent-review repairs reconciled for production remediation: sole vault, quarantine-absorbed versus deficit-checkpointed reconciliation, signed pool-kind authority, fault-predicate reservations, split-only dynamic disposition, independent Core dispute, Core-owned timeout, and complete terminal deltas |
+| 2026-07-30 | Restored charter/technical authority separation: business outcomes and abstract Core roles remain here; contract names, wire codes, ABI preimages, and implementation acceptance artifacts remain in subordinate architecture and technical specifications |
 
 ---
 
@@ -172,7 +182,7 @@ PluriSwap is not universally trustless. Fiat payment, token behavior, identity c
 
 **TRUST-005 — Failure isolation.** Failure or malice in one optional extension MUST NOT spend another deal's assets or change an unrelated deal's state.
 
-**TRUST-006 — Bound executable identity.** Every custody-adjacent module selected for an active deal binds chain, address, runtime code hash, immutable configuration, policy semantic hash, and the coordinator authorization required to execute it. A proxy upgrade, administrator pause, registry delisting, or caller revocation MUST NOT change or disable active-deal execution. A module unable to provide that guarantee is permitted only as an optional input producer whose failure leaves every mandatory core fallback executable.
+**TRUST-006 — Bound executable identity.** Every custody-adjacent module selected for an active deal binds chain, address, runtime code hash, immutable configuration, policy semantic hash, and the module-admission authorization required to execute it. A proxy upgrade, administrator pause, registry delisting, or caller revocation MUST NOT change or disable active-deal execution. A module unable to provide that guarantee is permitted only as an optional input producer whose failure leaves every mandatory core fallback executable.
 
 **TRUST-007 — Availability boundary.** Immutability preserves accepted meaning; it does not guarantee that an external rail, issuer, verifier, court, arbitrator, RPC, or token administrator will cooperate. Every such dependency MUST have a disclosed failure result, and no dependency failure may remove the bounded core path to a terminal outcome.
 
@@ -200,10 +210,12 @@ Protocol design prefers **chosen trust, attributable actions, future exit, and o
 - a signed absolute completion fee that, after the gross cap, leaves little or zero provider net on a small provider share (FEE-P-004, FEE-P-008)—parties and packages chose that amount at consent;
 - non-reimbursement of the external arbitration open fee from principal or protocol fees, win or lose (ARB-003, ARB-003B)—court costs of an opt-in external path, distinct from free Core contest;
 - fee rules and bond rules diverging (ECON-012, BOND-000): fees as tolls/spam/package/court costs without fault; bonds as skin for wrongdoing or explicit signed stakes—including default bond **release** on residual and arb no-decision when no fault formula applies (BOND-008);
+- default bond **release** on fiat-timeout cancellation (CASE-OUT-005) with provider inactivity slash limited to provider-initiated cancel (CASE-OUT-004) under OUT-007A and BOND-008A—not a missing inactivity penalty on timeout;
 - arbitration open fee paid by the **opening caller's own balance**, not auto-debited from pool principal or deal escrow, on pool-origin deals (ARB-003C);
 - progressive-admission raw exposure using a conservative upper bound that can exceed realized abort loss (HUM-ADM-008A);
 - crowdfunding punitive default where slash and late recovery may both benefit the pool when that profile is enabled (CF-DEF-009)—not loss-only insurance;
-- Core omitting “assured-trade” defaults (bond-to-open contest, non-default residual, court-skin bonds) that belong only in selected packages (PROFILE-008).
+- Core omitting “assured-trade” defaults (fee-to-open contest, non-default residual, court-skin bonds including burn-on-stalemate, reputation tier caps) that belong only in selected packages (PROFILE-008, Section 5.3);
+- reference assured rungs charging a contest-open **fee** (not bond-to-open), burning both party bonds on arb stalemate/refuse/timeout, and gating exposure with five fixed reputation tiers (REF-PKG-003 through REF-PKG-007)—conforming package design, not missing Core economics.
 
 They MUST still flag missing isolation, any implementation that **refunds** a successfully charged activation fee, a Core path that cannot reach a terminal result, or post-activation authority mutation.
 
@@ -220,7 +232,7 @@ They MUST still flag missing isolation, any implementation that **refunds** a su
 | Pool | Supplies and receives holder-side liquidity in a pool-origin deal | Funds principal, receives holder-positive returns, accounts for its beneficiaries | Cannot create escrow liability without exact funding |
 | Pool controller | Configures a pool and appoints operators under its constitution | Sets future pool policy and mandates | Does not personally own active pool-origin principal unless it is also the pool beneficiary under the pool constitution |
 | Operator | Pool-chosen operational delegate for a pool | May quote offchain and, only as authorized by the active mandate and deal snapshot: accept deals, release from `FIAT_SENT`, open Core `DISPUTED`, and/or open selected arbitration | Cannot withdraw liquidity, change receivers, seize principal, rewrite terms, or exceed its mandate; cannot be stripped of snapshotted authority on an already active deal by later revoke |
-| Coordinator | Deployment-scoped authorization and module-binding surface for Core and enabled profiles | Binds which custody-adjacent modules may execute for deals on that deployment; appears in provider acceptance and executable-identity checks | Does not hold shared user principal in initial V2 modular pools; cannot invent outcomes, redirect receivers, or act as a custody administrator |
+| Module-admission authority | Deployment-scoped authorization surface for Core and enabled profiles | Binds which custody-adjacent modules may execute for future deals on that deployment; appears in provider acceptance and executable-identity checks | Does not hold shared user principal; cannot invent outcomes, redirect receivers, or act as a custody administrator |
 | Funder | Contributes assets to a crowdfunded pool extension | Receives shares and exercises withdrawal rights | Cannot withdraw locked exposure or jump a pro-rata queue |
 | Bond sponsor | Supplies collateral for a party or role | Authorizes a precise reservation and receives unused collateral | Cannot change the sponsored deal or reclaim reserved collateral early |
 | Relayer | Submits signed actions | Pays gas and transports already-authorized messages | Chooses no terms, receivers, or outcomes |
@@ -234,15 +246,15 @@ They MUST still flag missing isolation, any implementation that **refunds** a su
 
 Holder and provider are opposing economic roles and MUST use distinct signing addresses. The base protocol cannot determine whether different addresses share beneficial control. One address MAY occupy multiple non-conflicting operational roles only when every relevant consent and prohibition remains satisfied.
 
-Legacy coordinator-held pools (Section 14.2) are migration infrastructure in which a historical coordinator held commingled pool assets. That model is not the target V2 coordinator role above.
+Legacy shared-custodian pools (Section 14.2) are migration infrastructure in which one historical control component held commingled pool assets. That model is not the target V2 custody separation.
 
 ### 4.2 Assets and accounting terms
 
 - **Principal:** crypto amount held for the trade. Principal excludes all fees and bonds.
-- **Activation fee (holder fee):** optional Core fee charged for creating an active escrow at FUNDED. It is paid at activation and is non-refundable by design (including on cancel, timeout, stalemate, dispute timeout, and holder-win). Amount MAY be zero; zero is a valid Core configuration and is not an anti-spam mechanism. When nonzero, it is an activation toll: the consented cost of creating funded escrow exposure—not a success fee and not refundable working capital. On pool-origin deals the pool is `holderFeePayer` and the same non-refundable rule applies.
-- **Completion fee (provider fee):** optional Core fee charged from the provider's gross crypto share whenever that gross is positive at terminal settlement (FEE-P-001). Amount MAY be zero; zero means no completion fee is due on any path. When the signed amount is positive, no terminal may route principal to the provider without collecting the fee (capped by provider gross).
+- **Activation fee (holder fee):** optional Core fee charged for creating an active escrow at FUNDED. It is paid at activation and is non-refundable by design (including on cancel, timeout, stalemate, dispute timeout, and holder-win). Amount MAY be zero; zero is a valid Core configuration and is not an anti-spam mechanism. When nonzero, it is an activation toll: the consented cost of creating funded escrow exposure—not a success fee and not refundable working capital. On pool-origin deals the pool is `holderFeePayer` and the same non-refundable rule applies. Reference assured rungs derive the absolute from deal principal via REF-PKG-012.
+- **Completion fee (provider fee):** optional Core fee charged from the provider's gross crypto share whenever that gross is positive at terminal settlement (FEE-P-001). Amount MAY be zero; zero means no completion fee is due on any path. When the signed amount is positive, no terminal may route principal to the provider without collecting the fee (capped by provider gross). Reference assured rungs derive the signed absolute from deal principal via REF-PKG-012; settlement still applies the provider-gross cap.
 - **Operator acceptance fee:** pool-funded fee reserved at activation for an enabled operator role. When eligible and without authenticated operator fault, it is paid in full if provider gross is 100 percent of principal, or proportionally when provider gross is a positive partial share (FEE-O-005, FEE-O-006). "Reserved," "eligible," and "paid" are statuses of this same fee. It compensates the operator role; it is not a second protocol or platform access fee.
-- **Profile or package fee:** any additional fee channel defined only by an enabled extension profile or ecosystem package identity (for example arbitration fee at escalation). Absent that selection, the channel does not exist.
+- **Profile or package fee:** any additional fee channel defined only by an enabled extension profile or ecosystem package identity (for example contest-open fee or arbitration court fee at escalation). Absent that selection, the channel does not exist. Reference contest-open fees use REF-PKG-012.
 - **No pool access fee:** Protocol version 2 defines no separate fee, tax, or license for deploying a pool or using the protocol as a pool beyond the ordinary deal fee channels above. Permissionless pool deployment does not require a protocol payment.
 - **Bond:** collateral reserved separately from principal and fees to secure a defined role.
 - **Pool available liquidity:** pool assets not consumed, reserved, queued for an earlier obligation, or required for active exposure.
@@ -279,7 +291,7 @@ Mandatory Core has **no external dispute court**. It **does** provide a Core con
 
 ### 5.2 Optional extension profiles
 
-An implementation MAY support any of the following independently. Each attaches at a defined extension point on the Core machine or at activation/settlement accounting; none is required for a successful Core-only escrow.
+An implementation MAY support any of the following independently. Each attaches at a defined extension point on the Core machine or at activation/settlement accounting; none is required for a successful Core-only escrow. The Core surfaces those packages may depend on are frozen in Appendix C.
 
 | Profile | Capability | Primary extension point |
 | --- | --- | --- |
@@ -304,9 +316,94 @@ An implementation MAY support any of the following independently. Each attaches 
 
 **PROFILE-006 — Package-bound fee schedules.** An ecosystem or reference package MAY publish an immutable package identity whose semantic hash binds required fee moments, amounts or caps, and recipients (including a disclosed DAO wrapper) for deals that select that package or its bundled profiles. The protocol enforces only the exact signed fee fields; it never injects a DAO address, global tax, or package fee into a deal that did not select that package. Independent publishers MAY offer zero-fee or different-recipient packages. Frontends and clients that offer a named package MUST construct and display that package's bound fee fields; they are not an alternate collection path and cannot be the sole guarantee of payment.
 
-**PROFILE-007 — Profile fees only when enabled.** Arbitration fees, bond reservations, operator acceptance fees, progressive-admission package charges, and any other profile-specific economics exist only when the corresponding profile or package is selected. When the profile is off, those channels are absent and MUST NOT be charged.
+**PROFILE-007 — Profile fees only when enabled.** Arbitration fees, contest-open fees, bond reservations, operator acceptance fees, progressive-admission package charges, and any other profile-specific economics exist only when the corresponding profile or package is selected. When the profile is off, those channels are absent and MUST NOT be charged.
 
-**PROFILE-008 — Assured-trade and venue defaults are package-only.** Stronger commercial defaults than Mandatory Core—examples include bond or fee to open contest, constrained `disputeTimeoutProviderBps`, required PAYMENT_PROOF or ARBITRATION, operator contest only with bond, stalemate or court-skin bond formulas, and progressive admission—exist **only** when a deal or pool selects an immutable package or profile that binds them (PROFILE-006, DISPUTE-006, BOND-000). Core MUST remain usable without those defaults. Reviewers MUST NOT treat their absence from Core as incomplete economics; they MUST treat injection of such defaults into deals that did not select them as non-conformant.
+**PROFILE-008 — Assured-trade and venue defaults are package-only.** Stronger commercial defaults than Mandatory Core—examples include fee to open contest, fixed or constrained `disputeTimeoutProviderBps`, required PAYMENT_PROOF or ARBITRATION, operator contest only with bond, stalemate or court-skin bond formulas (including burn), progressive admission, and reputation tier caps—exist **only** when a deal or pool selects an immutable package or profile that binds them (PROFILE-006, DISPUTE-006, BOND-000, Section 5.3). Core MUST remain usable without those defaults. Reviewers MUST NOT treat their absence from Core as incomplete economics; they MUST treat injection of such defaults into deals that did not select them as non-conformant.
+
+**PROFILE-009 — Hybrid profiles and reference SKUs.** Extension profiles (Section 5.2) are reusable capabilities with parameters open within this charter. Ecosystem **reference SKUs** (Section 5.3) are immutable product packages that bind a required profile set plus stronger defaults and fee schedules. Independent publishers MAY offer competing packages or raw profile composition without a reference SKU. Clients that advertise a named reference SKU MUST construct that SKU's bound schedule (PROFILE-006, FEE-PKG-002).
+
+### 5.3 Reference assured ladder (ecosystem SKUs)
+
+The DAO-sponsored reference ecosystem MAY publish the following ascending **assured ladder** of immutable package identities. Rung 0 is Mandatory Core and is not a package. Selecting a higher rung requires every lower rung's required profiles (cumulative). Exact package identifiers, semantic hashes, and numeric parameter values live in the technical specification and package preimage; this section freezes business composition and default shape.
+
+| Rung | Package identity (stable stem) | Display name | Required profiles (cumulative) |
+| --- | --- | --- | --- |
+| 0 | *(none — Mandatory Core)* | Core | — |
+| 1 | `pluriswap.ref.assured.r1` | Assured Court | HUMANITY + BONDS + ARBITRATION |
+| 2 | `pluriswap.ref.assured.r2` | Assured Reputation | Rung 1 + REPUTATION |
+| 3 | `pluriswap.ref.assured.r3` | Assured Pool | Rung 2 + POOL |
+| 4 | `pluriswap.ref.assured.r4` | Assured Proof | Rung 3 + PAYMENT_PROOF |
+
+**REF-PKG-001 — Opt-in only.** No reference rung is a Mandatory Core execution condition. Core-only deals remain valid with zero package fees and no humanity, bonds, arbitration, reputation, pool, or payment-proof requirement (PROFILE-002).
+
+**REF-PKG-002 — Bound defaults.** Each published reference rung version MUST bind, in its immutable semantic preimage at least: required profiles; contest-open fee schedule (REF-PKG-003, REF-PKG-012); fixed `disputeTimeoutProviderBps = 5_000` (REF-PKG-013); deal-sized symmetric party bonds and court-skin / win-loss formulas (REF-PKG-004, REF-PKG-005, REF-PKG-014); activation and completion fee schedules under REF-PKG-012 with one global disclosed DAO-wrapper recipient for both channels (REF-PKG-006); and, from rung 2 upward, the five-tier reputation exposure caps (REF-PKG-007). Initial v1 numeric values are REF-PKG-015; funnel reputation weights are REF-PKG-016. Rung 3 additionally binds operator-contest-requires-bond. Rung 4 additionally binds the selected payment-proof verifier/policy class.
+
+**REF-PKG-003 — Contest open is fee-only.** Reference rungs that enable Core `DISPUTED` and/or ARBITRATION MUST charge a **package contest-open fee** (toll) to open contest or escalate under the SKU schedule. That fee is not a bond reservation. Bonds are reserved for outcome skin under REF-PKG-004, REF-PKG-005, and REF-PKG-014, not for the privilege of opening. The contest-open amount follows REF-PKG-012 (percentage of deal principal with minimum base). Independent packages MAY choose different open-cost instruments; reference SKUs MUST NOT use bond-to-open.
+
+**REF-PKG-004 — Slash on dispute loss.** Under reference rung bond schedules, authenticated arbitration **loss** slashes the **entire** reserved loser party bond to the winner side (holder win → full provider bond to holder side; provider win → full holder/pool-side bond to provider side). The winner's party bond releases in full. When an operator bond is reserved on that deal, it uses the **same severity as a party bond**: the full operator bond is also slashed to the **winner** side on a decisive holder or provider win (not limited to authenticated operator-fault). Partial loss slashes are not used by reference SKUs (REF-PKG-014).
+
+**REF-PKG-005 — Stalemate / refuse / timeout burn both.** For reference rungs, arbitration refused, no-decision, and arbitration timeout are one economic class (`STALEMATE`). Principal remains protocol 50/50 (CASE-OUT-011, CASE-OUT-012). The bound court-skin formula MUST slash the **entire** reserved amount of **both** party bonds—and the **entire** reserved operator bond when one exists—and route those amounts to a disclosed **immutable burn sink** (not the DAO, not either party, not a fee recipient). The burn sink MUST be a nonzero, publicly disclosed address suitable as a slash recipient under BOND-007 and TOKEN-010A; it MUST NOT be `address(0)`. The technical specification fixes the exact well-known burn address for reference SKUs. The intent is that stalemate is worse for both than a clear win and is not a profitable stall. This package burn of **bond** skin does not authorize burning Core dispute-timeout **principal** (DISPUTE-005). Default BONDS without a selected stalemate formula remains release (BOND-008).
+
+**REF-PKG-006 — One DAO fee recipient.** Reference rungs that charge activation, completion, or contest-open fees MUST use one disclosed DAO-wrapper recipient address (per chain) for those package fee channels (activation, completion, and contest-open). External arbitration court fees remain outside this recipient (ARB-003*). The DAO MUST NOT be the court-skin burn sink or otherwise receive stalemate bond slashes under REF-PKG-005. Independent packages may use other recipients or zero fees.
+
+**REF-PKG-007 — Five-tier reputation caps.** From rung 2 upward, reference reputation policy is both **advisory** (scores and rankings for display and selection) and an **admission gate** on maximum new exposure. Caps are **five fixed token-amount tiers** keyed by reputation band; tier 5 is **infinite**. Caps apply in **both** `INSTANCE_*` (deployment/instance) and `POOL` scopes when those scopes are in use; initial v1 amounts are in REF-PKG-015. Caps constrain new activation only (REP-009, HUM-ADM-005).
+
+**REF-PKG-008 — Reference adapters.** Reference ARBITRATION uses **Kleros** as the court adapter family under the closed ruling map (ARB-011). Reference HUMANITY uses **Human Passport** (formerly Gitcoin Passport) as the credential verifier family under HUM-001 through HUM-008. Reference PAYMENT_PROOF follows the hybrid sequence in PAY-013: protocol-owned verifier interface; first Assured Proof SKU may integrate the ZKP2P / Peer attestation family; a later SKU may bind a PluriSwap-operated rail under a new policy hash. Exact adapter, policy, and code identities are bound per deployment and SKU version in the technical specification; a name alone carries no semantics (VER-008).
+
+**REF-PKG-009 — Core ready for future packages.** An immutable Mandatory Core deployment that claims ladder readiness MUST expose the Appendix C surfaces so reference rungs and independent packages can be deployed later without a Core upgrade or new Core surface. Absent profiles reject; optional slots and reservation hooks remain present.
+
+**REF-PKG-010 — Parameters and versioning.** Initial reference SKU v1 numeric parameters are published in REF-PKG-015. Technical documents for a **future** SKU version MAY list still-open fields as `UNSET` until that version's economic ratification. An on-chain or published package identity MUST NOT be selectable until every required bound field in REF-PKG-002 is concrete. Changing a bound value requires a new package version and opt-in.
+
+**REF-PKG-011 — Crowdfunding not on the ladder.** `CROWDFUNDED_POOL` remains gated by Section 15 / CF-GATE and is not a rung of this ladder.
+
+**REF-PKG-012 — Deal-sized package fees (pct + minimum).** For reference assured rungs, **activation**, **completion**, and **contest-open** fees each scale with deal principal under the same shape. The SKU preimage MUST bind a **separate** nonnegative `(feeBps, minBase)` pair for each of those three channels (settlement-token units for `minBase`). The required amount for a channel is:
+
+`feeAmount = max(minBase, floor(principal × feeBps / 10_000))`
+
+where `principal` is the deal's signed principal. Pairs are independent parameters: a later SKU version MAY change one channel without the others. Equalization across channels is not a protocol requirement. An initial reference SKU version MAY publish the **same starting** `(feeBps, minBase)` for all three channels as a package parameterization choice; that sameness is not Mandatory Core and MUST NOT be inferred by Core. Clients MUST compute, display, and place the resulting **absolute** amounts into signed terms before consent. Activation and completion absolutes are snapshotted at activation and enforced thereafter (FEE-H-*, FEE-P-008). Contest-open uses that channel's pair on the immutable deal principal at open time under FEE-PKG-004. This is **not** a terminal-bps rewrite of completion fee against provider gross: settlement still collects `min(snapshottedCompletionFee, providerGross)` (FEE-P-001, FEE-P-008). Core-only deals remain free to use zero or any explicit absolute. Independent packages MAY use other shapes.
+
+**REF-PKG-013 — Residual fixed at 5000.** Reference assured rungs MUST bind `disputeTimeoutProviderBps = 5_000` exactly. When such a SKU is selected, activation MUST reject any other residual value. Core without that SKU retains the full `0..10_000` range and the recommended client default `5_000`. Opening ARBITRATION from `DISPUTED` still abandons this residual for the arbitration terminal map under ARB-013A.
+
+**REF-PKG-014 — Deal-sized symmetric party bonds.** Reference assured rungs MUST size holder-side and provider party bonds equally from deal principal. The SKU preimage binds one shared nonnegative `(bondBps, minBase)` pair for those two roles (settlement-token units for `minBase`). The required reservation per party role is:
+
+`bondAmount = max(minBase, floor(principal × bondBps / 10_000))`
+
+Both roles MUST reserve that exact amount at activation (subject to sponsor consent rules). Initial v1 `(bondBps, minBase)` is in REF-PKG-015. On arbitration loss, slash the loser's full `bondAmount` to the winner side and release the winner's bond (REF-PKG-004). On stalemate/refuse/timeout, burn both full party `bondAmount`s (REF-PKG-005). When a reference rung-3+ deal includes an operator with contest and/or arbitration permission, that operator MUST reserve an **operator bond** under the same deal-sized shape and initial v1 parameters as the party bond (REF-PKG-015). That operator bond follows the **same court-skin and loss severity as party bonds** under REF-PKG-004 and REF-PKG-005 (full slash to winner on decisive arb win; full burn on stalemate/refuse/timeout)—not an operator-fault-only schedule. On non-arb terminals, release the operator bond unless another signed operator-fault rule applies. Independent packages MAY use other bond shapes.
+
+**REF-PKG-015 — Initial reference SKU v1 numeric parameters.** The first published version of each reference assured rung (`pluriswap.ref.assured.r1` through `r4`) binds the following economics unless a later SKU version replaces them. **Units:** `feeBps` / `bondBps` are basis points of signed principal. `minBase` and reputation tier caps are **whole settlement-token major units** (one unit = one whole token of the deal's settlement asset, e.g. one USDC); the technical specification encodes them with that token's decimals. These values are package parameters, not Mandatory Core.
+
+| Parameter | Value |
+| --- | --- |
+| Activation `(feeBps, minBase)` | `50` (0.5%), `minBase = 1` |
+| Completion `(feeBps, minBase)` | `50` (0.5%), `minBase = 1` |
+| Contest-open `(feeBps, minBase)` | `100` (1%), `minBase = 1` |
+| Party bond `(bondBps, minBase)` | `1_000` (10%), `minBase = 1` |
+| Operator bond `(bondBps, minBase)` (rung 3+ when operator has contest and/or arbitration permission) | `1_000` (10%), `minBase = 1` (same shape as party bond) |
+| `disputeTimeoutProviderBps` | `5_000` (REF-PKG-013) |
+| Reputation max-exposure tiers (rung 2+; instance and pool scopes) | Tier1 `250`, Tier2 `500`, Tier3 `1_000`, Tier4 `2_000`, Tier5 **infinite** |
+| Reputation score thresholds (min score → tier) | `0 → T1`, `10 → T2`, `25 → T3`, `50 → T4`, `100 → T5` (REF-PKG-016) |
+| Court-skin burn sink | Nonzero immutable well-known burn address (not `address(0)`, not DAO); exact address in the technical specification (REF-PKG-005) |
+
+DAO recipient addresses remain per-chain deployment facts under REF-PKG-006 and ECO-007. Funnel reputation event deltas are REF-PKG-016.
+
+**REF-PKG-016 — Initial reference reputation v1 weights.** Reference rung 2+ SKUs use REP-013 and REP-014 with the following fixed integer deltas (provider / holder). Unlisted role cells are `0`. For pool-origin deals, the same provider-column deltas accrue to the operator's **pool-scoped** score and the controller's **pool-scoped** score as attributed by the deal snapshot (REP-014); they do **not** silently write the subject's instance-global score under a pool label. No decay. No principal weighting.
+
+| Canonical event | Provider Δ | Holder Δ |
+| --- | --- | --- |
+| Activate `FUNDED` | `0` | `0` |
+| Mark `FIAT_SENT` | `+1` | `0` |
+| Provider cancel before fiat | `−4` | `0` |
+| Fiat-timeout cancel | `−2` | `0` |
+| Mutual cancel | `−1` | `0` |
+| Clean complete (voluntary / co-signed / proof release) | `+3` | `+3` |
+| Timeout claim | `+1` | `−2` |
+| Open Core `DISPUTED` | `0` | `−1` |
+| Arbitration win | `+2` | `+2` |
+| Arbitration loss | `−10` | `−10` |
+| Arbitration stalemate / refuse / timeout | `−6` | `−6` |
+| Core dispute-timeout residual | `−3` | `−3` |
+
+Arbitration win/loss deltas apply to the winning/losing party respectively (winner `+2`, loser `−10`). Proof release from `FUNDED` without a prior `FIAT_SENT` still grants the clean-complete deltas and MUST NOT require a synthetic mark-fiat for scoring. Changing any delta or threshold requires a new SKU version (REF-PKG-010).
 
 ---
 
@@ -321,9 +418,10 @@ Before a direct deal can become active, both parties MUST consent to one complet
 - token, custody-boundary identity and sharing scope, and token-risk identity;
 - positive principal amount;
 - holder fee, provider fee, their recipients, and every applicable signed cap;
+- contest-open fee, recipient, and applicability (Core `DISPUTED` and/or ARBITRATION open) when a package binds FEE-PKG-004 / REF-PKG-003;
 - unique nonce and absolute creation expiry;
 - fiat duration, release duration, and dispute duration (all strictly positive);
-- `disputeTimeoutProviderBps` in `0..10_000` inclusive (Core client default and recommended residual is `5_000`);
+- `disputeTimeoutProviderBps` in `0..10_000` inclusive (Core client default and recommended residual is `5_000`; reference assured rungs require exactly `5_000` under REF-PKG-013);
 - arbitration duration when ARBITRATION is enabled;
 - fiat currency, amount, payment method, payee commitment, payment reference commitment, and quote semantics;
 - payment-proof policy, payer mode, receipt namespace, and nullifier authority when automatic release is enabled;
@@ -388,7 +486,7 @@ For a pool-origin deal:
 
 **RES-002 — Split payload.** A split authorization binds every field in RES-001 plus provider-share basis points, each non-default bond slash amount and recipient, any asserted operator-fault classification and its evidence hash, and every additional signer required by RES-004. Provider share MUST be between zero and 10,000 basis points inclusive. Holder share, provider fee, operator fee, and rounding derive deterministically from the signed deal and Section 9; the payload cannot rewrite them. Inability to cut the snapshotted completion fee on a small split is intentional under FEE-P-008.
 
-**RES-002A — Co-signed release payload.** A co-signed release authorization binds every field in RES-001 with action type co-signed release. It introduces no alternate receiver and no rewrite of fees or bonds beyond the ordinary voluntary-release economics in Section 9: provider receives 100 percent principal gross, completion and operator fees follow provider-positive release rules, and bond release/slash follows the voluntary-release bond row. Co-signed release is available from `FIAT_SENT` and from `DISPUTED`. While `DISPUTED`, unilateral holder release and permissionless claim are unavailable. Co-signed release is the only **Core dual-sign** path that allocates 100 percent principal to the provider without waiting for dispute timeout. When enabled, authenticated payment-proof release (CASE-PAY-002A) and arbitration provider win (CASE-OUT-010) are additional full-provider paths from or after contest; they are not dual-sign paths and do not make co-signed release optional for parties that lack those profiles.
+**RES-002A — Co-signed release payload.** A co-signed release authorization binds every field in RES-001 with action type co-signed release. It introduces no alternate receiver and no rewrite of fees or bonds beyond the ordinary voluntary-release economics in Section 9: provider receives 100 percent principal gross, completion and operator fees follow provider-positive release rules, and bond release/slash follows the voluntary-release bond row. Co-signed release is available from `FIAT_SENT`, from `DISPUTED`, and—when ARBITRATION is selected—from `ARBITRATION_ACTIVE`. While `DISPUTED` or `ARBITRATION_ACTIVE`, unilateral holder release and permissionless claim are unavailable. Co-signed release is the only **Core dual-sign** path that allocates 100 percent principal to the provider without waiting for dispute or arbitration timeout. When enabled, authenticated payment-proof release (CASE-PAY-002A) and arbitration provider win (CASE-OUT-010) are additional full-provider paths from or after contest; they are not dual-sign paths and do not make co-signed release optional for parties that lack those profiles.
 
 **RES-003 — Two-sided authorization.** Mutual cancellation, co-signed release, and split require fresh authorization from the provider and the exact holder-side authority snapshotted at activation. For a direct deal that authority is the holder. For a pool-origin deal it is the pool's defined EIP-1271 or onchain authorization path. Anyone may relay the completed authorization.
 
@@ -402,7 +500,7 @@ For a pool-origin deal:
 
 ## 7. Economic safety
 
-**ECON-001 — Conditional per-token asset coverage.** For every token that continues to satisfy its signed exact-balance compatibility assumptions, total protocol liabilities MUST NOT exceed assets controlled by the corresponding custody boundary. The protocol never treats the market value of a token or an issuer promise as an asset.
+**ECON-001 — Conditional per-token asset coverage.** For every token that continues to satisfy its signed exact-balance compatibility assumptions, total protocol liabilities MUST NOT exceed assets controlled by the corresponding custody boundary. In Mandatory Core, one physical custody boundary for a token includes both active deal principal positions and matured beneficiary credits held by the same custody-accounting role; labels or internal accounts cannot claim isolation from other liabilities sharing the same physical token balance. The protocol never treats the market value of a token or an issuer promise as an asset.
 
 **ECON-002 — Deal isolation.** No protocol action may use assets attributable to one deal, pool, fee credit, or bond reservation to satisfy another party's liability unless the original owner explicitly authorized shared pool accounting. An issuer-caused fungible-token deficit is a shared external loss only within the exact custody boundary and follows the deterministic recovery ledger in TOKEN-015 through TOKEN-019; it is not permission to subsidize another boundary.
 
@@ -494,6 +592,7 @@ stateDiagram-v2
     DISPUTED --> ARBITRATION_ACTIVE: open selected arbitration (ARBITRATION)
     ARBITRATION_ACTIVE --> RESOLVED_BY_ARBITRATION: holder or provider ruling
     ARBITRATION_ACTIVE --> STALEMATE: refused ruling or arbitration timeout
+    ARBITRATION_ACTIVE --> RELEASED: co-signed release
     ARBITRATION_ACTIVE --> RESOLVED_SPLIT: mutually signed split
     ARBITRATION_ACTIVE --> CANCELLED: mutual cancel
 ```
@@ -542,7 +641,7 @@ stateDiagram-v2
 
 **DISPUTE-005 — No burn sink.** Protocol version 2 Core dispute timeout NEVER routes principal to a burn, null, or non-party sink. Extensibility of residual risk uses `disputeTimeoutProviderBps` and optional profiles, not destruction of principal.
 
-**DISPUTE-006 — Packages.** A package or pool policy MAY constrain allowed `disputeTimeoutProviderBps` or dispute duration for deals that select it. It MUST NOT inject a bps or duration into a deal that did not bind that value in signed terms. A package or pool policy MAY require a bond, fee, or other cost to open contest **only for deals that select that package or policy**; it MUST NOT become a hidden Core gate for deals that did not.
+**DISPUTE-006 — Packages.** A package or pool policy MAY constrain allowed `disputeTimeoutProviderBps` or dispute duration for deals that select it. It MUST NOT inject a bps or duration into a deal that did not bind that value in signed terms. A package or pool policy MAY require a fee, bond, or other cost to open contest **only for deals that select that package or policy**; it MUST NOT become a hidden Core gate for deals that did not. Any selected deterministic contest toll is enforced from signed terms by Core itself. Package-module validation may add an optional enhanced evidence path and fail that enhancement closed, but module availability or acceptance MUST NOT become a prerequisite for the base `openDispute` transition. Reference assured rungs use **fee-only** contest open under REF-PKG-003; they MUST NOT require a bond reservation merely to open; and they require `disputeTimeoutProviderBps = 5_000` exactly under REF-PKG-013.
 
 **DISPUTE-007 — Free Core open is intentional (no dispute toll in Core).** Protocol version 2 Mandatory Core deliberately charges **no** fee and reserves **no** bond merely to open `DISPUTED`. That is not an incomplete anti-grief design.
 
@@ -550,7 +649,7 @@ stateDiagram-v2
 
 1. **Defensive brake against claim.** After `FIAT_SENT`, silence lets anyone execute timeout claim for 100 percent provider gross without authenticating fiat (`OUT-002A`). Free `DISPUTED` is the holder's only Core-costless way to stop that path before the release deadline. A Core open toll would tax the party who may already be responding to a false fiat-sent assertion and would price thin holders out of self-defense.
 2. **Core has no fiat court.** Opening contest freezes claim; it does not adjudicate who paid. Truth, when wanted, is PAYMENT_PROOF, ARBITRATION, dual-sign, or package bonds—not a fee to enter the freeze.
-3. **Hold-up after real fiat is residual risk, not a machine bug.** A holder (or contest-enabled operator) who opens after honest fiat and refuses dual-sign can force residual allocation under signed `disputeTimeoutProviderBps`. That is **chosen-counterparty / pre-agreed residual risk** under PREMISE-002—the same class as other offchain honesty failures—not “the machine paid the wrong person.” Parties who need stronger provider protection select packages (proof, arbitration, bond-to-open, residual bounds), counterparties, and residual bps at consent; Core does not invent a toll that fails to create truth.
+3. **Hold-up after real fiat is residual risk, not a machine bug.** A holder (or contest-enabled operator) who opens after honest fiat and refuses dual-sign can force residual allocation under signed `disputeTimeoutProviderBps`. That is **chosen-counterparty / pre-agreed residual risk** under PREMISE-002—the same class as other offchain honesty failures—not “the machine paid the wrong person.” Parties who need stronger provider protection select packages (proof, arbitration, fee-to-open contest, residual bounds, court-skin), counterparties, and residual bps at consent; Core does not invent a toll that fails to create truth.
 4. **Same premise as abort tolls.** Core does not babysit bad counterparties with nanny fees on every defensive action. Frivolous or strategic contest is attributable onchain (open + terminal outcome) for **reputation and optional package** consequences; it is not fixed by a Mandatory Core open tax that hits honest and dishonest openers alike.
 
 **What free open is not.** It is not a finding that fiat was unpaid, not a holder win, not a burn, and not a substitute for dual-sign or selected extensions. Reviewers, audits, and economic analyses MUST NOT require a Core dispute-open fee or bond as a condition of conformance, and MUST NOT flag free open as a missing fee channel or incomplete anti-hold-up design when DISPUTE-001 through DISPUTE-006 and residual rules hold.
@@ -632,7 +731,7 @@ This matrix is the authoritative terminal settlement table. Section 11.2 is the 
 | CASE-OUT-002 | Authenticated payment-proof release | Same as voluntary release | Same as voluntary release | Same as voluntary release | Release | Release |
 | CASE-OUT-003 | Timeout claim | Provider receives 100 percent gross | Full signed fee, capped by gross | Full reserved fee if eligible | Release all deal bonds unless a signed timeout liveness stake formula applies | Release |
 | CASE-OUT-004 | Provider cancellation before fiat | Holder side receives 100 percent | None (`providerGross = 0`) | None; unlock reserved exposure | Apply provider inactivity penalty; release holder bond | Release |
-| CASE-OUT-005 | Fiat-timeout cancellation | Holder side receives 100 percent | None (`providerGross = 0`) | None; unlock reserved exposure | Same as provider cancellation | Release |
+| CASE-OUT-005 | Fiat-timeout cancellation | Holder side receives 100 percent | None (`providerGross = 0`) | None; unlock reserved exposure | Release both party bonds (no default slash; timeout is not provider fault) | Release |
 | CASE-OUT-006 | Mutual cancellation | Holder side receives 100 percent | None (`providerGross = 0`) | None; unlock reserved exposure | Release | Release |
 | CASE-OUT-007 | Mutually signed split | Provider receives signed share; holder receives remainder | Lesser of signed fee and provider gross | Provider-share-proportional amount unless signed operator fault is true; if fault is true, pay zero and unlock remainder | Apply only mutually signed slashes within snapshotted caps; release remainder | Slash only when signed operator fault exists; else release |
 | CASE-OUT-009 | Arbitration holder win | Holder side receives 100 percent | None (`providerGross = 0`) | None; unlock reserved exposure | Apply provider-fault penalty; release holder bond | Slash only when authenticated fault exists; else release |
@@ -660,6 +759,8 @@ This matrix is the authoritative terminal settlement table. Section 11.2 is the 
 **OUT-006 — No invented operator fault.** A timeout, claim, or Core dispute timeout alone does not establish operator fault. Operator fault exists only through evidence defined in the signed split or arbitration policy.
 
 **OUT-007 — Bonds optional on claim.** Default BONDS behavior on timeout claim is release of all deal bonds. A package or signed bond schedule MAY define an explicit timeout liveness stake; that stake is not Core and MUST NOT be labeled as authenticated holder fault.
+
+**OUT-007A — Fiat-timeout is not provider inactivity.** CASE-OUT-005 (permissionless fiat-timeout cancel from `FUNDED` at or after `fiatDeadline`) returns principal holder-side because fiat was never marked sent in time. That exit is holder-favorable and races mark-fiat (TIME-005); it is **not** a finding that the provider cancelled, ghosted, or otherwise did something wrong. Default BONDS behavior is **release of both party bonds and the operator bond**. Default inactivity slash applies only to CASE-OUT-004 (provider-initiated cancel before fiat). Packages MAY attach an explicit signed stake on fiat-timeout only when the deal selects that schedule; they MUST NOT relabel fiat-timeout as default provider fault.
 
 **OUT-008 — Operator fee on signed fault in split.** When CASE-OUT-007 records signed operator fault as true, operator acceptance fee paid is zero and every unpaid reserved portion unlocks to the pool.
 
@@ -711,7 +812,7 @@ Reviewers MUST NOT flag "abort burns the pool's holder fee" as missing economics
 
 **FEE-P-007.** A package that requires a completion fee to a disclosed DAO or other recipient binds that requirement only for deals that select the package (PROFILE-006). The protocol enforces the signed fields at activation and **collects** them under FEE-P-001 on every terminal with positive provider gross; frontends that offer the package MUST populate and display them and are not an alternate collection mechanism.
 
-**FEE-P-008 — Absolute fee at signature is intentional.** Protocol version 2 completion fee is the **exact nonnegative amount** in signed terms (subject to the principal upper bound and any lower signed or pool cap). Dual-sign split, residual, and stalemate **cannot rewrite** that amount (`RES-002`); they only apply the gross cap (`min(signedFee, providerGross)`). Consequently, a large signed fee relative to a small provider share can leave provider net near zero on that terminal. That outcome is **not** a rounding bug, incomplete fee design, or reason for Core to switch to mandatory bps-of-gross or mid-deal fee renegotiation. It is the commercial bargain the parties (or package) accepted when they signed. Clients MUST display the absolute amount and the gross-cap effect on partial outcomes before consent. Parties who want bps-like economics set a small absolute fee, zero fee, or package schedules sized to expected trade size; reviewers MUST NOT require Core to redefine completion fee as terminal-bps or allow unsigned fee cuts on split.
+**FEE-P-008 — Absolute fee at signature is intentional.** Protocol version 2 completion fee enforced at settlement is the **exact nonnegative amount** in signed terms (subject to the principal upper bound and any lower signed or pool cap). Dual-sign split, residual, and stalemate **cannot rewrite** that amount (`RES-002`); they only apply the gross cap (`min(signedFee, providerGross)`). Consequently, a large signed fee relative to a small provider share can leave provider net near zero on that terminal. That outcome is **not** a rounding bug, incomplete fee design, or reason for Core to switch to mandatory bps-of-**terminal**-gross or mid-deal fee renegotiation. It is the commercial bargain the parties (or package) accepted when they signed. A reference package MAY **derive** that absolute at consent from deal principal via REF-PKG-012 (`max(minBase, floor(principal × feeBps / 10_000))`); after signing, only the absolute is authoritative for settlement. Clients MUST display the schedule inputs, the derived absolute, and the gross-cap effect on partial outcomes before consent. Reviewers MUST NOT require Core to redefine completion fee as terminal-bps or allow unsigned fee cuts on split.
 
 ### 10.3 Operator acceptance fee
 
@@ -729,7 +830,7 @@ Reviewers MUST NOT flag "abort burns the pool's holder fee" as missing economics
 
 **FEE-O-007.** Every unpaid portion unlocks to the pool.
 
-**FEE-O-008.** The complete maximum operator acceptance fee MUST be placed in deal-scoped protocol-controlled custody at activation. It never remains a revocable promise of the pool and never comes from a shared coordinator balance or unrelated principal.
+**FEE-O-008.** The complete maximum operator acceptance fee MUST be placed in deal-scoped protocol-controlled custody at activation. It never remains a revocable promise of the pool and never comes from a shared control-component balance or unrelated principal.
 
 **FEE-O-009.** No operator address, recipient, mandate, or fee means zero operator acceptance fee.
 
@@ -740,6 +841,10 @@ Reviewers MUST NOT flag "abort burns the pool's holder fee" as missing economics
 **FEE-PKG-002.** When a deal selects a package or profile whose immutable identity binds fee moments, amounts or caps, and recipients, activation, escalation, or settlement MUST reject if those signed fields are missing, altered, or underpaid relative to the bound schedule.
 
 **FEE-PKG-003.** Clients and frontends that advertise a package are responsible for constructing consent that includes the package fee schedule. Direct protocol interaction without that package remains valid when objective Core and selected-profile conditions hold, including zero-fee Core-only deals.
+
+**FEE-PKG-004 — Contest-open fee channel.** When a selected package binds a contest-open fee (REF-PKG-003), opening Core `DISPUTED` and/or opening ARBITRATION under that package MUST collect the exact bound toll from the opener (or reject) before the state transition succeeds. That channel is distinct from activation, completion, operator acceptance, and external arbitration court fees (ARB-003*). It is a consented package toll, not a bond and not a finding of fault. When the package is not selected, the channel is absent and MUST NOT be charged.
+
+**FEE-PKG-005 — Reference deal-sized fee shape.** When a deal selects a reference assured rung, activation, completion, and contest-open amounts MUST equal REF-PKG-012 for that SKU's per-channel `(feeBps, minBase)` and the deal principal. Underpayment, omission, or substitution of a different shape rejects. Independent packages are not required to use this shape.
 
 ---
 
@@ -771,21 +876,26 @@ Default matrix rows that say **release** mean: no wrongdoing (and no optional st
 
 **BOND-008 — No dual fault on court no-decision.** Arbitration refused/no-decision and arbitration timeout do **not** by themselves establish that both parties did something wrong. Default party bonds on those outcomes are **release**. A package MAY define an explicit stalemate or court-skin formula in the signed schedule; that is consented stake for choosing the court path, not a Core finding of bilateral misconduct. Core dispute timeout likewise defaults to release: residual risk sharing is not fault (`OUT-002B`).
 
+**BOND-008A — Fiat-timeout default release.** Default BONDS does **not** slash the provider (or holder) bond on CASE-OUT-005 fiat-timeout cancellation. Principal already returns holder-side; the timeout does not authenticate holder non-payment or provider wrongdoing. Provider inactivity penalty is reserved for CASE-OUT-004 provider cancel (`OUT-007A`).
+
+**BOND-008B — Reference court-skin burn.** When a deal selects a reference assured rung (Section 5.3), the snapshotted stalemate formula for CASE-OUT-011 and CASE-OUT-012 MUST burn both full reserved party bonds—and the full reserved operator bond when present—to the disclosed immutable nonzero burn sink under REF-PKG-005 and REF-PKG-014. That formula is an explicit signed stake for choosing the court path, not a Core finding that both parties committed misconduct. Slash recipients under BOND-007 for that formula are the burn sink (irrevocable destruction or equivalent non-party sink), never the DAO fee recipient and never `address(0)`. Win/loss outcomes slash the loser's full party reservation to the winner side and, when reserved, the full operator bond to the winner side under REF-PKG-004. Independent packages MAY choose other stalemate recipients or retain default release.
+
 ### 11.2 Default bond outcome matrix
 
-This table restates the bond columns of Section 9.2. If the two disagree, Section 9.2 controls and this table MUST be corrected. When BONDS is disabled, every cell is a no-op. Defaults implement BOND-000 and BOND-008: slash on fault or named stake, release when the outcome invents no wrongdoing.
+This table restates the bond columns of Section 9.2. If the two disagree, Section 9.2 controls and this table MUST be corrected. When BONDS is disabled, every cell is a no-op. Defaults implement BOND-000, BOND-008, and BOND-008A: slash on fault or named stake, release when the outcome invents no wrongdoing (including fiat-timeout cancellation).
 
 | Outcome | Provider bond | Holder or pool-side bond | Operator bond | Default compensation side |
 | --- | --- | --- | --- | --- |
 | Voluntary, co-signed, or proof release | Release | Release | Release | None |
 | Timeout claim | Release | Release (unless signed timeout liveness stake) | Release | None by default; stake recipient if signed |
-| Provider cancel or fiat timeout | Apply inactivity penalty | Release | Release | Holder side |
+| Provider cancel before fiat | Apply inactivity penalty | Release | Release | Holder side |
+| Fiat-timeout cancellation | Release (no default slash) | Release | Release | None |
 | Mutual cancel | Release | Release | Release | None |
 | Signed split | Follow mutually signed bounded consequences | Follow mutually signed bounded consequences | Slash only when signed operator fault exists | As mutually signed |
 | Core dispute timeout | Apply snapshotted dispute-timeout formula if any; default release | Apply snapshotted dispute-timeout formula if any; default release | Release | None by default; as signed if any |
-| Arbitration holder win | Apply provider-fault penalty | Release | Slash only when authenticated fault exists | Holder side |
-| Arbitration provider win | Release | Apply holder-fault penalty | Release absent authenticated fault | Provider side |
-| Arbitration refused or timeout | Apply snapshotted stalemate formula if any; default release | Apply snapshotted stalemate formula if any; default release | Release | None by default; neutral recipient only if formula slashes |
+| Arbitration holder win | Apply provider-fault penalty | Release | Default: slash only when authenticated fault exists; **reference rungs:** full operator bond to holder side (REF-PKG-004) | Holder side |
+| Arbitration provider win | Release | Apply holder-fault penalty | Default: release absent authenticated fault; **reference rungs:** full operator bond to provider side (REF-PKG-004) | Provider side |
+| Arbitration refused or timeout | Apply snapshotted stalemate formula if any; default release; reference rungs burn both (REF-PKG-005, BOND-008B) | Apply snapshotted stalemate formula if any; default release; reference rungs burn both (REF-PKG-005, BOND-008B) | Default release; reference rungs burn full operator bond with parties (REF-PKG-005) | None by default; burn or other non-party sink if formula slashes; reference rungs MUST burn (not DAO) |
 
 ### 11.3 Bond cases
 
@@ -800,6 +910,10 @@ This table restates the bond columns of Section 9.2. If the two disagree, Sectio
 | CASE-BOND-007 | Terminal outcome slashes the bond | Credit the predetermined recipient and release remainder exactly once |
 | CASE-BOND-008 | Slash exceeds reservation or cap | Reject the terminal action without partial effects |
 | CASE-BOND-009 | Duplicate terminal bond action | Reject without repeated value movement |
+| CASE-BOND-010 | Reference-rung stalemate/refuse/timeout with bound court-skin | Burn both full reserved party bonds and full reserved operator bond (if any) to the disclosed burn sink; no DAO or party credit (REF-PKG-005, REF-PKG-014) |
+| CASE-BOND-011 | Reference-rung arbitration holder or provider win | Slash loser's full reserved party bond and full reserved operator bond (if any) to winner side; release winner's full party bond (REF-PKG-004, REF-PKG-014) |
+| CASE-BOND-012 | Reference-rung activation with unequal holder/provider party bond amounts or amount ≠ REF-PKG-014 | Reject activation |
+| CASE-BOND-013 | Reference-rung terms with `disputeTimeoutProviderBps` ≠ `5_000` | Reject activation (REF-PKG-013) |
 
 ---
 
@@ -833,6 +947,14 @@ Payment proof is an optional automatic release path. It is more security-sensiti
 
 **PAY-012 — Optional-path availability.** Policy deactivation or delisting cannot make the core reject a proof that otherwise authenticates under the immutable active policy. The selected verifier or its external evidence source can nevertheless fail or disappear. Payment-proof release is therefore best-effort; the mandatory Core release, claim, mutual, cancellation, and timeout exits remain the liveness guarantee.
 
+**PAY-013 — Reference hybrid rail sequence.** The PAYMENT_PROOF profile interface (verifier, immutable policy, nullifier authority, intent binding, atomic release) is protocol-owned and MUST remain usable by independent attestation families. For the DAO-sponsored reference ecosystem:
+
+1. **Interface first.** Technical specifications freeze a Peer-/ZKP2P-compatible attestation shape (for example EIP-712 payment attestation + onchain verifier + nullifier) without requiring ownership of any third-party marketplace or escrow.
+2. **Integrate first (rung 4 v1).** The first selectable reference Assured Proof SKU MAY bind an external attestation family (initially the ZKP2P / Peer verifier and attestation-service family, or a disclosed successor) as the policy's trust root, with full PAY-002 trust disclosure.
+3. **Build or replace later.** A later reference SKU version MAY bind a PluriSwap-operated attestation service and verifier under a **new** policy and package semantic hash. Existing deals retain their snapshotted policy (TRUST-002, DEC-003). Migration is opt-in only.
+
+Integrating an external family MUST use PluriSwap Core deal edges only—not a third-party intent book or escrow as custody. Default payer mode remains authenticated provider (PAY-011).
+
 ### 12.2 Payment-proof cases
 
 | Case | Condition | Required behavior |
@@ -857,6 +979,8 @@ Payment proof is an optional automatic release path. It is more security-sensiti
 External arbitration is the optional **external court** path for `FIAT_SENT` or `DISPUTED`. It is selected in deal terms (adapter and policy—for example Kleros) and is not protocol administration. Without it, Core still offers release, claim (from `FIAT_SENT`), Core `DISPUTED` freeze, dual-signed cancel/release/split, and dispute-timeout residual allocation. Arbitration does not replace Core `DISPUTED`; it escalates to an authenticated ruling when parties selected that trust dependency.
 
 **ARB-001 — Explicit selection.** Arbitration is available only when the deal selects an exact adapter and immutable policy at consent time.
+
+**ARB-001A — Reference court family.** Reference assured rungs that require ARBITRATION (Section 5.3) use **Kleros** as the court adapter family under REF-PKG-008 and the closed ruling map in ARB-011. Exact adapter, policy, and code identities are bound per SKU version.
 
 **ARB-002 — Published meaning.** The policy MUST disclose arbitrator, jurisdiction or court, evidence rules, appeal rules, finality rule, the closed ruling mapping in ARB-011, operator-fault schema, timeout, fee token, fee-quote policy, maximum signed fee, and policy content hash.
 
@@ -940,7 +1064,7 @@ The initial production pool profile supports:
 - one active operator mandate per pool;
 - concurrent active deals bounded by exact available liquidity and gas-safe aggregate accounting.
 
-Legacy coordinator-held pools are migration infrastructure, not the target protocol.
+Legacy shared-custodian pools are migration infrastructure, not the target protocol.
 
 **POOL-DOC-001 — Incentive premise for pools.** Pool design follows Section 3.4. The protocol provides a deterministic custody machine, explicit mandate permissions, immutable active-deal snapshots, and future-only operator exit. It does not try to make every operator adversarial-safe in Core. Controllers choose operators and permission bits; providers and liquidity providers choose pools; optional reputation and bond packages supply incentives and selection signals.
 
@@ -955,7 +1079,7 @@ Legacy coordinator-held pools are migration infrastructure, not the target proto
 | Reference owned pool | One controller supplies and economically owns all pool assets; ecosystem reference package name, not a higher truth class | Eligible after full pool conformance |
 | Custom pool | Independently deployed compatible pool with its own local constitution | Permissionless but untrusted; safety MUST come from isolation and exact funding |
 | Reference crowdfunded pool | Multiple funders hold pro-rata internal shares; ecosystem reference package name | Separately gated by Section 15 |
-| Legacy coordinator-held pool | Pool assets commingled in an older coordinator model | Read and unwind only after modular migration; no new production exposure |
+| Legacy shared-custodian pool | Pool assets commingled in an older control-component model | Read and unwind only after modular migration; no new production exposure |
 
 **POOL-001 — Permissionless deployment.** Anyone may deploy and use a compatible pool. A registry or factory may advertise reviewed implementations but does not grant transaction permission.
 
@@ -1027,7 +1151,7 @@ Legacy coordinator-held pools are migration infrastructure, not the target proto
 
 **POOL-ACC-001.** The pool consents to future bounded deals through its published terms and active mandate.
 
-**POOL-ACC-002.** The provider signs an acceptance binding version, chain, coordinator, pool identity, pool terms hash, final deal terms hash, complete pool-deal context hash, and expiry.
+**POOL-ACC-002.** The provider signs an acceptance binding version, chain, module-admission authority identity, pool identity, pool terms hash, final deal terms hash, complete pool-deal context hash, and expiry.
 
 **POOL-ACC-003.** A signature over direct deal terms alone is insufficient for a pool-origin deal.
 
@@ -1049,9 +1173,9 @@ Legacy coordinator-held pools are migration infrastructure, not the target proto
 
 **POOL-FUND-002A — Intentional pool fee economics.** Pool participation in the protocol does not require any fee channel beyond the ordinary deal fees in Section 10. The non-refundable holder fee, when nonzero, is the designed activation toll paid by the pool for each successful activation. Implementations, audits, and economic reviews MUST classify abortive deals that leave that fee consumed as **conforming behavior** when every other rule holds—not as protocol insolvency, missing refund logic, an unspecified pool tax, provider griefing that Core must neutralize, or evidence that the operator role is underspecified. Under PREMISE-002 and POOL-DOC-003, repeated aborts after acceptance are a **skill and selection** problem for the operator and controller, solved by better admission, fee size, bounds, bonds, reputation, or future-only operator replacement—not by Core babysitting.
 
-**POOL-FUND-003.** Escrow MUST independently observe an exact same-transaction token pull from the bound pool or an exact same-custody allocation from an already attributed pool credit before creating a principal or operator-fee liability. A canonical pool vault may satisfy the pull only through its immutable purpose-bound callback from the paired escrow vault, with both source and destination deltas verified in the same transaction. A pre-transfer, unsolicited surplus, concurrent transfer, arbitrary callback or callback return value, allowance alone, or self-reported value is insufficient.
+**POOL-FUND-003.** The custody-accounting role MUST independently observe an exact same-transaction token pull from the bound pool into the deal's custody boundary, or an exact same-custody allocation from an already attributed pool position, before creating a principal or operator-fee liability. A canonical pool vault may satisfy the pull only through its immutable purpose-bound funding path into the designated custody boundary, with both source and destination deltas verified in the same transaction. A pre-transfer, unsolicited surplus, concurrent transfer, arbitrary callback or callback return value, allowance alone, or self-reported value is insufficient.
 
-**POOL-FUND-004.** While the token continues to satisfy its signed compatibility assumptions, per-token escrow assets MUST cover active principal and matured credits after every protocol action. Externally caused token deficits follow TOKEN-014 through TOKEN-016 without cross-pool subsidy.
+**POOL-FUND-004.** While the token continues to satisfy its signed compatibility assumptions, each per-token custody boundary MUST cover active principal positions and matured credits after every protocol action. Externally caused token deficits follow TOKEN-015 through TOKEN-019 without cross-pool subsidy.
 
 **POOL-FUND-005.** Pool accounting separately identifies idle assets, active principal, reserved operator fees, consumed assets, and withdrawal liabilities.
 
@@ -1233,7 +1357,7 @@ RATE_POLICY is an optional companion to POOL. Direct deals already bind exact bi
 
 **CF-GATE-003.** Owned-pool production readiness does not imply crowdfunding production readiness. Initial V2 Core and owned-POOL qualification ignore Section 15 for evidence matrices except to record `OUT_OF_SCOPE` / `DISABLED` for the profile.
 
-**CF-GATE-004.** A reference crowdfunded pool is an independent immutable pool system, not an owned pool with extra depositors. Its constitution or coordinator, pool vault, internal share and NAV journal, withdrawal-epoch ledger, recapitalization and default ledger, standing-bond custody, withdrawal-liability custody, and wind-down recovery ledger are identified separately. It integrates with mandatory core only through the ordinary exact pool-reservation boundary and canonical terminal records.
+**CF-GATE-004.** A reference crowdfunded pool is an independent immutable pool system, not an owned pool with extra depositors. Its constitution or control component, pool vault, internal share and NAV journal, withdrawal-epoch ledger, recapitalization and default ledger, standing-bond custody, withdrawal-liability custody, and wind-down recovery ledger are identified separately. It integrates with mandatory core only through the ordinary exact pool-reservation boundary and canonical terminal records.
 
 **CF-GATE-005.** Clients, READMEs, and release metadata MUST NOT describe crowdfunding as production-ready, decentralized, or conforming while this section remains gated. The profile may appear in the closed profile registry only as absent, `DISABLED`, or `OUT_OF_SCOPE` until CF-GATE-002 evidence exists.
 
@@ -1486,6 +1610,8 @@ Crowdfunded liquidity has one normal withdrawal mechanism. No immediate withdraw
 
 **HUM-001 — Optionality.** Humanity proof is never required for mandatory core escrow.
 
+**HUM-001A — Reference verifier family.** Reference assured rungs that require HUMANITY (Section 5.3) use **Human Passport** (formerly Gitcoin Passport) as the credential verifier family under REF-PKG-008. Exact policy and code identities are bound per SKU version; the family name alone is not a substitute for those identities.
+
 **HUM-002 — Authenticated origin.** Humanity status MUST come from an authenticated credential, attestation registry entry, signature, Merkle proof, or zero-knowledge proof under a selected immutable policy. Caller-authored claims are invalid.
 
 **HUM-003 — Subject binding.** A proof MUST bind the subject address or an explicitly defined pseudonymous identity commitment.
@@ -1526,11 +1652,11 @@ Mandatory core deliberately provides no one-human, Sybil-resistance, reputation,
 
 **REP-001 — Optionality.** A deal or pool MAY opt out of protocol reputation unless it explicitly selects a reputation-dependent policy. Reputation is the primary package-layer incentive for good pool and operator behavior under Section 3.4; it is never a Mandatory Core gate.
 
-**REP-002 — Canonical facts.** Reputation records derive only from authenticated protocol events and terminal outcomes (including open `DISPUTED`, dual-sign results, dispute timeout, claim, cancel, proof release, arbitration outcomes, and operator-attributed actions).
+**REP-002 — Canonical facts.** Reputation records derive only from authenticated protocol state transitions and terminal outcomes along the deal funnel—including activation (`FUNDED`), mark-fiat (`FIAT_SENT`), open `DISPUTED`, dual-sign results, dispute timeout, claim, cancel, proof release, arbitration open/outcomes, and operator-attributed actions. Offchain fiat performance is never a scoring input.
 
 **REP-003 — Idempotency.** The same canonical fact is stored once and counted at most once per immutable reputation policy, including after indexer replay or chain reorganization handling. Distinct compatible policies may each interpret that fact once for future admission under REP-006.
 
-**REP-004 — Transparency.** Scores, event weights, decay, token scope, pool scope, operator scope, humanity effect, bond effect, slash effect, and score-to-limit mapping are published.
+**REP-004 — Transparency.** Scores, event weights, any decay policy, token scope, pool scope, operator scope, humanity effect, bond effect, slash effect, and score-to-limit mapping are published.
 
 **REP-005 — Determinism.** Anyone can reconstruct a score or limit from canonical facts and the identified policy.
 
@@ -1544,9 +1670,30 @@ Mandatory core deliberately provides no one-human, Sybil-resistance, reputation,
 
 **REP-009 — Admission only.** A deal limit may reject activation but cannot change a deal after activation.
 
-**REP-010 — Settlement independence.** Reputation recording or score materialization MUST NOT block terminal custody. It may be processed idempotently after the terminal core commits.
+**REP-010 — Settlement independence.** Reputation scoring MUST NOT block or rewrite Core custody, terminal allocation, or credit withdrawal. Funnel score updates MAY run in the same transaction as the authorizing state transition when they are bounded, fail-safe, and idempotent; a scoring failure MUST NOT revert an otherwise valid Core terminal. Non-custodial materialization MAY also retry after the Core transition commits.
 
 **REP-011 — Initial V2 composition.** A reputation-dependent **admission** path in initial V2 that gates new exposure via Humanity/ExposurePolicy always composes with a selected Humanity/ExposurePolicy profile for the same protected role and scope; a canonical reputation fact used by that admission path exists only for a deal that explicitly selected both protections. Separately, **advisory** pool and pool×operator reputation packages under REP-007A MAY score canonical facts for display and offchain or package-local ranking without requiring humanity composition, provided they never become a Mandatory Core execution gate and never write one scope under another label. Profile independence means packages remain separately deployable and optional; it does not permit an undeclared dependency whose subject/scope attribution is undefined.
+
+**REP-012 — Reference five-tier caps.** Reference assured rungs from rung 2 upward (REF-PKG-007) MUST implement reputation as both advisory scoring and an admission gate using exactly five fixed token-amount tiers for maximum new exposure, with tier 5 infinite. The same tier structure is published for both instance/deployment scope and pool scope when applicable. Initial v1 major-unit caps and score thresholds are in REF-PKG-015 and REF-PKG-016. The five-step shape and dual-scope requirement are normative for those SKUs. Independent reputation packages MAY use other curves or advisory-only mode.
+
+**REP-013 — Reference scoring machine (Solidity-cheap).** Reference assured rung 2+ reputation MUST use a deterministic, gas-bounded machine suitable for EVM execution:
+
+1. **Integer score.** Each subject has a nonnegative integer score per scope. No fixed-point curves, no principal-weighted formulas, and **no time decay** in initial v1.
+2. **Funnel events.** Score changes only by applying a fixed integer delta when a canonical funnel transition commits (REP-002). A deal's path is the sum of its applied event deltas, not a single terminal-only label.
+3. **Fixed deltas.** Deltas are immutable constants in the selected SKU policy (REF-PKG-016). Application is saturating add/subtract with floor at zero.
+4. **Idempotency.** Each (deal, event-id, policy) applies at most once (for example a per-deal event bitmap). Replays no-op.
+5. **Tier map.** Admission cap is selected by comparing score to a short ascending threshold list (REF-PKG-015 / REF-PKG-016)—branching only, not a general formula.
+6. **Dual-role gate.** On reference rung 2+ direct deals, both holder and provider subjects MUST have a tier cap at least the proposed raw exposure in each required scope. Pool-origin deals use REP-014.
+7. **Starting score.** A newly verified Human Passport subject starts at score `0` (tier 1) in each scope until events accrue.
+8. **Custody isolation.** Scoring cannot seize principal, change receivers, or invent outcomes (REP-009, REP-010).
+
+**REP-014 — Instance vs pool-scoped scores and pool aggregate.** Reference rung 3+ (and rung 2+ when pool scopes apply) MUST keep these scores distinct:
+
+1. **Instance score** — subject reputation across the protocol instance (deployment / token scope as published). Used for direct-deal gates and as the subject's global standing.
+2. **Pool-subject score** — reputation of a subject **in one pool**, keyed by `(subject, poolId)`. The pool **controller** and each **operator** each maintain their own pool-subject score. A pool-subject score MUST NOT be read as, written as, or averaged into that subject's instance score (REP-007).
+3. **Pool aggregate score** — reputation **of the pool** as a venue: the integer average of the pool-subject scores of the controller and every operator currently on an active mandate for that pool, rounded down with at least one constituent. The authoritative aggregate used for admission MUST be available with bounded work independent of active-operator count, and score or mandate changes MUST update enough authenticated aggregate state for later admission to avoid operator-set iteration. This charter does not prescribe particular cache fields or another internal representation.
+4. **Attribution.** Funnel deltas on a pool-origin deal update the snapshotted operator's pool-subject score and the controller's pool-subject score as bound by REF-PKG-016; they update the provider's instance score under the provider column; they MUST NOT overwrite unrelated scopes.
+5. **Gates.** Pool-origin activation under reference rungs MUST require: (a) pool aggregate tier cap ≥ proposed pool exposure; (b) provider instance (and provider pool-subject if the SKU requires it) tier cap ≥ proposed exposure; (c) accepting operator's pool-subject tier cap ≥ proposed exposure when an operator is required. Advisory UIs MAY display instance, pool-subject, and pool aggregate separately.
 
 ### 16.4 Humanity, exposure, and reputation cases
 
@@ -1577,6 +1724,15 @@ Mandatory core deliberately provides no one-human, Sybil-resistance, reputation,
 | CASE-REP-010 | An opted-in row lacks a required admission/result/terminal preimage or has a pending bond disposition | Reject materialization without advancing that policy's cursor; preserve terminal custody and permit retry when evidence becomes complete |
 | CASE-REP-011 | Advisory pool or pool×operator reputation package scores a terminal fact | Attribute once under the declared pool or pool×operator scope; do not alter active deals or Core validity |
 | CASE-REP-012 | Reputation package is used to claim an operator was "kicked" from an active deal | Reject any such effect; future mandate revoke only; snapshot remains |
+| CASE-REP-013 | Reference rung 2+ subject activates within its published five-tier cap for each required scope | Permit when humanity/exposure and other package checks pass |
+| CASE-REP-014 | Reference rung 2+ subject exceeds the fixed tier cap for instance or pool scope | Reject new activation only; preserve active deals |
+| CASE-REP-015 | Reference funnel event applies with unset deal event bit | Apply fixed delta once; floor score at 0 (REP-013, REF-PKG-016) |
+| CASE-REP-016 | Same deal funnel event replayed | No score change |
+| CASE-REP-017 | Reference rung 2+ direct deal where holder or provider tier cap is below proposed exposure | Reject activation |
+| CASE-REP-018 | Reputation scoring fails on a terminal path | Preserve Core terminal custody; allow idempotent score retry (REP-010) |
+| CASE-REP-019 | Pool-subject score written into instance score or vice versa | Reject scope mismatch (REP-014) |
+| CASE-REP-020 | Pool-aggregate admission work grows with the number of active operators | Non-conformant implementation; admission must read an authenticated aggregate in bounded work independent of operator-set size (REP-014) |
+| CASE-REP-021 | Reference pool-origin deal where pool aggregate, provider, or accepting operator pool-subject tier cap is below proposed exposure | Reject activation (REP-014) |
 
 ---
 
@@ -1594,15 +1750,15 @@ Mandatory core deliberately provides no one-human, Sybil-resistance, reputation,
 
 **TOKEN-005 — Advisory curation.** Applications and attesters MAY publish production-recommended token lists. Those lists are risk opinions, not base-protocol permission.
 
-**TOKEN-006 — One token and boundary identity.** Token address, chain, decimals, custody-boundary identity and sharing scope, and applicable risk-policy hash are bound in signed terms. A pool cannot change token or silently move liabilities into a broader shared boundary.
+**TOKEN-006 — One token and boundary identity.** Token address, chain, decimals, custody-boundary identity and sharing scope, and applicable risk-policy hash are bound in signed terms. For Mandatory Core, active principal and matured credits physically held by the same custody-accounting role for one token share one boundary whose executable identity is fixed by the subordinate technical specification. A pool cannot change token, invent a second logical boundary over the same physical balance, or silently move liabilities into a broader shared boundary.
 
 ### 17.2 Pull credits and receiver liveness
 
-**TOKEN-007 — Accounting-first settlement.** Terminal settlement MUST create irrevocable token credits for signed receivers and fee recipients before optional external withdrawal. In a boundary already in DEFICIT, it instead reallocates that deal's fixed recovery units to those beneficiaries under the same economics. A receiver callback or transfer failure MUST NOT permit another outcome.
+**TOKEN-007 — Accounting-first settlement.** Activation creates one exactly funded, deal-owned principal position in the custody ledger. Terminal settlement atomically reassigns that existing position under the ordinary holder, provider, and completion-fee economics; it does not mint nominal units and performs no receiver transfer. The resulting beneficiary positions are irrevocable before optional withdrawal. In DEFICIT, the whole deal position—including its funded entitlement and unfunded gap—is reassigned under the same economics without changing total nominal units. A receiver callback or transfer failure MUST NOT permit another outcome.
 
-**TOKEN-008 — Credit liability.** A matured credit remains a protocol liability until withdrawn and is included in solvency accounting. In DEFICIT, its nominal attribution persists as fixed recovery units and its payable asset amount follows the cumulative pro-rata ledger.
+**TOKEN-008 — Credit liability.** A matured credit remains a position and protocol liability until its funded value is withdrawn. In DEFICIT, its nominal attribution persists up to its fixed claim cap; successful payments are final, and the unpaid remainder follows the checkpointed funded-entitlement and unfunded-gap ledger in TOKEN-015 through TOKEN-019.
 
-**TOKEN-009 — Withdrawal retry.** A failed ordinary withdrawal preserves the complete credit. Any address may execute or retry withdrawal to the fixed beneficiary receiver; the executor cannot redirect value or earn from the credit unless a separate published incentive funds it. DEFICIT claims withdraw only the beneficiary's matured cumulative entitlement under TOKEN-017 and preserve unclaimed recovery units.
+**TOKEN-009 — Withdrawal retry.** A failed ordinary withdrawal preserves the complete credit. Any address may execute or retry withdrawal to the fixed beneficiary receiver; the executor cannot redirect value or earn from the credit unless a separate published incentive funds it. A DEFICIT claim withdraws only the position's currently payable funded entitlement, moves the successful amount to paid assets, and preserves its unfunded gap for later attributable recovery.
 
 **TOKEN-010 — Receiver-authorized redirection.** A beneficiary MAY sign a replay-protected authorization to withdraw its own credit to another address. No administrator may choose that address.
 
@@ -1612,19 +1768,19 @@ Mandatory core deliberately provides no one-human, Sybil-resistance, reputation,
 
 **TOKEN-012 — Reentrancy.** Token callbacks cannot re-enter activation, settlement, withdrawal, bond, pool, or credit accounting.
 
-**TOKEN-013 — Surplus.** Unsolicited transfers do not create protocol liabilities and MUST NOT be used to hide insolvency. Any surplus policy requires proof that all liabilities remain fully covered.
+**TOKEN-013 — Surplus.** Unsolicited transfers do not create protocol liabilities and MUST NOT be used to hide insolvency. A raw positive balance change is quarantined surplus, not attributable recovery, and cannot move a DEFICIT position's gap into funded entitlement. A later negative raw delta consumes quarantined surplus first. If that surplus fully absorbs the delta, the quarantine-absorbed reconciliation outcome records only the smaller surplus; attributed assets/liabilities and checkpoint stay unchanged, no deficit occurs, and the requested action may continue. Only the residual beyond quarantine produces the deficit-checkpointed outcome and an attributable deficit checkpoint. Any surplus policy requires proof that all liabilities remain fully covered.
 
 **TOKEN-014 — Conditional guarantee.** A token credit is denominated in nominal units of the selected token. Asset coverage and withdrawal guarantees are conditional on that token continuing to honor the exact-transfer, non-rebasing, balance, and receiver assumptions accepted in signed terms; they are not guarantees against issuer seizure, upgrade, blacklist, or balance mutation.
 
-**TOKEN-015 — Observed external deficit.** Every value-moving action first compares controlled assets with recorded liabilities. If an external token action makes assets lower, that exact token custody boundary irreversibly enters DEFICIT before any ordinary withdrawal or new exposure. It snapshots total recovery units equal to all outstanding nominal liabilities; each deal principal, credit, fee, bond, and pool liability retains recovery units equal to its nominal claim. No new liability is admitted, but terminal state and accounting transitions remain executable by reallocating—not increasing—the affected units.
+**TOKEN-015 — Observed external deficit and fixed positions.** Every exposure-admitting or value-moving action first reconciles the boundary's attributable assets with its recorded liabilities. A deficit-checkpointed reconciliation outcome means attributable assets are below outstanding nominal liabilities after quarantine: it irreversibly enters or persists DEFICIT before any ordinary withdrawal or new exposure. That checkpoint MUST persist while the requested value movement and its nonce/state effects do not execute; an implementation cannot claim persistence for a deficit write that the same transaction reverts. Deficit entry freezes total nominal units and snapshots every outstanding economic claim as a position: each active deal remains a deal-owned position, each unresolved reservation remains a reservation position, and each matured credit remains a beneficiary position, with nominal units equal to its outstanding claim. No new nominal units or exposure may be admitted afterward, even after full economic recovery. Core transitions remain executable because terminal settlement reassigns existing whole deal and reservation positions rather than increasing units.
 
 **TOKEN-016 — No cross-subsidy.** A token deficit cannot consume another token, pool, bond, fee balance, or unsolicited surplus that is not attributable to that token boundary.
 
-**TOKEN-017 — Pro-rata recovery.** Controlled assets present at deficit and every later attributable recovery are distributable cumulatively in proportion to fixed recovery units. A beneficiary can claim `floor(cumulative distributable assets × beneficiary units ÷ total recovery units) - amount already claimed`. Claim order cannot change that entitlement. Active-deal units move to the terminal receivers and fee or bond recipients under ordinary outcome rules before those recipients claim them.
+**TOKEN-017 — Checkpointed position semantics.** At every deficit checkpoint, each position has four observable components: `nominalUnits` fixed except for an exact whole-position terminal split of a deal or reservation, final `paidAssets`, unclaimed `fundedEntitlement`, and `unfundedGap`. They satisfy `nominalUnits = paidAssets + fundedEntitlement + unfundedGap`. Deficit-entry assets fund positions pro rata by nominal units; the remainder of each nominal claim is its gap. A successful claim pays only the position's funded entitlement, rounded down to token units, and moves exactly that amount from funded entitlement to paid assets. Positions at the same checkpoint have entitlements independent of claim order. Active-deal and unresolved-reservation positions cannot claim; terminal settlement first reassigns each whole position to the predetermined receiver and fee positions under Section 9.
 
-**TOKEN-018 — Recovery accounting.** Any address may add exact recovery assets without receiving new units. Payments, newly observed losses, and recoveries are journaled once. Per-beneficiary rounding is always down; residual dust remains publicly attributed to the deficit boundary and cannot be captured by transaction order or governance.
+**TOKEN-018 — Loss and recovery checkpoints.** A newly observed attributable loss reduces only unclaimed funded entitlement pro rata and increases the same positions' gaps by the corresponding value; paid assets never decrease and cannot be clawed back. Any address may use the explicit exact-recovery path to add attributable assets without receiving units; that checkpoint moves existing gaps back into funded entitlement pro rata, up to the nominal caps. Duplicate observations are no-ops. Raw positive balance changes remain quarantined surplus, and recovery beyond the aggregate remaining gap is rejected or quarantined under the technical specification; neither is a recovery checkpoint. Payout rounds down, conservative gap accounting prevents overpayment, and residual dust remains publicly attributed to the boundary without a sweep or last-claimer advantage.
 
-**TOKEN-019 — Repeated issuer failure.** A later issuer seizure or negative mutation can reduce only assets not already paid and produces a new cumulative-loss checkpoint for outstanding units; prior token transfers are final and cannot be clawed back. The protocol guarantees deterministic equality among claims outstanding at each observed checkpoint, not recovery from future issuer actions or restoration of nominal value.
+**TOKEN-019 — Repeated failure, irreversibility, and bounded work.** Loss, claim, exact recovery, and terminal-reassignment operations compose as an ordered checkpoint history: prior payments remain final; each observed loss moves then-funded unpaid value into gap; each attributable recovery moves then-existing gap into funded value. A value-moving action materializes the current checkpoint before payment, so transaction ordering within one checkpoint cannot change entitlement. Every such action MUST take bounded O(1) work independent of the number of deals, beneficiaries, or earlier checkpoints; implementations may materialize positions lazily but MUST be observationally equivalent to the checkpoint model. DEFICIT never returns to healthy status, no later checkpoint creates nominal units, and the protocol does not guarantee recovery from issuer actions or restoration of nominal value.
 
 ### 17.3 Token cases
 
@@ -1639,12 +1795,17 @@ Mandatory core deliberately provides no one-human, Sybil-resistance, reputation,
 | CASE-TOK-007 | Beneficiary signs alternate withdrawal receiver | Transfer only under exact replay-protected beneficiary authorization |
 | CASE-TOK-008 | Administrator proposes receiver rescue | Reject; no custody override exists |
 | CASE-TOK-009 | Accidental tokens arrive | Create no deal or user claim and disclose as surplus |
-| CASE-TOK-010 | External token mutation causes assets below liabilities | Enter the boundary's irreversible deficit ledger before withdrawal, reject new exposure, and issue fixed pro-rata recovery units for every nominal liability |
+| CASE-TOK-010 | External token mutation causes attributable assets below liabilities | Enter the boundary's irreversible deficit ledger before withdrawal, freeze total nominal units, and preserve active deals, reservations, and matured credits as fixed positions |
 | CASE-TOK-011 | Deficit token attempts to use another boundary's assets | Reject cross-subsidy |
-| CASE-TOK-012 | Deficit beneficiaries claim in different orders | Pay identical cumulative pro-rata entitlements subject only to deterministic floor dust |
-| CASE-TOK-013 | Active deal terminates after deficit | Reallocate its fixed recovery units under the normal terminal economics without increasing total units |
-| CASE-TOK-014 | Any address replenishes a deficit boundary | Increase cumulative distributable recovery without minting units or erasing deficit history |
-| CASE-TOK-015 | Token suffers another loss after partial recovery payment | Preserve final prior payments and apply the new checkpoint pro rata to every still-outstanding unit |
+| CASE-TOK-012 | Deficit beneficiaries claim in different orders from the same checkpoint | Preserve identical checkpoint entitlements subject only to deterministic floor dust; no last-claimer advantage |
+| CASE-TOK-013 | Active deal terminates after deficit | Reassign the whole deal position—nominal units, funded entitlement, and gap—under normal terminal economics without increasing total units or transferring tokens |
+| CASE-TOK-014 | Any address supplies exact attributable recovery through the recovery path | Move existing gaps pro rata into funded entitlement without minting units or erasing deficit history |
+| CASE-TOK-015 | Token suffers another loss after partial recovery payment | Preserve final prior payments; move only then-unpaid funded value pro rata into gaps at the new checkpoint |
+| CASE-TOK-016 | Raw token balance increases without the exact recovery path | Quarantine as surplus; do not fund gaps or admit new liabilities |
+| CASE-TOK-017 | New activation, fee liability, reservation, or other exposure is attempted after deficit | Reject atomically even if all gaps were later refilled |
+| CASE-TOK-018 | Loss, recovery, claim, or terminal reassignment follows a long position or checkpoint history | Execute in bounded O(1) work with the same observable result as the checkpoint model |
+| CASE-TOK-019 | Activation, healthy withdrawal, recovery deposit, deficit claim, or settlement preflight yields the deficit-checkpointed outcome | Persist only the deficit checkpoint and return without the requested value/state/nonce effect; do not revert the checkpoint, and require the caller to retry against the new boundary state |
+| CASE-TOK-020 | A negative raw delta is no greater than quarantined surplus | Yield the quarantine-absorbed outcome; reduce only quarantined surplus, emit the reconciliation accounting change, keep mode/checkpoint/attributed assets unchanged, and allow the requested action to continue |
 
 ---
 
@@ -1656,7 +1817,7 @@ The mandatory core does not require governance to execute deals. Ecosystem gover
 
 **ECO-001 — Organizational optionality.** Using PluriSwap does not require membership in, a contract with, or payment to the DAO, its legal wrapper, or the PluriSwap company. A DAO-sponsored reference ecosystem that receives fees or enters service contracts MUST identify a legally capable wrapper and disclose its addresses, governing documents, treasury authority, conflicts, and jurisdiction. That organizational requirement is not a protocol execution dependency for independent deployments.
 
-**ECO-002 — Reference-package economics.** The DAO wrapper may sponsor and recommend immutable reference profiles, deployments, interfaces, and protection packages. Their exact fees and recipients remain explicit signed terms under Section 10 and PROFILE-006 through PROFILE-007: the package identity binds the schedule; the protocol enforces those signed fields; clients that offer the package MUST construct them; the protocol never injects a DAO recipient into deals that did not select the package. Independent publishers may offer competing profiles and infrastructure with their own disclosed recipient or zero fee, without DAO permission.
+**ECO-002 — Reference-package economics.** The DAO wrapper may sponsor and recommend immutable reference profiles, deployments, interfaces, and protection packages, including the Section 5.3 assured ladder. Their exact fees and recipients remain explicit signed terms under Section 10 and PROFILE-006 through PROFILE-007: the package identity binds the schedule; the protocol enforces those signed fields; clients that offer the package MUST construct them; the protocol never injects a DAO recipient into deals that did not select the package. Reference rungs use one global DAO-wrapper recipient for activation and completion fees (REF-PKG-006) and MUST NOT route stalemate court-skin bond slashes to the DAO (REF-PKG-005). Independent publishers may offer competing profiles and infrastructure with their own disclosed recipient or zero fee, without DAO permission.
 
 **ECO-003 — PluriSwap service agreement.** If the DAO wrapper retains or compensates the PluriSwap company, it MUST do so through a fixed, publicly budgeted fee under a disclosed, non-exclusive master services agreement for defined technology, maintenance, support, research, interface, or infrastructure deliverables. Compensation comes from DAO treasury under ordinary governance; it is not an automatic protocol transaction split, percentage of user assets, custody right, or exclusive right to provide any service.
 
@@ -1665,6 +1826,8 @@ The mandatory core does not require governance to execute deals. Ecosystem gover
 **ECO-005 — Governance boundary.** DAO governance may approve budgets, enter and monitor the MSA, publish new reference-profile versions, fund reviews and public goods, and issue recommendations. It cannot govern mandatory core, an independent profile, an existing immutable deployment, or an active deal.
 
 **ECO-006 — No legal-status guarantee.** The wrapper, fee routing, non-exclusive MSA, and technical-provider posture express the intended separation of roles; they do not by themselves determine regulatory, tax, licensing, fiduciary, or liability classification. Each operating entity and material activity requires current jurisdiction-specific review without changing protocol permissionlessness.
+
+**ECO-007 — Reference deployment home and at-cost chain access.** The DAO-sponsored reference ecosystem deploys Mandatory Core and the DAO fee-recipient / governance surface on **Arbitrum**. Exact DAO contract addresses, constructors, and manifests belong in the technical specification and deployment records, not in this charter. The reference ecosystem SHOULD provide user **in/out** paths between Arbitrum and other chains so participants can fund and withdraw settlement assets for use with that Arbitrum Core deployment. Those paths MUST be **at cost only**: no protocol or DAO markup, spread, or profit embedded in the bridge helper beyond disclosed third-party bridge and gas costs (initial reference tooling: **Stargate**). At-cost chain access is ecosystem infrastructure under OFF-008 through OFF-010; it is not Mandatory Core settlement, not a deal custody bridge profile, and not required for independent deployments on other chains.
 
 **GOV-001 — Allowed scope.** Governance may spend accrued treasury assets, publish or revoke endorsements, maintain advisory metadata, fund public goods, operate canonical interfaces, and recommend new immutable deployments.
 
@@ -1767,7 +1930,7 @@ The immutable deployment manifest contains only identity and reproduction facts:
 - chain, deployment addresses, deployment block, and creation transactions;
 - source repository identity, exact source commit, and published source archive identity;
 - compiler, dependency locks, build settings, constructor schemas, complete constructor-input preimages, salts, immutable-configuration preimages, and their hashes;
-- creation and runtime bytecode hashes for core, coordinator, credit, bond, treasury, pools, and selected custody-adjacent modules;
+- creation and runtime bytecode hashes for the state-machine, module-admission, custody-accounting, bond, treasury, pool, and selected custody-adjacent components;
 - immutable external dependency addresses, policy identifiers, code identities, and authorization relationships;
 - for every release in the mandatory POOL-DEPLOY-001 scope, the complete canonical deployment-intent schema, platform-neutral deployment descriptor, deterministic engine release, factory or deployment method, and their canonical preimages and content hashes;
 - the exact deployment method for every branch and the complete objective creation and postcondition evidence required by that branch;
@@ -1852,6 +2015,8 @@ Append-only release metadata contains mutable facts or opinions:
 **OFF-008 — Bridge exclusion.** Bridges are outside mandatory settlement. A bridge failure cannot mutate active deals or pool accounting.
 
 **OFF-009 — Future bridge profile.** Any bridge path affecting custody, settlement, or liquidity requires an explicit extension version, replay and ordering rules, failure recovery, and independent audit.
+
+**OFF-010 — Reference at-cost Arbitrum access.** The DAO-sponsored reference stack MAY expose helpers that move supported settlement assets to or from the Arbitrum Core deployment using a public bridge (initially Stargate) strictly to improve access to that deployment. Such helpers MUST NOT take protocol profit (ECO-007), MUST NOT hold active-deal principal, MUST NOT alter deal state, and MUST fail closed without affecting escrow accounting. Independent deployments owe no bridge, and users MAY fund Arbitrum by any other means.
 
 ---
 
@@ -1966,11 +2131,14 @@ The following are outside protocol version 2 mandatory core unless a later exten
 - requiring reimbursement of the arbitration open fee from principal or protocol fees, or winner cost-shift, in protocol version 2 (ARB-003, ARB-003B);
 - conflating free Core contest with the optional external arbitration fee, or requiring Core to charge a dispute toll because ARBITRATION has court costs;
 - requiring bond slashes to mirror fee collection, principal residual shares, or anti-spam fee design, or treating default bond release on residual / arb no-decision as missing dual punishment (ECON-012, BOND-000, BOND-008);
+- treating CASE-OUT-005 fiat-timeout cancellation as default provider inactivity, or requiring a default provider (or holder) bond slash on fiat-timeout when no explicit signed stake formula exists (OUT-007A, BOND-008A);
 - inventing dual-party fault from arbitration refused/timeout or Core dispute timeout without an explicit signed bond formula;
 - requiring pool vault, deal principal, or reserved operator fee to fund the arbitration open fee, or treating caller-wallet payment on pool deals as incomplete (ARB-003C);
 - treating progressive-admission conservative raw exposure (principal + fees reserved at activation) as incorrect because abort often loses less (HUM-ADM-008A);
 - treating crowdfunding slash-plus-late-recovery double benefit as a bug when CF-DEF-009 and disclosure hold (profile still gated by CF-GATE);
-- requiring Mandatory Core to embed assured-trade package defaults (bond-to-open contest, forced arb/proof, non-default residual, court-skin bonds) instead of PROFILE-008 opt-in packages;
+- requiring Mandatory Core to embed assured-trade package defaults (fee-to-open contest, forced arb/proof, non-default residual, court-skin bonds, reputation tier caps) instead of PROFILE-008 / Section 5.3 opt-in packages;
+- requiring reference assured rungs to use bond-to-open contest, or routing reference stalemate court-skin bond slashes to the DAO or either party instead of the burn sink (REF-PKG-003, REF-PKG-005, BOND-008B);
+- treating package burn of **bond** skin on arbitration stalemate as authorization to burn Core dispute-timeout **principal** (DISPUTE-005 remains);
 - stripping or rewriting snapshotted operator or controller powers on an active deal because a mandate was later revoked or reputation changed (future-only kick under POOL-OP-005 and POOL-OP-009);
 - treating disclosed operator contest or arbitration permission as a Mandatory Core defect when Section 3.4 and Section 14.4 are satisfied;
 - requiring Mandatory Core to implement a full adversarial operator containment system instead of snapshot + future exit + optional packages (PREMISE-002, PREMISE-005).
@@ -1993,17 +2161,23 @@ An implementation may add an unsupported capability only through an explicitly v
 
 ### 23.2 Custody and accounting
 
-**INV-CUST-001.** After every successful protocol action, each token boundary that still satisfies its signed compatibility assumptions has assets greater than or equal to active principal, matured credits, fee credits, bond credits, and other liabilities.
+**INV-CUST-001.** After every successful protocol action in healthy mode, each Mandatory Core token custody boundary has attributable assets greater than or equal to the active principal positions, matured beneficiary positions, fee positions, bond positions, and other liabilities physically sharing that boundary.
 
 **INV-CUST-002.** A pool-origin liability exists only after exact attributable funding.
 
-**INV-CUST-003.** No protocol action lets one deal or pool spend another's attributable assets. A shared external deficit within one fungible-token custody boundary distributes only through fixed pro-rata recovery units.
+**INV-CUST-003.** No protocol action lets one deal or pool spend another's attributable assets. A shared external deficit within one fungible-token custody boundary distributes only through the fixed checkpointed positions in TOKEN-015 through TOKEN-019.
 
-**INV-CUST-004.** Terminal nominal principal allocation equals activated principal exactly; in DEFICIT, the same equality applies to the deal's fixed recovery units while actual recovered assets may be lower.
+**INV-CUST-004.** Terminal nominal principal allocation equals activated principal exactly. Settlement reassigns the existing whole deal position and creates no nominal units; in DEFICIT, the same conservation applies separately to nominal units, paid assets, funded entitlement, and unfunded gap while actual recovered assets may be lower.
 
-**INV-CUST-005.** Unsolicited surplus is not treated as funded liability.
+**INV-CUST-005.** Unsolicited or otherwise raw surplus is quarantined and is not treated as funded liability or attributable recovery.
 
-**INV-CUST-006.** An externally caused deficit never changes nominal attribution, creates new recovery units, or consumes assets from another token or custody boundary.
+**INV-CUST-006.** An externally caused deficit never changes total nominal attribution, creates new recovery units, or consumes assets from another token or custody boundary; the boundary remains irreversibly in DEFICIT even after every gap is refilled.
+
+**INV-CUST-007.** Every deficit position satisfies `nominalUnits = paidAssets + fundedEntitlement + unfundedGap` at each materialized checkpoint. Loss moves only unpaid funded value into gap; exact attributable recovery moves only gap into funded value; a successful claim moves funded value into paid assets.
+
+**INV-CUST-008.** Successful prior payments are final, and claim order among positions materialized at the same checkpoint cannot change their entitlement. Floor dust has no sweep, governance, or last-claimer recipient.
+
+**INV-CUST-009.** Deficit entry, loss checkpoint, exact recovery, claim, and terminal reassignment each perform bounded O(1) work independent of the number of positions and prior checkpoints. No new exposure or nominal units are admitted after deficit.
 
 ### 23.3 State and liveness
 
@@ -2043,7 +2217,17 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-BOND-003.** No slash exceeds its signed cap or uses an unsigned recipient.
 
-**INV-BOND-004.** Bonds are not fees: slash requires snapshotted fault or an explicit signed stake formula for that outcome; default release applies on Core dispute timeout and arbitration no-decision/timeout when no such formula is signed (ECON-012, BOND-000, BOND-008).
+**INV-BOND-004.** Bonds are not fees: slash requires snapshotted fault or an explicit signed stake formula for that outcome; default release applies on Core dispute timeout, arbitration no-decision/timeout, and fiat-timeout cancellation (CASE-OUT-005) when no such formula is signed (ECON-012, BOND-000, BOND-008, BOND-008A, OUT-007A). Provider inactivity default slash is limited to CASE-OUT-004 provider cancel.
+
+**INV-BOND-005.** When a reference assured rung is selected, CASE-OUT-011 and CASE-OUT-012 burn both full reserved party bonds to the disclosed burn sink and MUST NOT credit the DAO fee recipient or either party from that court-skin (REF-PKG-005, REF-PKG-014, BOND-008B).
+
+**INV-BOND-006.** When a reference assured rung is selected, holder-side and provider party bond reservations are equal and equal `max(minBase, floor(principal × bondBps / 10_000))` for the SKU's shared pair; arbitration loss moves the loser's full reservation to the winner side (REF-PKG-014, REF-PKG-004).
+
+**INV-BOND-007.** When a reference assured rung reserves an operator bond, that bond uses the same size schedule as the party bond and the same arb loss/stalemate severity: full slash to winner on decisive arb win; full burn on stalemate/refuse/timeout (REF-PKG-004, REF-PKG-005, REF-PKG-014).
+
+**INV-PKG-001.** When a reference assured rung is selected, `disputeTimeoutProviderBps` equals exactly `5_000` (REF-PKG-013).
+
+**INV-PKG-002.** When an initial reference SKU v1 identity is selected, activation, completion, contest-open, party-bond, and (from rung 2) reputation-cap fields match REF-PKG-015 after decimal encoding.
 
 ### 23.5 Proofs, arbitration, and policies
 
@@ -2074,6 +2258,12 @@ An implementation may add an unsupported capability only through an explicitly v
 **INV-HUM-004.** One canonical terminal record releases at most one exact exposure reservation in its original policy and scope.
 
 **INV-HUM-005.** Initial progressive-admission raw exposure is the conservative activation upper bound in HUM-ADM-008; over-count versus typical abort loss is conforming (HUM-ADM-008A).
+
+**INV-REP-001.** Reference assured rung 2+ reputation gates use five fixed token tiers with infinite top tier and published caps in both instance and pool scopes when applicable (REP-012, REF-PKG-007).
+
+**INV-REP-002.** Reference reputation v1 updates scores only by idempotent integer deltas from canonical funnel events, floors at zero, uses threshold tiers, and performs no onchain decay or principal-weighted formulas (REP-013, REF-PKG-016).
+
+**INV-REP-003.** Instance scores, pool-subject scores, and pool aggregate scores are distinct; the pool aggregate is the downward-rounded average over the controller and current operators' pool-subject scores and is available for admission with bounded work independent of operator-set size (REP-014).
 
 ### 23.6 Pools and crowdfunding
 
@@ -2155,7 +2345,11 @@ An implementation may add an unsupported capability only through an explicitly v
 
 **INV-ECO-001.** A DAO fee recipient, PluriSwap MSA, reference profile, or endorsement creates no mandatory protocol fee, custody authority, execution gate, or exclusive provider right.
 
-**INV-ECO-002.** Assured-trade or venue defaults stronger than Mandatory Core apply only to deals that select the binding package or profile (PROFILE-008).
+**INV-ECO-002.** Assured-trade or venue defaults stronger than Mandatory Core apply only to deals that select the binding package or profile (PROFILE-008, Section 5.3).
+
+**INV-ECO-003.** Reference assured rung activation, completion, and contest-open fees, when charged, share one disclosed DAO-wrapper recipient and never receive stalemate court-skin bond value (REF-PKG-006, REF-PKG-005).
+
+**INV-ECO-004.** Reference assured rung activation, completion, and contest-open amounts equal `max(minBase, floor(principal × feeBps / 10_000))` for each channel's bound parameters (REF-PKG-012, FEE-PKG-005).
 
 **INV-DOC-001.** Technical requirements, implementation, tests, deployment, and public claims cannot contradict this document without declaring non-conformance.
 
@@ -2295,7 +2489,7 @@ The two axes never substitute for one another, even though each contains a value
 
 A partial implementation may use `releaseClass = EXPERIMENTAL` or identify itself as testnet. It MUST NOT claim full protocol or production conformance. Enabled production scope MUST contain only CONFORMING conformance entries; PARTIAL, MISSING, CONTRADICTED, EXPERIMENTAL, DISABLED, and OUT_OF_SCOPE are never substitutes for required production evidence.
 
-The current repository and Arbitrum Sepolia deployment are evaluated separately against this document. Their existing behavior does not become protocol version 2 merely because this source of truth is ratified.
+The current repository and Arbitrum Sepolia deployment are evaluated separately against this document. Their existing behavior does not become protocol version 2 merely because this source of truth is ratified. Any existing deployment that lets the consent/state-machine component physically hold active principal, admits permanent profile stubs in place of the required attachment surface, or uses the superseded single-scalar deficit model is `releaseClass = EXPERIMENTAL` and non-conforming for production Mandatory Core. It cannot be upgraded or migrated in place: a conforming release requires a new immutable deployment identity and explicit user opt-in, while any predecessor retains only the behavior and risks of its own code.
 
 ---
 
@@ -2310,9 +2504,9 @@ The current repository and Arbitrum Sepolia deployment are evaluated separately 
 | Compatible | Satisfies the objective interface, consent, funding, isolation, and accounting rules for the selected profile |
 | Content-addressed policy | A policy whose identifier commits to its complete semantics and cannot preserve the same identifier after a semantic change |
 | Control domain | One beneficially independent governance controller together with all of its signers, custody, recovery, organizations, and shared infrastructure |
-| Coordinator | Deployment-scoped module-binding and authorization surface for Core and enabled profiles; not a shared principal custodian in initial V2 modular pools |
+| Module-admission authority | Deployment-scoped module-binding and authorization role for Core and enabled profiles; never a shared principal custodian |
 | Deal origin | Direct or pool; origin affects activation and pool accounting but not core settlement guarantees |
-| Deficit boundary | One token custody boundary whose externally reduced assets are distributed through a fixed pro-rata recovery ledger |
+| Deficit boundary | One irreversible token custody boundary whose active-deal and matured-credit positions share one physical balance and follow checkpointed funded/gap accounting after an external loss |
 | Deployment descriptor | Platform-neutral machine-readable rules that map a pool-deployment intent to validation, simulation, unsigned transactions, expected identities, and verification for one exact release |
 | Deployment identity | Content hash of immutable chain, charter, version, code, configuration, policy, dependency, and governance-mechanism facts identifying one deployment |
 | Endorsement | Advisory opinion that a component or deployment is recognized, reviewed, or recommended by a named attester; never an execution permission |
@@ -2320,20 +2514,25 @@ The current repository and Arbitrum Sepolia deployment are evaluated separately 
 | Extension point | Named attachment on the Core state machine or accounting path where an optional profile adds transitions or side-effects |
 | Extension profile | Optional versioned protocol capability selected by participants |
 | Fiat-sent assertion | Provider's onchain statement that fiat was sent; not cryptographic payment proof |
+| Fiat-timeout cancellation | Permissionless holder-favorable cancel from `FUNDED` at or after `fiatDeadline` (CASE-CORE-005 / CASE-OUT-005); principal returns holder-side; races mark-fiat under TIME-005; default BONDS release both party bonds and the operator bond (OUT-007A, BOND-008A)—not provider inactivity and not timeout claim |
 | Design premise | Section 3.4 doctrine: chosen trust, incentives, future exit, and packages for social risk; Core for machine integrity (rule of thumb PREMISE-002) |
-| DISPUTED | Core non-terminal state opened by holder-side authority from `FIAT_SENT` before the release deadline; freezes claim and unilateral release until dual-sign settlement, an enabled extension exit, or dispute-timeout residual. Core open is free by design (DISPUTE-007): defensive brake against unauthenticated claim, not a court; hold-up after real fiat is residual/counterparty risk; packages MAY add bond or fee to open only when selected |
+| DISPUTED | Core non-terminal state opened by holder-side authority from `FIAT_SENT` before the release deadline; freezes claim and unilateral release until dual-sign settlement, an enabled extension exit, or dispute-timeout residual. Core open is free by design (DISPUTE-007): defensive brake against unauthenticated claim, not a court; hold-up after real fiat is residual/counterparty risk; packages MAY add a fee or other cost to open only when selected; reference assured rungs use fee-only contest open (REF-PKG-003), not bond-to-open |
 | Future-only kick | Mandate revoke/replace blocks new deals and new snapshots for that operator; never mutates authority on already active deals |
 | Active-deal snapshot | Immutable record at activation of parties, permissions, fees, policies, and economics for one deal; survives later mandate or policy change |
 | Dispute timeout / DISPUTE_TIMEOUT | Permissionless Core terminal after `disputeDeadline`; allocates principal by snapshotted `disputeTimeoutProviderBps`; completion and operator fees follow provider gross (Section 9.1); not an external court finding and not a burn |
-| `disputeTimeoutProviderBps` | Signed integer in `0..10_000` bound at activation; provider residual share on Core dispute timeout; recommended Core default `5_000` |
-| Liability | Nominal token amount attributed by protocol accounting to an active deal, matured credit, fee recipient, bond recipient, or pool; actual recovery is conditional under a deficit boundary |
+| `disputeTimeoutProviderBps` | Signed integer in `0..10_000` bound at activation; provider residual share on Core dispute timeout; recommended Core default `5_000`; reference assured rungs require exactly `5_000` (REF-PKG-013) |
+| Deal-sized party bond | Reference holder/provider bond reservation: equal `max(minBase, floor(principal × bondBps / 10_000))` (REF-PKG-014); full loser→winner on arb loss; full both→burn on stalemate |
+| Liability | Nominal token amount attributed by protocol accounting to an active deal, matured credit, fee recipient, bond recipient, or pool; in a deficit it is represented by a fixed position and actual recovery is conditional |
+| Position | One deal-owned or beneficiary-owned accounting claim within a token boundary; in deficit it carries nominal units, paid assets, funded entitlement, and unfunded gap |
+| Funded entitlement | Unpaid value currently backed and attributable to a deficit position; a successful claim moves it to paid assets |
+| Unfunded gap | Unpaid nominal value not currently backed; observed losses increase it and exact attributable recoveries reduce it without creating units |
 | Permissionless execution | Ability of any address to submit a valid action when public signed, state, proof, ruling, or deadline conditions hold |
 | Permissionless participation | Ability to use compatible public protocol functions without discretionary identity or commercial approval |
 | Policy | Inspectable immutable semantics under which a selected module acts |
 | Principal | Crypto amount subject to escrow settlement, excluding all fees and bonds |
-| Pull credit | Irrevocable accounting claim held for a beneficiary until exact ordinary withdrawal succeeds or, in DEFICIT, until its cumulative recovery-unit entitlement is claimed |
+| Pull credit | Irrevocable beneficiary position held until exact ordinary withdrawal succeeds or, in DEFICIT, until funded entitlement is paid and any remaining gap receives attributable recovery |
 | Receipt namespace | Shared domain used by payment policies that recognize the same rail and receipt-identity semantics under one nullifier authority |
-| Recovery unit | Fixed pro-rata claim created from one nominal liability when its token custody boundary enters DEFICIT |
+| Recovery unit | One nominal unit in a fixed deficit position; it is never newly created after deficit and is tracked through paid, funded, and gap components |
 | Recommended / endorsed | Ecosystem advisory status maintained by a named authority; never synonymous with exclusive, permissioned, or protocol-authoritative |
 | Release class | Typed evidence-maturity classification of one exact release: EXPERIMENTAL, CANDIDATE, or QUALIFIED; separate from conformance status |
 | Conformance status | Typed disposition of a rule, case, invariant, profile, or scope against this document; separate from release class and endorsement |
@@ -2342,10 +2541,15 @@ The current repository and Arbitrum Sepolia deployment are evaluated separately 
 | Completion fee (absolute) | Nonnegative token amount fixed in signed terms; collected as `min(signedFee, providerGross)` whenever provider gross is positive; not rewritten on split (FEE-P-008) |
 | Arbitration fee | External court/adapter fee on ARBITRATION open only; paid by opener; not reimbursed from principal or protocol fees in V2 (ARB-003B); distinct from free Core `DISPUTED` open |
 | Fee vs bond | Fees = consented tolls (spam, package, operator, court) without requiring wrongdoing; bonds = optional skin slashed on fault or explicit signed stake (ECON-012, BOND-000)—rules intentionally differ |
-| Assured-trade package | Opt-in package/profile defaults stronger than Core (proof, arb, bond-to-open, residual bounds); never injected into Core-only deals (PROFILE-008) |
+| Assured-trade package | Opt-in ecosystem package stronger than Core; reference ladder rungs 1–4 (Section 5.3) with initial v1 economics in REF-PKG-015/016; never injected into Core-only deals (PROFILE-008) |
+| Contest-open fee | Package toll to open Core `DISPUTED` and/or ARBITRATION under a selected SKU (FEE-PKG-004, REF-PKG-003); distinct from bonds, activation/completion fees, and external arbitration court fees; absent when no such package is selected; reference rungs size it with REF-PKG-012 |
+| Deal-sized package fee | Reference fee shape for activation, completion, and contest-open: `max(minBase, floor(principal × feeBps / 10_000))` per channel (REF-PKG-012); signed/enforced as absolute after consent; completion still gross-capped at terminal (FEE-P-001); initial v1 = 50/50/100 bps with `minBase = 1` (REF-PKG-015) |
+| Reference SKU v1 params | Initial assured-rung economics in REF-PKG-015/016: fees 0.5%/0.5%/1%; bonds 10%; residual `5_000`; reputation caps 250→∞; funnel integer score deltas; score thresholds 0/10/25/50/100 |
+| Reference Arbitrum home | DAO-sponsored Core and DAO on Arbitrum; optional at-cost Stargate (or successor) in/out with no protocol profit (ECO-007, OFF-010); not deal settlement |
+| Court-skin (reference) | Explicit signed bond stake on arbitration stalemate/refuse/timeout: both party bonds burned to an immutable nonzero non-party sink (not `address(0)`, not DAO) so neither side prefers non-decision (REF-PKG-005, BOND-008B); not a Core dual-fault finding and not a DAO revenue path |
 | Activation fee / holder fee | Optional non-refundable fee at successful funded activation; zero is valid Core; when nonzero it is a consented activation toll, not a success fee |
 | Terminal outcome | Final economic classification; it may be more specific than the stored terminal state |
-| Timeout claim | Core provider-positive RELEASED outcome after the release deadline while still in `FIAT_SENT`, treating holder silence (no release, dual-sign, `DISPUTED`, or arbitration open) as non-contest under signed timeouts; distinct from credit withdrawal or crowdfunding claims; unavailable after `DISPUTED` |
+| Timeout claim | Core provider-positive RELEASED outcome after the release deadline while still in `FIAT_SENT` (CASE-OUT-003), treating holder silence (no release, dual-sign, `DISPUTED`, or arbitration open) as non-contest under signed timeouts; default BONDS release unless a signed timeout-liveness stake applies to this claim path only; distinct from fiat-timeout cancellation (CASE-OUT-005), credit withdrawal, and crowdfunding claims; unavailable after `DISPUTED` |
 | Trust-minimized | External trust is explicit, chosen, bounded, inspectable, and unable to override unrelated custody |
 
 ---
@@ -2383,3 +2587,49 @@ After this business charter is approved for technical elaboration and before pro
 - README status claims SHALL be derived from current conformance evidence.
 
 No earlier document remains an independent source of business truth where it conflicts with this document.
+
+---
+
+## Appendix C. Core support surface for packages
+
+This appendix freezes the **abstract Mandatory Core roles and support surfaces** that every optional profile and ecosystem package in this charter may depend on. It does not prescribe contract names, ABI selectors, wire identifiers, storage layout, or deployment mechanics; those belong in the architecture and technical specifications. It does not enable packages, invent new Core transitions, or weaken PROFILE-002. One custody-accounting role is the physical token boundary, one consent/state-machine role is tokenless, and one module-admission role governs only future attachment eligibility. Package-local state machines (pool NAV, crowdfunding epochs, reputation scores, verifier policies) remain outside Core unless listed below.
+
+**CORE-SURF-001 — Closed machine with named extension edges.** Core exposes the Section 8 states and transitions. Packages may attach only through the bounded generic hook surface and the named runtime edges in Section 5.2 and the dashed edges in Section 8.2 (`PAYMENT_PROOF` release; `ARBITRATION` open/ruling/timeout). These surfaces are executable attachment boundaries, not permanent unimplemented stubs. When a profile is absent its named edge rejects, while Core-only terminal paths remain executable.
+
+**CORE-SURF-002 — Atomic activation and exact custody.** Activation creates a deal-owned principal position in the custody-accounting role only after exact signed funding authority, consent, nonce/expiry checks, and any selected activation-time reservations succeed atomically (ACT-001, ACT-002, ACT-007). Principal never transits the consent/state-machine role. Failed activation leaves no deal, consumes no successful-action authorization, and leaves pool/bond/fee exposure unchanged.
+
+**CORE-SURF-003 — Optional fee channels.** Core provides activation (holder) and completion (provider) fee channels with zero allowed. Exact fee assets and beneficiary positions are held by the custody-accounting role. Recipients and amounts come only from signed terms or a selected package schedule (Section 10, PROFILE-006). Core never injects a DAO or package fee into a deal that did not select it.
+
+**CORE-SURF-004 — Bounded activation hooks and reservations.** When selected, BONDS, POOL funding, operator-fee reservation, and progressive-admission exposure reservation attach through a generic bounded activation hook whose permitted result classes are closed by the Core technical specification. Every custody reservation is separately bound by signed bounded terms covering its source, token, amount, return receiver, disposition authority, policy, and a closed outcome-plus-operator-fault-predicate schedule whose rules bind every primary beneficiary; the custody-accounting role creates it only after exact attributable funding in the activation transaction. An authenticated module may produce only the closed fault classification/evidence; the state-machine role alone matches that class to the signed predicate and executes the fixed formula, so the same arbitration outcome can release without fault or slash with authenticated fault without module-selected allocation. An operator-fee reservation additionally binds the exact accepted fee recipient and uses only FEE-O-005 through FEE-O-007 with those closed classes—no generic hook may choose its paid/unlocked amount. Every reservation is non-withdrawable and immutable while active, then is consumed exactly once under the stored terminal outcome. Only mutual split may use a fully authorized bounded dynamic disposition; mutual cancel and co-signed release use immutable stored/default allocations and cannot rewrite them. Hooks cannot return arbitrary custody destinations, receivers, outcomes, states, predicates, formulas, or terminal dispositions, and settlement makes no module callback. Exact-balance and fail-closed rules apply; Core MUST reject rather than partially activate if a required reservation or hook fails.
+
+**CORE-SURF-005 — Immutable deal snapshot.** At successful activation Core snapshots parties, receivers, token/custody identity, principal, fees, Core durations/deadlines, signed arbitration duration/policy preimage when enabled, and `disputeTimeoutProviderBps`. Direct deals bind the holder as funding source/authority, activation signer, unilateral release/contest/arbitration actor, and mutual-resolution authority. Pool deals bind the economic pool as separately authenticated funding source/authority plus a typed signed pool kind and distinct activation authority, controller, optional operator, independent controller/operator release/contest/arbitration permissions, mutual-resolution authority, mandate, operator fee recipient/bps/cap/reserve, reservation, and operator-fault policy. The technical specification closes the authority matrix for each supported pool kind; a profile label cannot imply unstated permissions. Entry into `ARBITRATION_ACTIVE` records the one-write arbitration deadline from the signed duration. Later mandate, policy, reputation, or governance change MUST NOT mutate that snapshot (POOL-OP-009, DEC-003).
+
+**CORE-SURF-006 — Canonical terminal record.** Every terminal deal stores and emits exactly one immutable, publicly reconstructable terminal record keyed at least by deployment, deal identifier, outcome/state, principal and fee deltas, operator-fee paid/unlocked amounts, holder-side return, and a content hash. In the same atomic settlement, the custody-accounting role reassigns the existing deal-owned position without minting nominal units or transferring tokens. The state-machine role commits the record and position reclassification before any optional post-terminal consumer. Custom-pool callbacks MUST NOT run on the Core settlement path (POOL-SET-005).
+
+**CORE-SURF-007 — Exact pool-reservation boundary.** Pool-origin (and future crowdfunded) liquidity enters Core only through an exact same-transaction pull from the bound pool or same-custody attributed pool credit, with source and destination deltas verified in that transaction (POOL-FUND-003). `CROWDFUNDED_POOL` integrates with Core **only** through this boundary plus CORE-SURF-006 records (CF-GATE-004); Core does not implement share/NAV/epoch/wind-down logic.
+
+**CORE-SURF-008 — Pull positions.** Terminal settlement reassigns existing deal or reservation positions into irrevocable beneficiary positions for principal receivers, fee recipients, and bond-slash recipients before optional external withdrawal. Healthy withdrawal and deficit claims execute only from the custody-accounting role; receiver transfer failure MUST NOT rewrite the terminal outcome (Section 17.2, BOND-007).
+
+**CORE-SURF-009 — Permissionless predetermined timeouts.** Fiat timeout, release claim from `FIAT_SENT`, Core dispute timeout from `DISPUTED`, and—when enabled—arbitration timeout remain executable by any address with predetermined economics until another valid transition wins (PERM-004, INV-STATE-005). Arbitration timeout is computed only from the signed snapshotted duration and stored Core deadline; it MUST NOT require an adapter, module-admission authority, package, or other module response.
+
+**CORE-SURF-010 — Module binding and admission authorization.** Every custody-adjacent module selected for an active deal binds chain, role, direct module address, runtime code hash, immutable configuration or policy semantic hash, module-manifest hash, API identity, module-terms hash, and the module-admission authorization required at activation (TRUST-006). The state-machine role snapshots that complete binding and never relies on later admission approval for the deal. Proxy upgrade, admin pause, registry delisting, or code/configuration drift MUST NOT rewrite the snapshot or disable independent Core exits.
+
+**CORE-SURF-011 — Signed optional-field slots.** Direct and pool-origin terms MAY carry optional fields for proof, arbitration, bonds, humanity/reputation, rate policy, and package identity (Section 6.1). When the corresponding profile is off, those fields are absent or inert and MUST NOT be charged or enforced.
+
+**CORE-SURF-012 — Post-terminal idempotent consumers.** Exposure ledgers, reputation materializers, and untrusted custom-pool journals MAY consume authenticated canonical terminal records permissionlessly, idempotently, and at most once. Their failure MUST NOT reverse Core settlement, block unrelated deals, or mutate active principal (HUM-ADM-006, REP-010, POOL-SET-006).
+
+**CORE-SURF-013 — Package independence.** Assured-trade defaults, fee-to-open contest, court-skin formulas (including burn-on-stalemate), progressive admission, reputation tier caps, and similar stronger commercial rules exist only when selected (PROFILE-008, Section 5.3). Core MUST remain complete without them. A package MUST NOT require a Core surface beyond this appendix without a new protocol version. An immutable Core deployment that claims ladder readiness MUST already expose these surfaces for future package attachment (REF-PKG-009).
+
+| Package / profile | Core surfaces required (minimum) | Out of Core (package-local) |
+| --- | --- | --- |
+| BONDS | 002–006, 008, 011 | Bond vault balances; per-outcome slash formulas beyond the snapshotted schedule |
+| PAYMENT_PROOF | 001, 005–006, 008–011 | Verifier policy, receipt nullifier authority, rail evidence |
+| ARBITRATION | 001, 005–006, 008–011 | Adapter, court process, external fee quote/payment (ARB-003*) |
+| POOL / RATE_POLICY | 002–011 | Pool constitution, mandate UI, rate observations, pool-local journals |
+| HUMANITY / progressive admission | 002, 004–006, 011–012 | Verifier, ExposurePolicy, ExposureLedger |
+| REPUTATION — advisory/post-terminal only | 006, 012 | Scoring policies and advisory rankings; never an activation gate |
+| REPUTATION — selected admission policy | 002, 004–006, 010–012 | Score materialization and aggregate internals; the activation hook, immutable admission snapshot, binding, optional fields, and terminal facts remain Core surfaces |
+| CROWDFUNDED_POOL (gated) | 006–007, 009–010 | Shares, NAV, epochs, standing bond, wind-down (Section 15) |
+| BATCH_EXECUTION | Native entrypoints only (PROFILE-005) | Batch wrapper policy |
+
+Technical specifications for Core MUST treat CORE-SURF-001 through CORE-SURF-013 as normative interface obligations derived from this charter. Extension tech specs MUST NOT assume additional Core hooks.

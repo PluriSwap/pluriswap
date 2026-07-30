@@ -16,6 +16,11 @@ coordinator_owner = ""
 charter_hash = "0x0000000000000000000000000000000000000000000000000000000000000001"
 tech_spec_hash = "0x0000000000000000000000000000000000000000000000000000000000000002"
 
+# CREATE2 salt for CoreDeployer (0x-prefixed bytes32).
+# Same salt + constructor args => same CoreDeployer / Ledger / Coordinator / Escrow addresses
+# on every chain that has Foundry's default CREATE2 factory.
+salt = "0x706c757269737761702e636f72652e7632000000000000000000000000000000"
+
 # Broadcast transactions (false = simulation only)
 broadcast = true
 
