@@ -22,7 +22,9 @@ import {
     ReconciliationStatus,
     FundingPurpose,
     FundingSourceMode,
-    PositionKind
+    PositionKind,
+    PositionPayoutResult,
+    PayoutResultCode
 } from "../src/libraries/DealTypes.sol";
 import {ManifestHashing} from "../src/libraries/ManifestHashing.sol";
 import {CoreDeploymentIntentOffchain} from "../src/libraries/ManifestTypes.sol";
@@ -363,6 +365,26 @@ contract CoreEscrowTest is Test {
         assertEq(uint8(escrow.dealState(dealId)), DealState.Funded);
         assertEq(escrow.getDeal(dealId).activationFee, 5e18);
         assertEq(escrow.getDeal(dealId).completionFee, 3e18);
+    }
+
+    function test_providerCancel_keepsActivationFeePosition() public {
+        bytes32 dealId = _activate(100e18, 7e18, 0);
+
+        vm.prank(provider);
+        escrow.providerCancel(dealId);
+
+        bytes32 feePositionId = DealHashing.positionId(
+            escrow.getDeal(dealId).custodyBoundaryId,
+            PositionKind.ActivationFee,
+            dealId,
+            bytes32(0),
+            feeRecipient
+        );
+        assertTrue(ledger.positionExists(feePositionId));
+        assertEq(ledger.positionNominal(feePositionId), 7e18);
+        assertFalse(ledger.positionConsumed(feePositionId));
+        assertEq(ledger.nominalOutstanding(address(token)), 107e18);
+        assertEq(escrow.getTerminalRecord(dealId).holderSideReturn, 100e18);
     }
 
     function test_activate_rejectsZeroHolderReceiver() public {
@@ -856,6 +878,43 @@ contract CoreEscrowTest is Test {
         assertEq(tr.providerNet, 90e18);
     }
 
+    function test_holderRelease_terminalPosition_withdrawsExactAmount() public {
+        bytes32 dealId = _activate(100e18, 0, 0);
+        vm.prank(provider);
+        escrow.markFiatSent(dealId);
+        vm.prank(holder);
+        escrow.holderRelease(dealId);
+
+        bytes32 positionId = DealHashing.positionId(
+            escrow.getDeal(dealId).custodyBoundaryId,
+            PositionKind.DealTerminal,
+            dealId,
+            escrow.getTerminalHash(dealId),
+            provider
+        );
+        PositionPayoutResult memory result = ledger.withdrawPosition(positionId, type(uint256).max);
+
+        assertEq(result.code, PayoutResultCode.HealthyFull);
+        assertEq(result.paidAmount, 100e18);
+        assertTrue(ledger.positionConsumed(positionId));
+        assertEq(token.balanceOf(provider), 100e18);
+        assertEq(token.balanceOf(address(ledger)), 0);
+    }
+
+    function test_holderRelease_minimumPrincipalCompletesFeeWithoutProviderPayout() public {
+        bytes32 dealId = _activate(1, 0, 1);
+        vm.prank(provider);
+        escrow.markFiatSent(dealId);
+        vm.prank(holder);
+        escrow.holderRelease(dealId);
+
+        TerminalRecord memory tr = escrow.getTerminalRecord(dealId);
+        assertEq(tr.holderSideReturn, 0);
+        assertEq(tr.providerGross, 1);
+        assertEq(tr.completionCollected, 1);
+        assertEq(tr.providerNet, 0);
+    }
+
     function test_activate_rejectsCompletionFeeAbovePrincipal() public {
         DealTerms memory terms = _terms(100e18, 0, 100e18 + 1);
         (ActivateParams memory p,) = _prepareActivation(terms, 1, 2);
@@ -890,6 +949,29 @@ contract CoreEscrowTest is Test {
         TerminalRecord memory tr = escrow.getTerminalRecord(dealId);
         assertEq(tr.providerGross, 100e18);
         assertEq(tr.evidenceHash, bytes32(0));
+    }
+
+    function test_claim_withCompletionFee_createsCompletionPosition() public {
+        bytes32 dealId = _activate(100e18, 0, 60e18);
+        vm.prank(provider);
+        escrow.markFiatSent(dealId);
+        vm.warp(escrow.getDeal(dealId).releaseDeadline + 1);
+        escrow.claim(dealId);
+
+        TerminalRecord memory tr = escrow.getTerminalRecord(dealId);
+        assertEq(tr.providerGross, 100e18);
+        assertEq(tr.completionCollected, 60e18);
+        assertEq(tr.providerNet, 40e18);
+
+        bytes32 completionPositionId = DealHashing.positionId(
+            escrow.getDeal(dealId).custodyBoundaryId,
+            PositionKind.DealTerminal,
+            dealId,
+            escrow.getTerminalHash(dealId),
+            feeRecipient
+        );
+        assertTrue(ledger.positionExists(completionPositionId));
+        assertEq(ledger.positionNominal(completionPositionId), 60e18);
     }
 
     function test_claim_beforeReleaseDeadline_reverts() public {
@@ -981,6 +1063,17 @@ contract CoreEscrowTest is Test {
         assertEq(tr.evidenceHash, bytes32(0));
     }
 
+    function test_fiatTimeoutCancel_isPermissionless() public {
+        bytes32 dealId = _activate(100e18, 0, 0);
+        vm.warp(escrow.getDeal(dealId).fiatDeadline + 1);
+
+        vm.prank(address(0xCAFE));
+        escrow.fiatTimeoutCancel(dealId);
+
+        assertEq(uint8(escrow.dealState(dealId)), DealState.Cancelled);
+        assertEq(uint8(escrow.getDeal(dealId).outcome), Outcome.FiatTimeoutCancel);
+    }
+
     function test_fiatTimeoutCancel_beforeDeadline_reverts() public {
         bytes32 dealId = _activate(100e18, 0, 0);
         vm.expectRevert(InvalidTiming.selector);
@@ -1039,6 +1132,24 @@ contract CoreEscrowTest is Test {
         assertEq(tr.providerGross, 50e18);
         assertEq(tr.holderSideReturn, 50e18);
         assertEq(tr.evidenceHash, bytes32(0));
+    }
+
+    function test_mutualResolve_splitOddPrincipal_assignsDustToHolder() public {
+        bytes32 dealId = _activate(1, 0, 0);
+        vm.prank(provider);
+        escrow.markFiatSent(dealId);
+
+        ResolutionAuth memory auth = _resolutionAuth(dealId, ResolutionAction.Split, 1, 5_000);
+        bytes memory holderSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), holderPk);
+        bytes memory providerSig =
+            _sign(escrow.DOMAIN_SEPARATOR(), DealHashing.hashResolution(auth), providerPk);
+        escrow.mutualResolve(dealId, auth, holderSig, providerSig);
+
+        TerminalRecord memory tr = escrow.getTerminalRecord(dealId);
+        assertEq(tr.providerGross, 0);
+        assertEq(tr.holderSideReturn, 1);
+        assertEq(uint8(escrow.dealState(dealId)), DealState.ResolvedSplit);
     }
 
     function test_disputeTimeout_beforeDeadline_reverts() public {

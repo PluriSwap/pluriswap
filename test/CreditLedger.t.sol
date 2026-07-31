@@ -21,7 +21,8 @@ import {
     FundingSourceMode,
     PositionKind,
     BoundaryMode,
-    ReconciliationStatus
+    ReconciliationStatus,
+    PayoutResultCode
 } from "../src/libraries/DealTypes.sol";
 import {CoreDeploymentIntentOffchain} from "../src/libraries/ManifestTypes.sol";
 import {
@@ -1447,6 +1448,39 @@ contract CreditLedgerTest is Test {
         });
         vm.expectRevert(InvalidAmount.selector);
         ledger.withdrawPositionTo(auth, "");
+    }
+
+    function test_signedPayout_failedTransferRollsBackForRetry() public {
+        bytes32 positionId = _createMaturedHolderPosition(keccak256("failed-transfer-retry"));
+        address receiver = address(0x3333);
+        token.setTransferRevert(receiver, true);
+
+        PositionPayoutAuth memory auth = PositionPayoutAuth({
+            action: 1,
+            token: address(token),
+            positionId: positionId,
+            beneficiary: holder,
+            to: receiver,
+            maxAmount: type(uint256).max,
+            nonce: 777,
+            expiry: uint64(block.timestamp + 1 days)
+        });
+        bytes memory signature = _signPayout(auth);
+
+        vm.expectRevert();
+        ledger.withdrawPositionTo(auth, signature);
+
+        assertEq(ledger.positionNominal(positionId), 100e18);
+        assertFalse(ledger.positionConsumed(positionId));
+        assertEq(token.balanceOf(receiver), 0);
+
+        token.setTransferRevert(receiver, false);
+        PositionPayoutResult memory result = ledger.withdrawPositionTo(auth, signature);
+        assertEq(result.code, PayoutResultCode.HealthyFull);
+        assertEq(result.paidAmount, 100e18);
+        assertEq(result.nominalRemaining, 0);
+        assertTrue(ledger.positionConsumed(positionId));
+        assertEq(token.balanceOf(receiver), 100e18);
     }
 
     function _createSplitMaturedPositions(bytes32 dealId)
