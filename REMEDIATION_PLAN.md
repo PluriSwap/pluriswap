@@ -1,30 +1,33 @@
 # PluriSwap Mandatory Core Remediation Plan
 
-**Branch:** `feat/mandatory-core-foundry`
+**Branch:** `fix/mandatory-core-remediation`
 **Target:** 0.3.0-rc1 conformance per PROTOCOL.md and MANDATORY_CORE.md
-**Date:** 2026-07-30
+**Date:** 2026-07-31
 
 ## Overview
 
 Seven-wave remediation to bring the PluriSwap Mandatory Core smart contracts from
-pre-remediation draft to 0.3.0-rc1 conformance. Each wave is committed independently
+pre-remediation draft to 0.3.0-rc1 conformance. Each wave is executed independently
 with build-test-fix cycles.
 
 ## Wave Status
 
-| Wave | Description | Status | Tests |
-|------|-------------|--------|-------|
-| 1 | Foundation: types, libraries, interfaces, stubs | DONE | 33 |
-| 2 | CreditLedger sole vault with positions and reconciliation | DONE | 13 |
-| 3 | CoreEscrow tokenless state machine with terminal records | DONE | 37 |
-| 4 | CoreDeployer manifest emission and verification | DONE | 5 |
-| 5 | Deficit encoding research (parallel) | DONE | 9 |
-| 6 | Conservative deficit recovery candidate | IN PROGRESS / RELEASE-GATED | 10 |
-| 7 | Full test suite + conformance rewrite | IN PROGRESS | ongoing |
+| Wave | Description | Status | Current test evidence |
+|------|-------------|--------|-----------------------|
+| 1 | Foundation: types, libraries, interfaces, stubs | DONE | 40 foundation tests |
+| 2 | CreditLedger sole vault with positions and reconciliation | DONE | 64 Ledger + 7 production evidence tests |
+| 3 | CoreEscrow tokenless state machine with terminal records | DONE | 68 Escrow tests |
+| 4 | CoreDeployer Intent binding and Evidence tooling | DONE | 12 deployer + 2 hash-vector tests |
+| 5 | Deficit encoding research (parallel) | DONE | 9 indexed-model tests |
+| 6 | Conservative deficit recovery candidate | IN PROGRESS / RELEASE-GATED | 64 Ledger + 5 math + 7 production evidence tests (shared) |
+| 7 | Full test suite + conformance rewrite | DONE FOR CORE-ONLY CANDIDATE | 265 full-suite tests |
 
-**Release status:** BLOCKED. Healthy custody hardening and identity validation are implemented,
-and a conservative fixed-point recovery candidate is under test. It is not an accepted
-production encoding until the precision, dust, fairness, and differential gates are ratified;
+**Release status:** BLOCKED. Healthy custody hardening, identity validation, and the immutable
+per-boundary `type(uint128).max` aggregate nominal limit are implemented. The limit and its
+dependency-free proof close the initial wide-boundary precision-collapse blocker and the reachable
+zero-history active-source replacement bound. The conservative fixed-point recovery candidate is
+not an accepted production encoding until the remaining repeated-checkpoint, saturation,
+dust-exhaustion, fairness, differential, governance, and independent-review gates are complete;
 the bounded profile/attachment surfaces also require implementation and independent review.
 
 **Current test target:** the full Foundry suite, including exact-token and signature
@@ -32,18 +35,25 @@ adversarial coverage.
 
 ## Current Conformance Snapshot
 
-- Full Foundry suite: **157 passed, 0 failed**.
-- `CoreEscrow` runtime: **24,517 bytes**, leaving **59 bytes** below EIP-170.
-- `CreditLedger` runtime: **20,724 bytes**, leaving **3,852 bytes** below EIP-170.
-- `CoreDeployer` now uses staged child creation; its initcode is **5,699 bytes**, below the
+- Full Foundry suite: **265 passed, 0 failed**.
+- `Coordinator` runtime is **4,643 bytes** and creation code is **4,969 bytes**.
+- `CoreEscrow` runtime: **23,540 bytes**, leaving **1,036 bytes** below EIP-170; creation
+  code is **24,572 bytes** and its checked creation-code identity is regenerated.
+- `CreditLedger` runtime: **18,863 bytes**, leaving **5,713 bytes** below EIP-170;
+  creation code is **19,477 bytes** and its checked creation-code identity is regenerated.
+- `CoreDeployer` now uses staged child creation; its initcode is **5,925 bytes**, below the
   **49,152-byte EIP-3860** limit. The finalizer creates Ledger / Coordinator / Escrow with
   CREATE nonces 1–3 and validates canonical initcode, exact constructor arguments, and
   reverse links before becoming permanently inert.
 - Deployed Core topology: **CoreDeployer plus exactly three children** —
   `CreditLedger`, `Coordinator`, and `CoreEscrow`; no `CoreSettlement` child.
 - `forge fmt --check` and `git diff --check`: passing.
-- Static-analysis CI is configured with Slither; the local environment does not have
-  Slither installed, so that gate remains CI evidence rather than a local result.
+- `tools/generate_full_math_vectors.py --check` and the dependency-free
+  `tools/check_q128_boundary_bound.py --check`: passing; the latter exhaustively checks 5,952
+  initial and 1,124,432 replacement reduced-domain cases plus deterministic production edges.
+- Pinned Slither `0.11.6` triage passes with **60 accepted**, **0 new**, and **0 stale**
+  fingerprints (1 high, 28 medium, 16 low, 15 informational). Each accepted finding has a
+  checked-in reason; naming-only style output is delegated to the production Foundry lint gate.
 - Production remains blocked: deficit recovery is implemented only as a release-gated
   candidate pending a ratified precision and fairness policy, and payment-proof, arbitration,
   pool, module, and reservation
@@ -68,13 +78,13 @@ Rewrote all foundational types, libraries, and interfaces per 0.3.0-rc1 spec.
 - **CoreErrors.sol**: New errors for positions, reconciliation, deficit, manifest, funding,
   terminal records
 - **Interfaces**: ICoreEscrow, ICreditLedger, ICoordinator rewritten per spec API direction
-- **Stubs**: CoreEscrow, CreditLedger, CoreDeployer with manifestHash placeholder
+- **Stubs**: CoreEscrow, CreditLedger, CoreDeployer with Intent hash placeholder
 - **Coordinator.sol**: Full implementation with ModuleBinding-based admission
 
 ### Test Files
-- `test/DealTypes.t.sol` (7 tests)
-- `test/DealHashing.t.sol` (12 tests)
-- `test/FullMath.t.sol` (6 tests)
+- `test/DealTypes.t.sol` (8 tests)
+- `test/DealHashing.t.sol` (13 tests)
+- `test/FullMath.t.sol` (11 tests)
 - `test/SettlementMath.t.sol` (8 tests)
 
 ---
@@ -88,13 +98,26 @@ Full CreditLedger implementation as the sole physical vault per spec sections 3,
   nominalOutstanding, quarantinedSurplus, deficitNominalUnits, fixed-point indices,
   generation/history checkpoint, precision-floor flag, and observable rounding dust
 - **Position model**: Deterministic IDs via DealHashing.positionId, token field for
-  permissionless withdrawals, tombstones for consumed positions
+  permissionless withdrawals, tombstones for consumed positions, queryable canonical
+  terminal-hash provenance plus compact frozen replacement gap / bounded rounding-dust state on
+  consumed settlement sources, and an O(1) typed `PositionView` / `DeficitComponents`
+  materialization preserving stored nominal and unpaid nominal separately
 - **Reconciliation protocol**: 5 statuses (Unchanged, SurplusQuarantined,
   QuarantineLossAbsorbed, DeficitCheckpointed, ReservedInvalid)
 - **fundDealAndReservations**: WALLET_PULL (exact-pull from source) and LEDGER_POSITION
   (debit from existing matured position) funding modes
-- **settleDealAndReservations**: Consume deal position, coalesce equal beneficiaries,
-  create terminal positions with deterministic IDs
+- **Boundary exposure safety**: expose
+  `MAX_BOUNDARY_NOMINAL = type(uint128).max`; after all applicable funding request/auth/source
+  validation and before any funding leg or nonce/accounting effect, sum all principal/fee
+  WALLET_PULL nominal units with checked/saturating arithmetic and atomically reject
+  current-plus-added overflow through typed `BoundaryNominalLimitExceeded` data; same-Ledger
+  reassignment contributes zero and token boundaries remain independent
+- **Terminal planning**: Retain semantic holder/provider/fee amounts in TerminalRecord while
+  coalescing equal beneficiaries into one final allocation and deterministic position ID;
+  the pure planner is exposed by Coordinator and Ledger remains custody-only
+- **settleDealAndReservations**: Consume the deal position, persist its canonical terminal
+  hash, emit final-nominal consumption/settlement events, reject duplicate/existing targets,
+  and create each pre-coalesced terminal position exactly once
 - **withdrawPosition / withdrawPositionTo**: Permissionless withdrawals, signed
   alternate receiver via PositionPayoutAuth
 - **checkpointBoundary**: Permissionless deficit entry
@@ -102,8 +125,15 @@ Full CreditLedger implementation as the sole physical vault per spec sections 3,
   release-gated conservative fixed-point policy described in Wave 6 below.
 
 ### Test File
-- `test/CreditLedger.t.sol` (25 tests): funding, settlement, coalescing, withdrawal,
-  reconciliation, deficit entry, position collisions
+- `test/CreditLedger.t.sol` (64 tests): funding, settlement, terminal provenance,
+  reconciliation-only immutability, coalescing, withdrawal, deficit entry, canonical component
+  views including immutable replacement tombstones, position collisions, and exact cap /
+  aggregate crossing / mixed-source / token independence / uint256 extreme / one-unit-loss
+  boundary vectors
+- `test/CreditLedgerRecoveryDifferential.t.sol` (7 tests): exact and non-integral
+  production-Ledger differential sequences including explicit pre-existing-error/split-dust
+  decomposition, bounded/no-capture replacement-dust fuzzing, malformed-sum and over-count
+  rollback, and matched cold/warm O(1) view gas-growth regression
 
 ---
 
@@ -125,44 +155,51 @@ Full CoreEscrow implementation as a tokenless state machine per spec sections 8,
   - openDispute (CASE-CORE-021): holder-only, strictly before releaseDeadline
   - disputeTimeout (CASE-CORE-025): permissionless, after disputeDeadline
   - mutualResolve: dual-signed cancel/release/split with ResolutionAuth verification
+- **Timing origins**: Activation derives fiat and prechecks release-plus-dispute arithmetic from
+  its current origin; mark-fiat and dispute opening validate their actual later origins before
+  state change. At a representable timestamp, downstream mark-fiat overflow leaves `FUNDED`
+  unchanged and a still-representable fiat-timeout settlement remains available. Once
+  `block.timestamp` exceeds `type(uint64).max`, every timestamp-writing action rejects and no
+  timeout-liveness claim remains.
 - **Settlement math**: SettlementMath.split (mulDiv-based) + completionCollected
   (min(completionFee, providerGross))
 - **TerminalRecord**: 27-field struct with terminalHash via DealHashing.hashTerminalRecord
+- **Mutual terminal evidence**: Core computes `DealHashing.hashResolution(auth)` once, reuses
+  it for the signature digest, and stores that exact struct hash as terminal evidence; all
+  deterministic unilateral/Core-timeout outcomes retain zero evidence
+- **Terminal timestamp**: Core checked-casts `block.timestamp` to `uint64` before planning;
+  overflow reverts with no Core terminal or Ledger tombstone mutation
 - **Extension stubs**: submitPaymentProof, openArbitration, submitArbitrationRuling,
   arbitrationTimeout all revert ProfileNotSelected (Core-only)
 
 ### Test File
-- `test/CoreEscrow.t.sol` (46 tests): all Core transitions, rejection edges, settlement
-  math, dispute paths, mutual resolve, terminal records
+- `test/CoreEscrow.t.sol` (68 tests): all Core transitions, rejection edges, settlement
+  math, dispute paths, mutual resolve, terminal records, coalesced events, timestamp overflow
 
 ### Size Resolution
-Settlement planning is now bound to the sole Ledger as a read-only, Escrow-authorized
-planning operation. CoreEscrow remains below the EIP-170 limit while the deployed child
-topology remains exactly Ledger / Coordinator / Escrow.
+Settlement planning is now a pure Coordinator operation, with the Ledger remaining
+custody-only. CoreEscrow remains below the EIP-170 limit while the deployed child topology
+remains exactly Ledger / Coordinator / Escrow.
 
 ---
 
-## Wave 4: CoreDeployer Manifest (COMPLETED)
+## Wave 4: CoreDeployer Intent and Evidence (COMPLETED)
 
-Immutable deployment manifest hash computation per spec section 13.
+Immutable deployment Intent hash computation and off-chain Evidence hashing per spec section 13.
 
 ### Changes
-- **CoreManifestOffchain struct**: 11 off-chain fields (buildHash,
-  deploymentMethodHash, artifactHashes, capabilityHash, governanceHash,
-  verificationHash, predecessorManifestHash)
-- **Manifest constants**: MANIFEST_SCHEMA_ID, MANIFEST_SCHEMA_VERSION,
-  DEPLOYMENT_KIND_MANDATORY_CORE
-- **MANDATORY_CORE_MANIFEST_V1_TYPEHASH**: Full 22-field ABI encoding typehash
-- **DealHashing.hashCoreManifest**: Computes manifestHash from on-chain + off-chain
-  fields
+- **CoreDeploymentIntentV1 / CoreDeploymentEvidenceV1**: Separate on-chain deployment
+  preimages from off-chain build, verification, and transaction evidence
+- **Intent constants**: INTENT_SCHEMA_ID and EVIDENCE_SCHEMA_ID
+- **ManifestHashing**: Computes `intentHash` and `evidenceHash` from canonical ABI encodings
 - **CoreDeployer**: Predicts all triad addresses via CREATE nonces, computes
-  manifestHash before deploying CoreEscrow, passes real hash to Escrow constructor,
+  `intentHash` before deploying CoreEscrow, passes it to the Escrow constructor,
   stores chainId/protocolVersion/charterHash/techSpecHash as immutables
-- **ManifestComputed event**: Emitted at construction for off-chain verification
-- **Deploy script**: Updated with env-var-driven off-chain manifest fields
+- **IntentComputed event**: Emitted at construction for off-chain verification
+- **Deploy script**: Updated with env-var-driven Intent preimage fields
 
 ### Test File
-- `test/CoreEscrow.t.sol` (5 manifest tests): non-zero hash, matches escrow,
+- `test/CoreEscrow.t.sol` (5 identity tests): non-zero hash, matches escrow,
   deterministic, differs for different charter, identity fields stored
 
 ---
@@ -250,12 +287,39 @@ an O(1) Solidity candidate selected for the accepted conservative tradeoff: it m
 bounded boundary dust, but it never overpays, claws back a completed claim, or allows a
 last claimant to capture the residual balance.
 
-### Blocker
-The technical specification and governance process must still ratify the production policy.
+### Closed scoped blockers: initial precision collapse and active-source replacement
+
+`MAX_BOUNDARY_NOMINAL = 2^128 - 1` now limits each
+`(chain, version, Ledger, token)` boundary while leaving token and position fields as `uint256`.
+For initial exact loss `L`, nominal `N`, scale `S = 2^128`, coefficient
+`a = ceil(L*S/N)`, and one-position materialized gap `G = ceil(a*N/S)`,
+`N <= S - 1` proves `0 <= G - L <= 1`. The maximum-boundary one-unit loss therefore
+materializes two gap units, `MAX_BOUNDARY_NOMINAL - 2` funded units, and exactly one unit of
+stored `deficitRoundingDust` against `MAX_BOUNDARY_NOMINAL - 1` assets, instead of the prior
+`uint256.max` boundary's `2^128` gap units.
+
+Active `DEAL` and `RESERVATION` sources are nonclaimable and are enforced to have zero paid assets
+and zero local history before replacement. Children inherit the current global gap coefficient
+with zero local history. For one to three positive children, the ceiling-partition inequality
+proves exact nominal/paid conservation and `0 <= replacementRoundingDust <= childCount - 1`; the
+runtime retains the lower-side conservative guard and an upper bound of at most two units.
+`docs/security/Q128_BOUNDARY_BOUND.md` derives the result and
+`tools/check_q128_boundary_bound.py --check` verifies deterministic production edges,
+admission arithmetic, the removed regression, reachable replacement partitions, and exhaustive
+reduced domains.
+
+These scoped proofs do not approve the complete Q128 model.
+
+### Remaining blocker
+
+The technical specification and governance process must still ratify the complete production
+policy.
 The candidate uses:
 
 - Q128.128 boundary indices for the gap coefficient and history scale;
 - upward rounding for gap, downward rounding for funded entitlement, and exact token deltas;
+- conservative child-sum replacement snapshots with explicit dust bounded by
+  `childCount - 1`;
 - saturating history/index arithmetic that records a non-reverting precision floor;
 - status `4` as a persistent reconciliation-only transition that blocks new exposure; and
 - an observable boundary rounding-dust reserve with no privileged recipient.
@@ -279,11 +343,37 @@ unspecified approximation would violate TOKEN-017 through TOKEN-019.
 - Implement `claimRecoveryTo`: signed alternate receiver using payout action `2`, consuming
   its purpose-namespaced nonce only after a positive payment.
 - Update `_reconcile` to append loss checkpoints in irreversible DEFICIT mode.
+- Refresh first-entry rounding dust before checkpoint identity derivation; emit `DeficitEntered`
+  only for `HEALTHY -> DEFICIT`, and emit the complete typed `LossCheckpointed` snapshot after
+  `BoundaryReconciled` for every later status-`4` loss.
 - Preserve `DEFICIT_CLAIM_REQUIRED` for the healthy withdrawal surface.
 - Update preflight and funding to return status `4` with no new exposure.
+- Enforce the per-token boundary cap before the first funding leg, including aggregate
+  principal-plus-fee overflow, later funding against existing exposure, mixed source modes,
+  exact-cap same-vault reassignment, reusable nonces, and independent token boundaries.
 - Allow terminal reassignment in an existing deficit without changing boundary nominal units.
+- Enforce zero paid assets and zero local history on nonclaimable active sources; remove unreachable
+  parent-history scaling/saturation and create children at the current global coefficient with
+  zero local history.
+- Preserve explicit settlement-parent replacement tombstones with compact frozen child-sum gap
+  plus packed `uint8 replacementRoundingDust`; derive funded value from stored nominal while
+  children evolve, and reject more than three final deal children before reconciliation/mutation.
 - Add production tests for partial/full recovery, repeated loss after payment, full-generation
   reset, over-recovery, reconciliation-only retry, and deficit settlement.
+- Drive the production Ledger and exact rational reference model through the same deterministic
+  entry/claim/recovery/repeated-loss/split sequence and compare every component and payout.
+- Exercise non-integral production/reference splits where independent Q128 upward rounding shifts
+  funded value into gap, including the explicit `nominal=3/assets=2/children=1/1/1` vector;
+  distinguish pre-existing boundary representation error and require the entire split-induced
+  divergence to equal reported replacement dust with no double counting.
+- Prove by arithmetic and production fuzzing over one to three children that zero-history
+  coefficient split divergence is at most `childCount - 1`, every successful split is conservative,
+  both dust identities hold, and aggregate claims cannot capture dust.
+- Pack Boundary mode/precision and Position token/kind/lifecycle/dust fields without changing the
+  public ABI; remove dead/redundant settlement, checkpoint, signature, token, and payout helpers,
+  and return precise amount/allocation/nonclaimable errors.
+- Regress `getPosition` gas under matched cold/warm access after 2 versus 32 positions and 1
+  versus 17 deficit checkpoints, with a 3,000-gas iteration-detecting tolerance.
 
 ### Wave 6 acceptance gate
 
@@ -298,6 +388,10 @@ The candidate is not production-approved until all of the following are complete
    or create order-capture incentives.
 4. Deployment manifests and canary evidence identify the exact recovery policy version.
 
+The capability/manifest preimage must also commit
+`maxBoundaryNominal == type(uint128).max` and match the live Ledger getter. This records the
+closed narrow bound without representing the remaining Q128 gates as complete.
+
 Until then, the source implementation is a review candidate only; no production deployment
 or production-readiness label is permitted.
 - Differential testing against ReferenceRecoveryModel
@@ -311,14 +405,13 @@ Final conformance pass to verify all spec sections are covered.
 ### Contract topology and size remediation (COMPLETED FOR CURRENT CORE-ONLY CANDIDATE)
 - Removed the deployed `CoreSettlement` child and kept the CoreDeployer child order at
   Ledger / Coordinator / Escrow nonces 1-3.
-- Settlement planning is now Core-owned and internal; the resulting Escrow bytecode must
-  remain bound to the sole Ledger as a read-only operation.
-- Current `CoreEscrow` runtime is 24,517 bytes, 59 bytes below the 24,576-byte EIP-170
-  limit. Any future attachment implementation must preserve this limit or reduce the
-  current Core surface before it can be accepted.
-- CoreDeployer now rejects placeholder manifest inputs and verifies reverse links.
+- Settlement planning is exposed as a pure Coordinator operation; the Ledger is custody-only
+  and only Core can supply authenticated terminal evidence.
+- Current `CoreEscrow` runtime is 23,540 bytes, 1,036 bytes below the 24,576-byte EIP-170
+  limit.
+- CoreDeployer now rejects placeholder Intent inputs and verifies reverse links.
 - CoreDeployer deployment is now two-phase: CoreDeployer creation followed by one authorized,
-  atomic triad-finalization transaction. The deployment manifest records both transactions.
+  atomic triad-finalization transaction. Deployment Evidence records both transactions.
 
 ### Changes
 - Conformance matrix: verify every spec section has corresponding tests
@@ -338,7 +431,7 @@ Final conformance pass to verify all spec sections are covered.
 2. **Deficit encoding**: Research-first, followed by a conservative Q128.128 candidate;
    production acceptance remains gated on policy ratification and differential evidence
 3. **Module dispatch**: Deferred to later (Core-only in Phase 1)
-4. **ABI manifest**: Included in Phase 1 (Wave 4)
+4. **Deployment Intent/Evidence**: Included in Phase 1 (Wave 4)
 5. **EVM version**: Shanghai (enables PUSH0 for smaller bytecode)
 6. **Optimizer**: runs=1 (minimize bytecode size)
 7. **via_ir**: true (Yul-based optimizer enabled)
@@ -350,7 +443,7 @@ Final conformance pass to verify all spec sections are covered.
 src/
   CoreEscrow.sol        - Tokenless state machine (Wave 3)
   CreditLedger.sol      - Sole vault with positions (Wave 2)
-  CoreDeployer.sol      - Triad deployment + manifest (Wave 4)
+  CoreDeployer.sol      - Triad deployment + Intent binding (Wave 4)
   Coordinator.sol       - Module admission registry (Wave 1)
   interfaces/
     ICoreEscrow.sol     - Escrow interface (Wave 1)
@@ -374,20 +467,40 @@ src/
 test/
   DealTypes.t.sol           - 8 tests (Wave 1)
   DealHashing.t.sol         - 13 tests (Wave 1)
-  FullMath.t.sol            - 6 tests (Wave 1)
+  FullMath.t.sol            - 11 tests (Wave 1)
   SettlementMath.t.sol      - 8 tests (Wave 1)
-  CreditLedger.t.sol        - 25 tests (Wave 2+6 candidate)
-  DeficitMath.t.sol         - 3 tests (Wave 6 candidate arithmetic)
-  CoreEscrow.t.sol          - 46 tests (Wave 3+4+7)
+  CreditLedger.t.sol        - 64 tests (Wave 2+6 candidate + boundary cap)
+  CreditLedgerRecoveryDifferential.t.sol - 12 tests (differential + dust fuzz + rollback + O(1) gas)
+  DeficitMath.t.sol         - 5 tests (Wave 6 arithmetic + reachable split bound/edge fuzz)
+  CoreEscrow.t.sol          - 68 tests (Wave 3+4+7)
+  CoreDeployer.t.sol        - 12 tests (Wave 4+7)
   Coordinator.t.sol         - 3 tests (Wave 7)
   ExactERC20.t.sol          - 7 tests (Wave 7)
   SignatureValidation.t.sol - 5 tests (Wave 7)
   ReferenceRecoveryModel.t.sol - 11 tests (pre-existing)
   IndexedRecoveryModel.t.sol - 9 tests (Wave 5)
+  LiveChain.t.sol           - 12 tests (live-chain identity)
+  CanonicalEvents.t.sol     - 4 tests (event payload/cardinality checks)
+  DeadlineRaces.t.sol       - 5 tests (boundary timestamp checks)
+  HashVectors.t.sol         - 2 tests (independent Intent/Evidence vectors)
+  StatusFourMatrix.t.sol    - 5 tests (status-four no-effect retries)
+  TerminalPlanning.t.sol    - 1 test (pure planner/coalescing)
+  Total                     - 265 tests
+  vectors/
+    FullMathVectors.sol     - Generated independent mulDiv vectors
   helpers/
     MockERC20.sol
     FeeOnTransferToken.sol
     RevertingReceiver.sol
     ReferenceRecoveryModel.sol
     IndexedRecoveryModel.sol
+```
+
+### Tooling Files
+```
+tools/
+  generate_full_math_vectors.py - Independent FullMath vector generator
+  check_q128_boundary_bound.py  - Dependency-free initial Q128 boundary proof checker
+docs/security/
+  Q128_BOUNDARY_BOUND.md        - Initial single-position bound and explicit remaining gates
 ```

@@ -4,3 +4,5 @@ broadcast/
 .env
 .DS_Store
 deploy.toml
+.venv-slither/
+__pycache__/

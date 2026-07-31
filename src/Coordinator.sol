@@ -2,7 +2,13 @@
 pragma solidity ^0.8.24;
 
 import {ICoordinator} from "./interfaces/ICoordinator.sol";
-import {ModuleBinding} from "./libraries/DealTypes.sol";
+import {
+    ModuleBinding,
+    TerminalAllocation,
+    TerminalPlanContext,
+    TerminalRecord
+} from "./libraries/DealTypes.sol";
+import {TerminalPlanning} from "./libraries/TerminalPlanning.sol";
 import {
     Unauthorized,
     ZeroAddress,
@@ -11,12 +17,13 @@ import {
     ModuleBindingMismatch
 } from "./libraries/CoreErrors.sol";
 
-/// @notice Module admission registry for future activations per MANDATORY_CORE.md §8.3.
+/// @notice Module admission registry plus immutable static planning per MANDATORY_CORE.md §8.3.
 /// @dev Admitted tuples may change only for future deals; active snapshots are immutable.
+///      Planning helpers are pure and MUST NOT read `_allowed` or `owner`.
 contract Coordinator is ICoordinator {
     uint64 public immutable chainId;
     address public immutable escrow;
-    address public owner;
+    address public immutable owner;
 
     mapping(bytes32 => bool) internal _allowed;
 
@@ -26,8 +33,9 @@ contract Coordinator is ICoordinator {
     }
 
     constructor(uint64 chainId_, address escrow_, address owner_) {
+        if (block.chainid > type(uint64).max) revert InvalidChainId();
+        if (block.chainid != uint256(chainId_)) revert InvalidChainId();
         if (escrow_ == address(0) || owner_ == address(0)) revert ZeroAddress();
-        if (chainId_ != uint64(block.chainid)) revert InvalidChainId();
         chainId = chainId_;
         escrow = escrow_;
         owner = owner_;
@@ -50,6 +58,62 @@ contract Coordinator is ICoordinator {
 
     function isAllowed(ModuleBinding calldata binding) external view returns (bool) {
         return _allowed[_key(binding)];
+    }
+
+    /// @notice Pure deal-terminal planner for Core settlement and off-chain verification.
+    /// @dev Does not read admission state or owner; cannot rewrite active obligations.
+    function planDealTerminal(
+        uint64 chainId_,
+        uint32 protocolVersion_,
+        address escrow_,
+        address ledger_,
+        bytes32 dealId,
+        address token,
+        uint256 principal,
+        uint256 completionFee,
+        address holderReceiver,
+        address providerReceiver,
+        address completionFeeRecipient,
+        bytes32 termsHash,
+        bytes32 modulesHash,
+        bytes32 custodyBoundaryId,
+        uint8 terminalState,
+        uint8 outcome,
+        uint16 providerBps,
+        bytes32 evidenceHash,
+        uint64 terminatedAt
+    )
+        external
+        pure
+        returns (
+            TerminalRecord memory terminalRecord,
+            bytes32 terminalHash,
+            TerminalAllocation[] memory allocations
+        )
+    {
+        return TerminalPlanning.plan(
+            chainId_,
+            protocolVersion_,
+            escrow_,
+            ledger_,
+            dealId,
+            TerminalPlanContext({
+                token: token,
+                principal: principal,
+                completionFee: completionFee,
+                holderReceiver: holderReceiver,
+                providerReceiver: providerReceiver,
+                completionFeeRecipient: completionFeeRecipient,
+                termsHash: termsHash,
+                modulesHash: modulesHash,
+                custodyBoundaryId: custodyBoundaryId
+            }),
+            terminalState,
+            outcome,
+            providerBps,
+            evidenceHash,
+            terminatedAt
+        );
     }
 
     function allow(ModuleBinding calldata binding) external onlyOwner {

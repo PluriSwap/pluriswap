@@ -98,7 +98,7 @@ library FundingSourceMode {
 // ──────────────────────────────────────────────────────────────────────────────
 
 library PositionKind {
-    uint8 constant Deal = 1;
+    uint8 constant ActiveDeal = 1;
     uint8 constant ActivationFee = 2;
     uint8 constant DealTerminal = 3;
     uint8 constant Reservation = 4;
@@ -333,6 +333,37 @@ struct PositionPayoutResult {
     uint256 nominalRemaining;
 }
 
+/// @notice Canonical materialized accounting components for one Ledger position.
+struct DeficitComponents {
+    uint256 nominalUnits;
+    uint256 nominalRemaining;
+    uint256 paidAssets;
+    uint256 fundedEntitlement;
+    uint256 unfundedGap;
+}
+
+/// @notice Canonical position identity, lifecycle, accounting, and boundary checkpoint view.
+/// @dev `replaced` distinguishes an authorized terminal-replacement tombstone from ordinary
+///      payout consumption; its components contain the immutable child-sum snapshot, while
+///      `replacementRoundingDust` reports the bounded split-induced funded-to-gap shift.
+struct PositionView {
+    bytes32 positionId;
+    bool exists;
+    bool consumed;
+    bool replaced;
+    uint256 replacementRoundingDust;
+    uint8 kind;
+    bytes32 sourceId;
+    bytes32 terminalHash;
+    address beneficiary;
+    address token;
+    DeficitComponents components;
+    uint256 deficitHistory;
+    uint256 deficitGeneration;
+    bytes32 boundaryCheckpointId;
+    uint8 boundaryMode;
+}
+
 /// @notice Terminal allocation — coalesced output for settlement.
 struct TerminalAllocation {
     address beneficiary;
@@ -340,27 +371,17 @@ struct TerminalAllocation {
     bytes32 positionId;
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Deployment manifest per MANDATORY_CORE.md §13
-// ──────────────────────────────────────────────────────────────────────────────
-
-bytes32 constant MANIFEST_SCHEMA_ID = keccak256("pluriswap.mandatory-core.manifest.v1");
-uint16 constant MANIFEST_SCHEMA_VERSION = 1;
-uint8 constant DEPLOYMENT_KIND_MANDATORY_CORE = 1;
-
-/// @notice Off-chain manifest fields that cannot be computed on-chain.
-struct CoreManifestOffchain {
-    bytes32 buildHash;
-    bytes32 deploymentMethodHash;
-    bytes32 coreDeployerArtifactHash;
-    bytes32 factoryArtifactHash;
-    bytes32 ledgerArtifactHash;
-    bytes32 coordinatorArtifactHash;
-    bytes32 escrowArtifactHash;
-    bytes32 capabilityHash;
-    bytes32 governanceHash;
-    bytes32 verificationHash;
-    bytes32 predecessorManifestHash;
+/// @notice Compact deal snapshot for pure terminal planning (not full Deal storage).
+struct TerminalPlanContext {
+    address token;
+    uint256 principal;
+    uint256 completionFee;
+    address holderReceiver;
+    address providerReceiver;
+    address completionFeeRecipient;
+    bytes32 termsHash;
+    bytes32 modulesHash;
+    bytes32 custodyBoundaryId;
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

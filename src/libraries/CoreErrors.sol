@@ -15,6 +15,7 @@ error DealExists();
 error InvalidState();
 error InvalidTiming();
 error Unauthorized();
+error Reentrancy();
 error TerminalDeal();
 error ProfileNotSelected();
 
@@ -27,6 +28,7 @@ error FundingFailed();
 error InvalidTokenList();
 error InvalidPayoutAction();
 error InvalidAmount();
+error BoundaryNominalLimitExceeded(uint256 currentNominal, uint256 addedUnits, uint256 maxNominal);
 
 // ── Module ────────────────────────────────────────────────────────────────────
 error ModuleNotAllowed();
@@ -44,7 +46,6 @@ error InvalidPositionKind();
 error PositionIdCollision();
 
 // ── Reconciliation / deficit ──────────────────────────────────────────────────
-error ReconciliationFailed(uint8 status);
 error BoundaryInDeficit();
 error DeficitNotActive();
 error QuarantineInsufficient();

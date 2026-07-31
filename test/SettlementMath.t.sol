@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
-import {SettlementMath} from "../src/libraries/SettlementMath.sol";
+import {SettlementMath, Overflow} from "../src/libraries/SettlementMath.sol";
 import {FullMath} from "../src/libraries/FullMath.sol";
 
 contract SettlementMathWrapper {
@@ -58,7 +58,7 @@ contract SettlementMathTest is Test {
     }
 
     function test_checkedAdd64_overflow() public {
-        vm.expectRevert();
+        vm.expectRevert(Overflow.selector);
         wrapper.tryCheckedAdd64(type(uint64).max, 1);
     }
 }

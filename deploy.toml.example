@@ -19,17 +19,16 @@ deployment_operator = ""
 charter_hash = ""
 tech_spec_hash = ""
 
-# Required V1 manifest preimages (all must be exact nonzero bytes32 hashes)
+# Required CoreDeploymentIntent preimages (all must be exact nonzero bytes32 hashes)
 build_hash = ""
-deployment_method_hash = ""
-deployer_artifact_hash = ""
-factory_artifact_hash = ""
-ledger_artifact_hash = ""
-coordinator_artifact_hash = ""
-escrow_artifact_hash = ""
+planned_deployment_method_hash = ""
+deployer_creation_code_hash = ""
+factory_creation_code_hash = ""
+ledger_creation_code_hash = ""
+coordinator_creation_code_hash = ""
+escrow_creation_code_hash = ""
 capability_hash = ""
 governance_hash = ""
-verification_hash = ""
 
 # CREATE2 salt for CoreDeployer (0x-prefixed bytes32).
 # Same salt + constructor args => same CoreDeployer / Ledger / Coordinator / Escrow addresses

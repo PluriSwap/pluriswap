@@ -68,5 +68,5 @@ interface ICoreEscrow {
     function DOMAIN_SEPARATOR() external view returns (bytes32);
     function charterHash() external view returns (bytes32);
     function techSpecHash() external view returns (bytes32);
-    function manifestHash() external view returns (bytes32);
+    function intentHash() external view returns (bytes32);
 }

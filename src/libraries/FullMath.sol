@@ -42,6 +42,7 @@ library FullMath {
             }
             // Subtract remainder from prod1:prod0
             assembly ("memory-safe") {
+                prod1 := sub(prod1, gt(remainder, prod0))
                 prod0 := sub(prod0, remainder)
             }
 
@@ -65,17 +66,13 @@ library FullMath {
 
             // Invert denominator mod 2^256 using Newton-Raphson iteration.
             // This computes denominator^(-1) mod 2^256.
-            uint256 inv = (3 * denominator) ^ 2;
-            inv *= 2 - denominator * inv; // converges 0.5 bits per step
-            inv *= 2 - denominator * inv; // 1 bit
-            inv *= 2 - denominator * inv; // 2 bits
-            inv *= 2 - denominator * inv; // 4 bits
-            inv *= 2 - denominator * inv; // 8 bits
-            inv *= 2 - denominator * inv; // 16 bits
-            inv *= 2 - denominator * inv; // 32 bits
-            inv *= 2 - denominator * inv; // 64 bits
-            inv *= 2 - denominator * inv; // 128 bits
-            inv *= 2 - denominator * inv; // 256 bits
+            uint256 inv = (3 * denominator) ^ 2; // correct modulo 2^4
+            inv *= 2 - denominator * inv; // correct modulo 2^8
+            inv *= 2 - denominator * inv; // correct modulo 2^16
+            inv *= 2 - denominator * inv; // correct modulo 2^32
+            inv *= 2 - denominator * inv; // correct modulo 2^64
+            inv *= 2 - denominator * inv; // correct modulo 2^128
+            inv *= 2 - denominator * inv; // correct modulo 2^256
 
             result = prod0 * inv;
             return result;

@@ -1,0 +1,9 @@
+{
+  "detectors_to_run": "all",
+  "detectors_to_exclude": "naming-convention",
+  "exclude_dependencies": true,
+  "exclude_informational": false,
+  "exclude_low": false,
+  "exclude_medium": false,
+  "exclude_high": false
+}

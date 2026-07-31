@@ -2,7 +2,6 @@
 pragma solidity ^0.8.24;
 
 import {ICreditLedger} from "./interfaces/ICreditLedger.sol";
-import {ICoreEscrow} from "./interfaces/ICoreEscrow.sol";
 import {IERC20} from "./interfaces/IERC20.sol";
 import {ExactERC20} from "./libraries/ExactERC20.sol";
 import {DealHashing} from "./libraries/DealHashing.sol";
@@ -11,11 +10,11 @@ import {DeficitMath} from "./libraries/DeficitMath.sol";
 import {
     FundingSpec,
     FundingAuth,
+    DeficitComponents,
+    PositionView,
     PositionPayoutAuth,
     PositionPayoutResult,
     TerminalAllocation,
-    TerminalRecord,
-    Deal,
     FundingPurpose,
     FundingSourceMode,
     PositionKind,
@@ -23,7 +22,6 @@ import {
     ReconciliationStatus,
     PayoutResultCode
 } from "./libraries/DealTypes.sol";
-import {SettlementMath} from "./libraries/SettlementMath.sol";
 import {
     BoundaryInDeficit,
     Expired,
@@ -35,8 +33,8 @@ import {
     PositionAlreadyConsumed,
     PositionNotFound,
     PositionNotClaimable,
+    PositionNotSplittable,
     InvalidPositionKind,
-    ReconciliationFailed,
     SelfReceiver,
     Unauthorized,
     ZeroAddress,
@@ -46,8 +44,10 @@ import {
     InvalidChainId,
     InvalidRecoveryAmount,
     RecoveryExceedsGap,
+    Reentrancy,
     DeficitNotActive,
-    PositionIdCollision
+    PositionIdCollision,
+    BoundaryNominalLimitExceeded
 } from "./libraries/CoreErrors.sol";
 
 /// @notice Sole physical vault for all Core positions per MANDATORY_CORE.md §3, §4, §8.2.
@@ -55,6 +55,10 @@ import {
 ///      overpay a position or make claim order economically favorable.
 contract CreditLedger is ICreditLedger {
     using ExactERC20 for IERC20;
+
+    uint256 public constant MAX_BOUNDARY_NOMINAL = type(uint128).max;
+
+    uint256 internal constant MAX_DEAL_TERMINAL_CHILDREN = 3;
 
     // ── EIP-712 ────────────────────────────────────────────────────────────────
 
@@ -66,17 +70,23 @@ contract CreditLedger is ICreditLedger {
     bytes32 private constant _PAYOUT_AUTH_TYPEHASH = keccak256(
         "PositionPayoutAuth(uint8 action,address token,bytes32 positionId,address beneficiary,address to,uint256 maxAmount,uint256 nonce,uint64 expiry)"
     );
+    bytes32 internal constant BOUNDARY_CHECKPOINT_V1_TYPEHASH = keccak256(
+        "BoundaryCheckpointV1(uint64 chainId,address ledger,address token,uint256 accountedAssets,uint256 nominalOutstanding,uint256 deficitNominalUnits,uint256 deficitPaidAssets,uint256 deficitGapCoefficient,uint256 deficitHistoryScale,uint256 deficitHistoryTotal,uint256 deficitGeneration,uint256 deficitRoundingDust,bool deficitPrecisionFloor)"
+    );
 
     // ── Immutables ──────────────────────────────────────────────────────────────
 
     address public immutable escrow;
+    address public immutable coordinator;
     uint64 public immutable chainId;
     bytes32 public immutable DOMAIN_SEPARATOR;
 
     // ── Boundary state ─────────────────────────────────────────────────────────
 
     struct Boundary {
-        uint8 mode; // 0=HEALTHY, 1=DEFICIT
+        // Packed flags: mode (0=HEALTHY, 1=DEFICIT) and precision policy share one slot.
+        uint8 mode;
+        bool deficitPrecisionFloor;
         uint256 accountedAssets;
         uint256 nominalOutstanding;
         uint256 quarantinedSurplus;
@@ -87,7 +97,6 @@ contract CreditLedger is ICreditLedger {
         uint256 deficitHistoryTotal;
         uint256 deficitGeneration;
         uint256 deficitRoundingDust;
-        bool deficitPrecisionFloor;
     }
 
     mapping(address token => Boundary) internal _boundaries;
@@ -96,16 +105,25 @@ contract CreditLedger is ICreditLedger {
 
     struct Position {
         uint256 nominal;
-        uint8 kind; // PositionKind
         bytes32 sourceId;
         bytes32 terminalHash;
         address beneficiary;
+        // Packed identity/lifecycle slot: token, kind, flags, and bounded replacement dust.
         address token;
+        uint8 kind; // PositionKind
         bool exists;
         bool consumed;
+        bool replaced;
+        uint8 replacementRoundingDust;
         uint256 deficitPaidAssets;
         uint256 deficitHistory;
         uint256 deficitGeneration;
+        uint256 replacementGap;
+    }
+
+    struct SplitTotals {
+        uint256 gap;
+        uint256 childCount;
     }
 
     mapping(bytes32 => Position) internal _positions;
@@ -119,8 +137,13 @@ contract CreditLedger is ICreditLedger {
 
     uint256 private _locked = 1;
 
+    modifier liveChain() {
+        _requireLiveChain();
+        _;
+    }
+
     modifier nonReentrant() {
-        require(_locked == 1, "REENTRANCY");
+        if (_locked != 1) revert Reentrancy();
         _locked = 2;
         _;
         _locked = 1;
@@ -131,22 +154,27 @@ contract CreditLedger is ICreditLedger {
         _;
     }
 
-    constructor(address escrow_, uint64 chainId_) {
-        if (escrow_ == address(0)) revert ZeroAddress();
-        if (chainId_ != uint64(block.chainid)) revert InvalidChainId();
+    function _requireLiveChain() private view {
+        if (block.chainid != uint256(chainId)) revert InvalidChainId();
+    }
+
+    constructor(address escrow_, address coordinator_, uint64 chainId_) {
+        if (block.chainid > type(uint64).max) revert InvalidChainId();
+        if (block.chainid != uint256(chainId_)) revert InvalidChainId();
+        if (escrow_ == address(0) || coordinator_ == address(0)) revert ZeroAddress();
         escrow = escrow_;
+        coordinator = coordinator_;
         chainId = chainId_;
         DOMAIN_SEPARATOR = keccak256(
             abi.encode(_TYPE_HASH, _NAME_HASH, _VERSION_HASH, uint256(chainId_), address(this))
         );
     }
 
-    receive() external payable {
-        revert();
-    }
-
-    fallback() external payable {
-        revert();
+    function _validatePayoutReceiver(address receiver) private view {
+        if (receiver == address(0)) revert ZeroAddress();
+        if (receiver == address(this) || receiver == escrow || receiver == coordinator) {
+            revert SelfReceiver();
+        }
     }
 
     // ── Reconciliation ─────────────────────────────────────────────────────────
@@ -168,7 +196,8 @@ contract CreditLedger is ICreditLedger {
                 b.accountedAssets,
                 b.accountedAssets,
                 b.quarantinedSurplus - (actualRaw - expectedRaw),
-                b.quarantinedSurplus
+                b.quarantinedSurplus,
+                _boundaryCheckpointId(token, b)
             );
             return ReconciliationStatus.SurplusQuarantined;
         }
@@ -195,7 +224,8 @@ contract CreditLedger is ICreditLedger {
                 b.accountedAssets,
                 b.accountedAssets,
                 quarantinedBefore,
-                b.quarantinedSurplus
+                b.quarantinedSurplus,
+                _boundaryCheckpointId(token, b)
             );
             return ReconciliationStatus.QuarantineLossAbsorbed;
         }
@@ -204,7 +234,8 @@ contract CreditLedger is ICreditLedger {
         // checkpoint; the irreversible mode is never cleared.
         uint256 accountedBefore = b.accountedAssets;
         b.accountedAssets = accountedBefore - residualLoss;
-        if (b.mode == BoundaryMode.Deficit) {
+        bool enteredDeficit = b.mode != BoundaryMode.Deficit;
+        if (!enteredDeficit) {
             _applyLossCheckpoint(b, accountedBefore, b.accountedAssets);
         } else {
             b.mode = BoundaryMode.Deficit;
@@ -216,7 +247,9 @@ contract CreditLedger is ICreditLedger {
             b.deficitHistoryScale = DeficitMath.SCALE;
             b.deficitHistoryTotal = 0;
             b.deficitPrecisionFloor = false;
+            _refreshRoundingDust(b);
         }
+        bytes32 checkpointId = _boundaryCheckpointId(token, b);
         emit BoundaryReconciled(
             token,
             ReconciliationStatus.DeficitCheckpointed,
@@ -225,9 +258,27 @@ contract CreditLedger is ICreditLedger {
             accountedBefore,
             b.accountedAssets,
             quarantinedBefore,
-            b.quarantinedSurplus
+            b.quarantinedSurplus,
+            checkpointId
         );
-        emit DeficitEntered(token, b.deficitNominalUnits, b.accountedAssets);
+        if (enteredDeficit) {
+            emit DeficitEntered(token, b.deficitNominalUnits, b.accountedAssets);
+        } else {
+            emit LossCheckpointed(
+                token,
+                checkpointId,
+                b.accountedAssets,
+                b.nominalOutstanding,
+                b.deficitNominalUnits,
+                b.deficitPaidAssets,
+                b.deficitGapCoefficient,
+                b.deficitHistoryScale,
+                b.deficitHistoryTotal,
+                b.deficitGeneration,
+                b.deficitRoundingDust,
+                b.deficitPrecisionFloor
+            );
+        }
         return ReconciliationStatus.DeficitCheckpointed;
     }
 
@@ -266,7 +317,7 @@ contract CreditLedger is ICreditLedger {
         FundingAuth calldata activationFeeFundingAuth,
         bytes calldata principalFundingSig,
         bytes calldata activationFeeFundingSig
-    ) external nonReentrant onlyEscrow returns (uint8 reconciliationStatus) {
+    ) external liveChain nonReentrant onlyEscrow returns (uint8 reconciliationStatus) {
         uint8 status = _reconcile(token);
         if (
             status == ReconciliationStatus.DeficitCheckpointed
@@ -289,10 +340,7 @@ contract CreditLedger is ICreditLedger {
         );
 
         if (activationFee > 0) {
-            if (activationFeeRecipient == address(0)) revert ZeroAddress();
-            if (activationFeeRecipient == address(this) || activationFeeRecipient == escrow) {
-                revert SelfReceiver();
-            }
+            _validatePayoutReceiver(activationFeeRecipient);
             _validateFundingRequest(
                 termsHash,
                 token,
@@ -303,6 +351,10 @@ contract CreditLedger is ICreditLedger {
                 activationFee
             );
         }
+
+        _enforceBoundaryNominalLimit(
+            token, principalFunding, principal, activationFeeFunding, activationFee
+        );
 
         // Execute only after all request/auth/source checks have passed.
         _executeFunding(
@@ -339,13 +391,13 @@ contract CreditLedger is ICreditLedger {
         // Create DEAL position
         bytes32 dealPosId = DealHashing.positionId(
             DealHashing.custodyBoundaryId(chainId, 2, address(this), token),
-            PositionKind.Deal,
+            PositionKind.ActiveDeal,
             dealId,
             bytes32(0),
             address(0)
         );
         _createPosition(
-            dealPosId, PositionKind.Deal, dealId, bytes32(0), address(0), token, principal
+            dealPosId, PositionKind.ActiveDeal, dealId, bytes32(0), address(0), token, principal
         );
 
         emit DealFunded(dealId, token, principal, activationFee);
@@ -400,7 +452,35 @@ contract CreditLedger is ICreditLedger {
             if (sourcePos.token != token) revert FundingSpecMismatch();
             if (_boundaries[token].mode == BoundaryMode.Deficit) revert BoundaryInDeficit();
             if (sourcePos.beneficiary != spec.authority) revert Unauthorized();
-            if (sourcePos.nominal < expectedAmount) revert PositionNotFound();
+            if (sourcePos.nominal < expectedAmount) revert InvalidAmount();
+        }
+    }
+
+    function _enforceBoundaryNominalLimit(
+        address token,
+        FundingSpec calldata principalFunding,
+        uint256 principal,
+        FundingSpec calldata activationFeeFunding,
+        uint256 activationFee
+    ) private view {
+        uint256 addedUnits = 0;
+        if (principalFunding.sourceMode == FundingSourceMode.WalletPull) {
+            addedUnits = principal;
+        }
+        if (activationFee > 0 && activationFeeFunding.sourceMode == FundingSourceMode.WalletPull) {
+            if (addedUnits > type(uint256).max - activationFee) {
+                addedUnits = type(uint256).max;
+            } else {
+                addedUnits += activationFee;
+            }
+        }
+
+        uint256 currentNominal = _boundaries[token].nominalOutstanding;
+        if (
+            currentNominal > MAX_BOUNDARY_NOMINAL
+                || addedUnits > MAX_BOUNDARY_NOMINAL - currentNominal
+        ) {
+            revert BoundaryNominalLimitExceeded(currentNominal, addedUnits, MAX_BOUNDARY_NOMINAL);
         }
     }
 
@@ -426,106 +506,6 @@ contract CreditLedger is ICreditLedger {
         _fundingNonceUsed[auth.authority][purpose][auth.nonce] = true;
     }
 
-    function planSettlement(
-        bytes32 dealId,
-        uint8 terminalState,
-        uint8 outcome,
-        uint16 providerBps,
-        uint64 terminatedAt
-    )
-        external
-        view
-        onlyEscrow
-        returns (
-            TerminalRecord memory terminalRecord,
-            bytes32 terminalHash,
-            TerminalAllocation[] memory allocations
-        )
-    {
-        Deal memory d = ICoreEscrow(escrow).getDeal(dealId);
-        (uint256 holderGross, uint256 providerGross) =
-            SettlementMath.split(d.principal, providerBps);
-        uint256 completionCollected =
-            SettlementMath.completionCollected(d.completionFee, providerGross);
-        uint256 providerNet;
-        unchecked {
-            providerNet = providerGross - completionCollected;
-        }
-
-        terminalRecord = TerminalRecord({
-            chainId: chainId,
-            protocolVersion: 2,
-            escrow: escrow,
-            ledger: address(this),
-            dealId: dealId,
-            terminalState: terminalState,
-            outcome: outcome,
-            operatorFaultCode: 0,
-            operatorFaultEvidenceHash: bytes32(0),
-            token: d.token,
-            principal: d.principal,
-            holderSideReturn: holderGross,
-            providerGross: providerGross,
-            providerNet: providerNet,
-            completionCollected: completionCollected,
-            operatorFeePaid: 0,
-            operatorFeeUnlocked: 0,
-            holderReceiver: d.holderReceiver,
-            providerReceiver: d.providerReceiver,
-            completionFeeRecipient: d.completionFeeRecipient,
-            operatorFeeRecipient: address(0),
-            operatorFeeReturnReceiver: address(0),
-            termsHash: d.termsHash,
-            modulesHash: d.modulesHash,
-            evidenceHash: bytes32(0),
-            reservationsHash: bytes32(0),
-            reservationDispositionsHash: bytes32(0),
-            terminatedAt: terminatedAt
-        });
-        terminalHash = DealHashing.hashTerminalRecord(terminalRecord);
-        uint256 count;
-        if (holderGross > 0) ++count;
-        if (providerNet > 0) ++count;
-        if (completionCollected > 0) ++count;
-        allocations = new TerminalAllocation[](count);
-        uint256 index;
-        if (holderGross > 0) {
-            allocations[index++] = _terminalAllocation(
-                d.custodyBoundaryId, dealId, terminalHash, d.holderReceiver, holderGross
-            );
-        }
-        if (providerNet > 0) {
-            allocations[index++] = _terminalAllocation(
-                d.custodyBoundaryId, dealId, terminalHash, d.providerReceiver, providerNet
-            );
-        }
-        if (completionCollected > 0) {
-            allocations[index] = _terminalAllocation(
-                d.custodyBoundaryId,
-                dealId,
-                terminalHash,
-                d.completionFeeRecipient,
-                completionCollected
-            );
-        }
-    }
-
-    function _terminalAllocation(
-        bytes32 boundaryId,
-        bytes32 dealId,
-        bytes32 terminalHash,
-        address beneficiary,
-        uint256 amount
-    ) private pure returns (TerminalAllocation memory) {
-        return TerminalAllocation({
-            beneficiary: beneficiary,
-            amount: amount,
-            positionId: DealHashing.positionId(
-                boundaryId, PositionKind.DealTerminal, dealId, terminalHash, beneficiary
-            )
-        });
-    }
-
     // ── Escrow-only: settlement ──────────────────────────────────────────────────
 
     function settleDealAndReservations(
@@ -534,6 +514,10 @@ contract CreditLedger is ICreditLedger {
         bytes32 terminalHash,
         TerminalAllocation[] calldata allocations
     ) external nonReentrant onlyEscrow returns (uint8 reconciliationStatus) {
+        // The planner returns only final nonzero allocations, bounded by the three deal outputs.
+        // Reject malformed over-count input before reconciliation or replacement can mutate state.
+        if (allocations.length > MAX_DEAL_TERMINAL_CHILDREN) revert PositionNotSplittable();
+
         uint8 status = _reconcile(token);
         if (status == ReconciliationStatus.DeficitCheckpointed) {
             return status;
@@ -543,109 +527,72 @@ contract CreditLedger is ICreditLedger {
         bytes32 boundaryId = DealHashing.custodyBoundaryId(chainId, 2, address(this), token);
 
         // Find and consume DEAL position
-        bytes32 dealPosId =
-            DealHashing.positionId(boundaryId, PositionKind.Deal, dealId, bytes32(0), address(0));
+        bytes32 dealPosId = DealHashing.positionId(
+            boundaryId, PositionKind.ActiveDeal, dealId, bytes32(0), address(0)
+        );
         Position storage dealPos = _positions[dealPosId];
         if (!dealPos.exists) revert PositionNotFound();
         if (dealPos.consumed) revert PositionAlreadyConsumed();
 
         uint256 dealNominal = dealPos.nominal;
-        uint256 parentHistory =
-            dealPos.deficitGeneration == b.deficitGeneration ? dealPos.deficitHistory : 0;
-        uint256 parentGeneration = b.mode == BoundaryMode.Deficit ? b.deficitGeneration : 0;
-        uint256 childHistoryTotal;
+        if (dealPos.deficitPaidAssets != 0 || dealPos.deficitHistory != 0) {
+            revert PositionNotSplittable();
+        }
+        uint256 preSplitGap = DeficitMath.factorUp(b.deficitGapCoefficient, dealNominal);
+        SplitTotals memory childTotals = SplitTotals({gap: 0, childCount: 0});
 
         // Consume deal position
         dealPos.consumed = true;
+        dealPos.replaced = true;
+        dealPos.terminalHash = terminalHash;
         b.nominalOutstanding -= dealNominal;
+        emit PositionConsumed(dealPosId);
 
         // Create terminal positions (coalesced by beneficiary within this deal)
-        uint256 totalAllocated;
+        uint256 totalAllocated = 0;
         for (uint256 i; i < allocations.length; ++i) {
             TerminalAllocation calldata alloc = allocations[i];
             if (alloc.amount == 0) continue;
-            if (alloc.beneficiary == address(0)) revert ZeroAddress();
-            if (alloc.beneficiary == address(this) || alloc.beneficiary == escrow) {
-                revert SelfReceiver();
-            }
+            _validatePayoutReceiver(alloc.beneficiary);
 
             bytes32 termPosId = DealHashing.positionId(
                 boundaryId, PositionKind.DealTerminal, dealId, terminalHash, alloc.beneficiary
             );
             if (alloc.positionId != termPosId) revert PositionIdCollision();
-            Position storage existing = _positions[termPosId];
-            if (existing.exists && !existing.consumed) {
-                // Coalesce: add to existing terminal position
-                existing.nominal += alloc.amount;
-                if (b.mode == BoundaryMode.Deficit && parentHistory != 0) {
-                    uint256 childHistory =
-                        _scaledHistory(b, parentHistory, alloc.amount, dealNominal);
-                    if (existing.deficitGeneration != parentGeneration) {
-                        existing.deficitGeneration = parentGeneration;
-                        existing.deficitHistory = childHistory;
-                    } else if (existing.deficitHistory > type(uint256).max - childHistory) {
-                        existing.deficitHistory = type(uint256).max;
-                        b.deficitPrecisionFloor = true;
-                    } else {
-                        existing.deficitHistory += childHistory;
-                    }
-                    if (childHistoryTotal > type(uint256).max - childHistory) {
-                        childHistoryTotal = type(uint256).max;
-                        b.deficitPrecisionFloor = true;
-                    } else {
-                        childHistoryTotal += childHistory;
-                    }
-                }
-            } else if (!existing.exists) {
-                _createPosition(
-                    termPosId,
-                    PositionKind.DealTerminal,
-                    dealId,
-                    terminalHash,
-                    alloc.beneficiary,
-                    token,
-                    alloc.amount
-                );
-                if (b.mode == BoundaryMode.Deficit && parentHistory != 0) {
-                    Position storage created = _positions[termPosId];
-                    created.deficitGeneration = parentGeneration;
-                    created.deficitHistory =
-                        _scaledHistory(b, parentHistory, alloc.amount, dealNominal);
-                    uint256 childHistory = created.deficitHistory;
-                    if (childHistoryTotal > type(uint256).max - childHistory) {
-                        childHistoryTotal = type(uint256).max;
-                        b.deficitPrecisionFloor = true;
-                    } else {
-                        childHistoryTotal += childHistory;
-                    }
-                }
-            } else {
-                // Consumed tombstone with same id: collision
-                revert PositionAlreadyExists();
-            }
+            _createPosition(
+                termPosId,
+                PositionKind.DealTerminal,
+                dealId,
+                terminalHash,
+                alloc.beneficiary,
+                token,
+                alloc.amount
+            );
+            // Active sources are nonclaimable, so children start at the current global
+            // coefficient with zero paid assets and zero position-local history.
+            childTotals.gap += DeficitMath.factorUp(b.deficitGapCoefficient, alloc.amount);
+            ++childTotals.childCount;
             totalAllocated += alloc.amount;
         }
 
         // Conservation check: total allocated must equal deal nominal
-        if (totalAllocated != dealNominal) revert PositionNotFound(); // allocation mismatch
+        if (totalAllocated != dealNominal) revert PositionNotSplittable();
+        if (childTotals.gap < preSplitGap) revert PositionNotSplittable();
+        uint256 replacementRoundingDust = childTotals.gap - preSplitGap;
+        uint256 replacementRoundingDustBound = 0;
+        if (childTotals.childCount > 0) {
+            replacementRoundingDustBound = childTotals.childCount - 1;
+        }
+        if (replacementRoundingDust > replacementRoundingDustBound) {
+            revert PositionNotSplittable();
+        }
+        dealPos.replacementGap = childTotals.gap;
+        // childCount <= 3 makes the proved childCount - 1 bound at most 2.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        dealPos.replacementRoundingDust = uint8(replacementRoundingDust);
 
         // Terminal positions are matured: add to nominal outstanding
         b.nominalOutstanding += totalAllocated;
-        if (b.mode == BoundaryMode.Deficit && parentHistory != 0) {
-            uint256 historyWithoutParent;
-            if (parentHistory > b.deficitHistoryTotal) {
-                b.deficitPrecisionFloor = true;
-            } else {
-                historyWithoutParent = b.deficitHistoryTotal - parentHistory;
-            }
-            if (childHistoryTotal > type(uint256).max - historyWithoutParent) {
-                b.deficitHistoryTotal = type(uint256).max;
-                b.deficitPrecisionFloor = true;
-            } else {
-                b.deficitHistoryTotal = historyWithoutParent + childHistoryTotal;
-            }
-            _refreshRoundingDust(b);
-        }
 
         emit DealSettled(dealId, token, terminalHash);
         return status;
@@ -670,8 +617,8 @@ contract CreditLedger is ICreditLedger {
                 nominalRemaining: 0
             });
         }
-        if (pos.kind == PositionKind.Deal || pos.kind == PositionKind.Reservation) {
-            revert PositionAlreadyConsumed(); // active positions not withdrawable
+        if (pos.kind == PositionKind.ActiveDeal || pos.kind == PositionKind.Reservation) {
+            revert PositionNotClaimable();
         }
 
         uint256 available = pos.nominal;
@@ -693,6 +640,7 @@ contract CreditLedger is ICreditLedger {
 
     function withdrawPositionTo(PositionPayoutAuth calldata auth, bytes calldata signature)
         external
+        liveChain
         nonReentrant
         returns (PositionPayoutResult memory)
     {
@@ -708,14 +656,13 @@ contract CreditLedger is ICreditLedger {
                 nominalRemaining: 0
             });
         }
-        if (pos.kind == PositionKind.Deal || pos.kind == PositionKind.Reservation) {
-            revert PositionAlreadyConsumed();
+        if (pos.kind == PositionKind.ActiveDeal || pos.kind == PositionKind.Reservation) {
+            revert PositionNotClaimable();
         }
         if (auth.action != 1) revert InvalidPayoutAction();
         if (auth.token != pos.token) revert FundingSpecMismatch();
         if (auth.beneficiary != pos.beneficiary) revert Unauthorized();
-        if (auth.to == address(0)) revert ZeroAddress();
-        if (auth.to == address(this) || auth.to == escrow) revert SelfReceiver();
+        _validatePayoutReceiver(auth.to);
         if (auth.maxAmount == 0) revert InvalidAmount();
         if (block.timestamp >= auth.expiry) revert Expired();
         if (_payoutNonceUsed[auth.beneficiary][auth.action][auth.nonce]) revert NonceUsed();
@@ -750,8 +697,7 @@ contract CreditLedger is ICreditLedger {
         internal
         returns (PositionPayoutResult memory)
     {
-        address token = _tokenOf(positionId);
-        if (token == address(0)) revert PositionNotFound();
+        address token = pos.token;
 
         uint8 status = _reconcile(token);
         if (status == ReconciliationStatus.DeficitCheckpointed) {
@@ -797,22 +743,23 @@ contract CreditLedger is ICreditLedger {
 
     // ── Permissionless boundary checkpoint ──────────────────────────────────────
 
-    function checkpointBoundary(address token) external nonReentrant {
-        if (token == address(0)) revert ZeroAddress();
-        uint8 status = _reconcile(token);
-        if (status != ReconciliationStatus.DeficitCheckpointed) {
-            revert ReconciliationFailed(status);
-        }
-    }
-
-    // ── Deficit recovery ────────────────────────────────────────────────────────
-
-    function depositRecovery(address token, address from, uint256 amount)
+    function checkpointBoundary(address token)
         external
         nonReentrant
         returns (uint8 reconciliationStatus)
     {
-        if (token == address(0) || from == address(0)) revert ZeroAddress();
+        if (token == address(0)) revert ZeroAddress();
+        reconciliationStatus = _reconcile(token);
+    }
+
+    // ── Deficit recovery ────────────────────────────────────────────────────────
+
+    function depositRecovery(address token, uint256 amount)
+        external
+        nonReentrant
+        returns (uint8 reconciliationStatus)
+    {
+        if (token == address(0)) revert ZeroAddress();
         if (amount == 0) revert InvalidRecoveryAmount();
 
         uint8 status = _reconcile(token);
@@ -823,7 +770,7 @@ contract CreditLedger is ICreditLedger {
         uint256 gapBefore = _deficitGap(b);
         if (amount > gapBefore) revert RecoveryExceedsGap();
 
-        IERC20(token).pullExact(from, amount);
+        IERC20(token).pullExact(msg.sender, amount);
         b.accountedAssets += amount;
         _applyRecoveryCheckpoint(b, gapBefore, amount);
         emit RecoveryDeposited(token, amount);
@@ -838,14 +785,16 @@ contract CreditLedger is ICreditLedger {
         Position storage pos = _positions[positionId];
         if (!pos.exists) revert PositionNotFound();
         if (pos.consumed) return _zeroPayout(positionId, pos.beneficiary);
-        if (pos.kind == PositionKind.Deal || pos.kind == PositionKind.Reservation) {
+        if (pos.kind == PositionKind.ActiveDeal || pos.kind == PositionKind.Reservation) {
             revert PositionNotClaimable();
         }
         if (maxAmount == 0) revert InvalidAmount();
 
         uint8 status = _reconcile(pos.token);
         if (status == ReconciliationStatus.DeficitCheckpointed) {
-            return _reconciliationPayout(positionId, pos.beneficiary, status, pos.nominal);
+            return _reconciliationPayout(
+                positionId, pos.beneficiary, status, _deficitNominalRemaining(pos)
+            );
         }
         if (_boundaries[pos.token].mode != BoundaryMode.Deficit) revert DeficitNotActive();
 
@@ -866,20 +815,20 @@ contract CreditLedger is ICreditLedger {
 
     function claimRecoveryTo(PositionPayoutAuth calldata auth, bytes calldata signature)
         external
+        liveChain
         nonReentrant
         returns (PositionPayoutResult memory)
     {
         Position storage pos = _positions[auth.positionId];
         if (!pos.exists) revert PositionNotFound();
         if (pos.consumed) return _zeroPayout(auth.positionId, auth.to);
-        if (pos.kind == PositionKind.Deal || pos.kind == PositionKind.Reservation) {
+        if (pos.kind == PositionKind.ActiveDeal || pos.kind == PositionKind.Reservation) {
             revert PositionNotClaimable();
         }
         if (auth.action != 2) revert InvalidPayoutAction();
         if (auth.token != pos.token) revert FundingSpecMismatch();
         if (auth.beneficiary != pos.beneficiary) revert Unauthorized();
-        if (auth.to == address(0)) revert ZeroAddress();
-        if (auth.to == address(this) || auth.to == escrow) revert SelfReceiver();
+        _validatePayoutReceiver(auth.to);
         if (auth.maxAmount == 0) revert InvalidAmount();
         if (block.timestamp >= auth.expiry) revert Expired();
         if (_payoutNonceUsed[auth.beneficiary][auth.action][auth.nonce]) revert NonceUsed();
@@ -888,7 +837,10 @@ contract CreditLedger is ICreditLedger {
 
         uint8 status = _reconcile(pos.token);
         if (status == ReconciliationStatus.DeficitCheckpointed) {
-            return _reconciliationPayout(auth.positionId, auth.to, status, pos.nominal);
+            return
+                _reconciliationPayout(
+                    auth.positionId, auth.to, status, _deficitNominalRemaining(pos)
+                );
         }
         if (_boundaries[pos.token].mode != BoundaryMode.Deficit) revert DeficitNotActive();
 
@@ -954,16 +906,15 @@ contract CreditLedger is ICreditLedger {
         bytes32 positionId,
         address receiver,
         uint8 status,
-        uint256 nominal
-    ) internal view returns (PositionPayoutResult memory) {
-        Position storage pos = _positions[positionId];
+        uint256 nominalRemaining
+    ) internal pure returns (PositionPayoutResult memory) {
         return PositionPayoutResult({
             code: PayoutResultCode.ReconciliationOnly,
             reconciliationStatus: status,
             positionId: positionId,
             receiver: receiver,
             paidAmount: 0,
-            nominalRemaining: pos.exists ? _deficitNominalRemaining(pos) : nominal
+            nominalRemaining: nominalRemaining
         });
     }
 
@@ -972,17 +923,48 @@ contract CreditLedger is ICreditLedger {
         return pos.nominal - pos.deficitPaidAssets;
     }
 
+    function _positionComponents(Position storage pos, Boundary storage b)
+        internal
+        view
+        returns (DeficitComponents memory components)
+    {
+        components.nominalUnits = pos.nominal;
+        if (pos.replaced) {
+            components.nominalRemaining = pos.nominal;
+            components.unfundedGap = pos.replacementGap;
+            components.fundedEntitlement =
+                DeficitMath.funded(components.unfundedGap, components.nominalRemaining);
+            return components;
+        }
+
+        if (b.mode != BoundaryMode.Deficit) {
+            components.nominalRemaining = pos.nominal;
+            components.fundedEntitlement = pos.nominal;
+            return components;
+        }
+
+        components.nominalRemaining = _deficitNominalRemaining(pos);
+        components.paidAssets = pos.deficitPaidAssets;
+        uint256 history = pos.deficitGeneration == b.deficitGeneration ? pos.deficitHistory : 0;
+        components.unfundedGap = DeficitMath.gap(
+            b.deficitGapCoefficient, b.deficitHistoryScale, history, components.nominalRemaining
+        );
+        components.fundedEntitlement =
+            DeficitMath.funded(components.unfundedGap, components.nominalRemaining);
+    }
+
     function _deficitPayable(Position storage pos, uint256 maxAmount)
         internal
         view
         returns (uint256)
     {
         Boundary storage b = _boundaries[pos.token];
-        uint256 unpaid = _deficitNominalRemaining(pos);
+        uint256 nominalRemaining = _deficitNominalRemaining(pos);
         uint256 history = pos.deficitGeneration == b.deficitGeneration ? pos.deficitHistory : 0;
-        uint256 gapAmount =
-            DeficitMath.gap(b.deficitGapCoefficient, b.deficitHistoryScale, history, unpaid);
-        uint256 fundedAmount = DeficitMath.funded(gapAmount, unpaid);
+        uint256 gapAmount = DeficitMath.gap(
+            b.deficitGapCoefficient, b.deficitHistoryScale, history, nominalRemaining
+        );
+        uint256 fundedAmount = DeficitMath.funded(gapAmount, nominalRemaining);
         if (fundedAmount > b.accountedAssets) fundedAmount = b.accountedAssets;
         if (maxAmount == type(uint256).max || maxAmount > fundedAmount) return fundedAmount;
         return maxAmount;
@@ -1018,15 +1000,7 @@ contract CreditLedger is ICreditLedger {
         b.nominalOutstanding -= amount;
         _refreshRoundingDust(b);
 
-        if (_deficitNominalRemaining(pos) == 0) {
-            uint256 remainingGap = DeficitMath.gap(
-                b.deficitGapCoefficient,
-                b.deficitHistoryScale,
-                pos.deficitHistory,
-                _deficitNominalRemaining(pos)
-            );
-            if (remainingGap == 0) pos.consumed = true;
-        }
+        if (_deficitNominalRemaining(pos) == 0) pos.consumed = true;
 
         IERC20(pos.token).pushExact(receiver, amount);
         emit RecoveryClaimed(positionId, receiver, amount);
@@ -1045,18 +1019,6 @@ contract CreditLedger is ICreditLedger {
         uint256 paidAndAssets = b.deficitPaidAssets + b.accountedAssets;
         if (paidAndAssets >= b.deficitNominalUnits) return 0;
         return b.deficitNominalUnits - paidAndAssets;
-    }
-
-    function _scaledHistory(
-        Boundary storage b,
-        uint256 history,
-        uint256 childNominal,
-        uint256 parentNominal
-    ) internal returns (uint256) {
-        (uint256 scaled, bool saturated) =
-            DeficitMath.mulDivUpSaturated(history, childNominal, parentNominal);
-        if (saturated) b.deficitPrecisionFloor = true;
-        return scaled;
     }
 
     function _applyLossCheckpoint(Boundary storage b, uint256 fundedBefore, uint256 assetsAfter)
@@ -1140,31 +1102,50 @@ contract CreditLedger is ICreditLedger {
             token: token,
             exists: true,
             consumed: false,
+            replaced: false,
             deficitPaidAssets: 0,
             deficitHistory: 0,
-            deficitGeneration: 0
+            deficitGeneration: 0,
+            replacementGap: 0,
+            replacementRoundingDust: 0
         });
         emit PositionCreated(positionId, kind, beneficiary, nominal);
     }
 
-    /// @dev Get the token for a position (stored in the Position struct).
-    function _tokenOf(bytes32 positionId) internal view returns (address) {
-        return _positions[positionId].token;
-    }
-
-    function _verifySigner(address expected, bytes32 digest_, bytes calldata signature)
+    function _boundaryCheckpointId(address token, Boundary storage b)
         internal
         view
+        returns (bytes32)
     {
-        if (!SignatureValidation.isValid(expected, digest_, signature)) {
-            revert FundingAuthInvalid();
-        }
+        if (b.mode != BoundaryMode.Deficit) return bytes32(0);
+        return keccak256(
+            abi.encode(
+                BOUNDARY_CHECKPOINT_V1_TYPEHASH,
+                chainId,
+                address(this),
+                token,
+                b.accountedAssets,
+                b.nominalOutstanding,
+                b.deficitNominalUnits,
+                b.deficitPaidAssets,
+                b.deficitGapCoefficient,
+                b.deficitHistoryScale,
+                b.deficitHistoryTotal,
+                b.deficitGeneration,
+                b.deficitRoundingDust,
+                b.deficitPrecisionFloor
+            )
+        );
     }
 
     // ── Views ───────────────────────────────────────────────────────────────────
 
     function boundaryMode(address token) external view returns (uint8) {
         return _boundaries[token].mode;
+    }
+
+    function boundaryCheckpointId(address token) external view returns (bytes32) {
+        return _boundaryCheckpointId(token, _boundaries[token]);
     }
 
     function accountedAssets(address token) external view returns (uint256) {
@@ -1215,13 +1196,40 @@ contract CreditLedger is ICreditLedger {
         return _boundaries[token].deficitPrecisionFloor;
     }
 
+    function getPosition(bytes32 positionId) external view returns (PositionView memory position) {
+        position.positionId = positionId;
+        Position storage stored = _positions[positionId];
+        if (!stored.exists) return position;
+
+        Boundary storage b = _boundaries[stored.token];
+        position.exists = true;
+        position.consumed = stored.consumed;
+        position.replaced = stored.replaced;
+        position.replacementRoundingDust = uint256(stored.replacementRoundingDust);
+        position.kind = stored.kind;
+        position.sourceId = stored.sourceId;
+        position.terminalHash = stored.terminalHash;
+        position.beneficiary = stored.beneficiary;
+        position.token = stored.token;
+        position.components = _positionComponents(stored, b);
+        position.deficitHistory = stored.deficitHistory;
+        position.deficitGeneration = stored.deficitGeneration;
+        position.boundaryCheckpointId = _boundaryCheckpointId(stored.token, b);
+        position.boundaryMode = b.mode;
+    }
+
     function positionExists(bytes32 positionId) external view returns (bool) {
         return _positions[positionId].exists;
     }
 
     function positionNominal(bytes32 positionId) external view returns (uint256) {
+        return _positions[positionId].nominal;
+    }
+
+    function positionNominalRemaining(bytes32 positionId) external view returns (uint256) {
         Position storage pos = _positions[positionId];
         if (!pos.exists) return 0;
+        if (pos.replaced) return pos.nominal;
         if (_boundaries[pos.token].mode == BoundaryMode.Deficit) {
             return _deficitNominalRemaining(pos);
         }
@@ -1238,5 +1246,9 @@ contract CreditLedger is ICreditLedger {
 
     function positionConsumed(bytes32 positionId) external view returns (bool) {
         return _positions[positionId].consumed;
+    }
+
+    function positionTerminalHash(bytes32 positionId) external view returns (bytes32) {
+        return _positions[positionId].terminalHash;
     }
 }

@@ -37,7 +37,11 @@ There is no separate effective 0.2.0/0.2.1 candidate. This unratified working ca
 
 ### 0.3 Existing artifacts and deployments
 
-The current pre-remediation contracts are not production-deployable under this specification. Any existing instance with Escrow-held principal, general recovery-unit reallocation, ordinal terminal classification, unconditional extension stubs, or cumulative-distributable deficit accounting is experimental and non-conforming for production Mandatory Core.
+Any experimental predecessor instance with Escrow-held principal, general recovery-unit
+reallocation, ordinal terminal classification, unconditional extension stubs, or
+cumulative-distributable deficit accounting is not production-deployable under this specification.
+The current remediation candidate is evaluated by its own immutable artifact and release evidence;
+completion of individual Core-only fixes does not ratify still-unimplemented named profile edges.
 
 The triad has no upgrade path. Such an instance cannot be upgraded or migrated in place. A conforming release requires new bytecode, a new immutable manifest and deployment identity, and explicit user opt-in. No production-conformance claim is valid before protocol ratification and release evidence satisfy `PROTOCOL.md` §§24–25.
 
@@ -46,6 +50,7 @@ The triad has no upgrade path. Such an instance cannot be upgraded or migrated i
 Acceptance is artifact- and evidence-based; historical task numbers are not normative:
 
 - `test/helpers/ReferenceRecoveryModel.sol` is the required independent rational model for §4. Its differential vectors and the implementation under test MUST satisfy §15.2 before a production recovery encoding is accepted.
+- `docs/security/Q128_BOUNDARY_BOUND.md` and `tools/check_q128_boundary_bound.py` derive and check the initial single-position Q128 materialization bound under the §2.2 boundary cap and the reachable zero-history terminal-replacement `childCount - 1` bound. They close only those scoped blockers; they do not satisfy the repeated-checkpoint, saturation, dust-exhaustion, fairness, or independent-review gates.
 - The API artifacts under `src/interfaces/` MUST preserve §8 and pass the token/signature, module, reservation, terminal-record, and deployment gates in §§15.3–15.6 before their selectors, errors, and events are treated as frozen.
 - `docs/superpowers/specs/2026-07-29-core-architecture-immutability-design.md` §11 supplies the architecture conformance checkpoints. This document §§14–15 supplies the executable invariants and acceptance evidence.
 - `docs/superpowers/plans/2026-07-29-mandatory-core-foundry.md` is superseded in full. Only its leading status and current-authorities notice identifies the replacement documents; none of its numbered tasks or retained body is an acceptance gate.
@@ -105,7 +110,8 @@ Deployment MUST revert on a wrong chain, unsupported protocol version, zero/plac
 
 | Quantity | Domain |
 | --- | --- |
-| Token amounts and nominal units | `uint256` token-smallest units |
+| Token, fee, payout, and position nominal fields | `uint256` token-smallest units |
+| Aggregate nominal exposure per `(chain, version, Ledger, token)` boundary | `0..type(uint128).max` token-smallest units |
 | Basis points | `uint16` in `0..10_000` |
 | Durations | positive `uint64` seconds |
 | Timestamps/deadlines | `uint64` Unix seconds |
@@ -114,6 +120,14 @@ Deployment MUST revert on a wrong chain, unsupported protocol version, zero/plac
 | Deal and content identities | `bytes32` |
 
 Timestamp addition MUST detect `uint64` overflow. Multiplication/division that can overflow a `uint256` intermediate MUST use full-precision `mulDiv` semantics.
+
+Every timestamp/deadline and timeout-liveness guarantee in this specification is scoped to
+`block.timestamp <= type(uint64).max`. While the current chain timestamp is representable, an
+unrepresentable downstream deadline rejects the transition that would establish it before any state
+change; another fallback remains available only if its state/timing predicates hold and its own
+timestamp write is still representable. Once `block.timestamp > type(uint64).max`, every action that
+would write an origin, deadline, or terminal timestamp rejects. In particular, the specification
+does not claim that a timeout remains executable beyond that horizon.
 
 ### 2.2 Core bounds
 
@@ -127,10 +141,11 @@ MAX_EXTENSION_BYTES_PER_DEAL = 16_384 aggregate
 MAX_RESERVATIONS_PER_DEAL     = 8
 MAX_RULES_PER_RESERVATION     = 16
 MAX_OUTPUTS_PER_RESERVATION   = 2
+MAX_BOUNDARY_NOMINAL          = type(uint128).max = 2^128 - 1
 BPS_DENOMINATOR               = 10_000
 ```
 
-Bindings are sorted and unique by role, so work remains bounded even when all slots are populated. Changing these limits changes technical semantics and requires a new candidate/deployment identity.
+Bindings are sorted and unique by role, so work remains bounded even when all slots are populated. `MAX_BOUNDARY_NOMINAL` applies independently to each §3.1 boundary and does not narrow any `uint256` ABI or storage field. Changing these limits changes technical semantics and requires a new candidate/deployment identity.
 
 ### 2.3 Deal states
 
@@ -309,9 +324,10 @@ nominalOutstanding   // healthy-mode unpaid liabilities
 quarantinedSurplus   // raw positive deltas not attributed to positions
 deficitNominalUnits  // fixed total at deficit entry
 checkpoint identity/generation
+MAX_BOUNDARY_NOMINAL = 2^128 - 1
 ```
 
-`DEFICIT` is irreversible. A fully refilled gap does not restore `HEALTHY` and does not permit new exposure.
+At every reachable checkpoint, `nominalOutstanding <= MAX_BOUNDARY_NOMINAL`. The limit is fixed for the exact §3.1 boundary identity; another token address has an independent boundary and limit. `DEFICIT` is irreversible. A fully refilled gap does not restore `HEALTHY` and does not permit new exposure.
 
 ### 3.3 Position kinds
 
@@ -325,7 +341,7 @@ Ledger uses these closed immutable identity kinds:
 5 RESERVATION_TERMINAL
 ```
 
-Kinds `1` and `4` are active and not withdrawable. Kinds `2`, `3`, and `5` are matured beneficiary positions; their fixed beneficiary is both the default receiver and payout authority, while only a typed §6.7 authorization may select another receiver. Consumption is lifecycle state retained as a tombstone, not another identity kind.
+Kinds `1` and `4` are active and not withdrawable. Kinds `2`, `3`, and `5` are matured beneficiary positions; their fixed beneficiary is both the default receiver and payout authority, while only a typed §6.7 authorization may select another receiver. Consumption is lifecycle state retained as a tombstone, not another identity kind. When settlement consumes an active deal or reservation position, that source tombstone stores the canonical terminal hash that authorized its replacement positions.
 
 Every position id is:
 
@@ -354,9 +370,48 @@ The exact preimages are:
 
 Healthy activation creates one `DEAL` position exactly equal to principal. A nonzero activation fee creates one separate fully funded `ACTIVATION_FEE` position from its separately authorized exact funding.
 
-Healthy terminal settlement consumes one `DEAL` position and first coalesces the holder, provider-net, and completion-fee allocations by equal beneficiary address; it creates at most one `DEAL_TERMINAL` position per nonzero coalesced beneficiary. Each reservation similarly coalesces its own nonzero outputs before creating at most one `RESERVATION_TERMINAL` position per beneficiary. No coalescing occurs across different deals, between activation fee and terminal value, between deal and reservation value, or across different reservations. Thus source attribution and deficit components remain independently reconstructable.
+Healthy terminal planning coalesces the holder, provider-net, and completion-fee allocations by equal beneficiary address before the stateful settlement call; settlement then consumes one `DEAL` position and creates at most one `DEAL_TERMINAL` position per nonzero final beneficiary. Each reservation similarly coalesces its own nonzero outputs before creating at most one `RESERVATION_TERMINAL` position per beneficiary. No coalescing occurs across different deals, between activation fee and terminal value, between deal and reservation value, or across different reservations. Thus source attribution and deficit components remain independently reconstructable.
 
-A derived id that is already live or consumed rejects creation. An exact repeated preimage is an attempted replay, not an instruction to add liability; a distinct preimage producing the same id is a collision and also rejects. Consumed tombstones are never deleted or reusable. Zero allocations create no position. Within one successful settlement only the specified same-source beneficiary coalescing occurs before ids are derived.
+A derived id that is already live or consumed rejects creation. An exact repeated preimage is an attempted replay, not an instruction to add liability; a distinct preimage producing the same id is a collision and also rejects. The stateful deal-settlement command accepts only the final pre-coalesced allocation array and enforces at most three entries before reconciliation or replacement mutation; a duplicate beneficiary/target id or over-count array rejects atomically rather than topping up or creating children. Consumed tombstones are never deleted or reusable. Zero allocations create no position. Within one successful settlement only the specified same-source beneficiary coalescing occurs before ids are derived.
+
+The canonical typed position query is `getPosition(positionId) -> PositionView`. Its
+`DeficitComponents` contains `nominalUnits`, `nominalRemaining`, `paidAssets`,
+`fundedEntitlement`, and `unfundedGap`; the enclosing view also returns `positionId`, explicit
+`exists`, `consumed`, and `replaced` lifecycle flags, direct `replacementRoundingDust`, the
+remaining identity fields, raw position deficit history/generation, and the position token's
+current boundary mode/checkpoint id. A missing query echoes the requested value in `positionId`,
+sets `exists`, `consumed`, and `replaced` to false, and returns canonical zero for every other
+stored or materialized field.
+
+In `HEALTHY`, the components are `(current stored nominal, current stored nominal, 0, current
+stored nominal, 0)`. Thus a successful healthy partial withdrawal or same-vault debit reduces
+both nominal fields exactly as it reduces the live stored position. In `DEFICIT`,
+`nominalUnits` is the stored fixed nominal and does not decrease on claims;
+`nominalRemaining = nominalUnits - paidAssets`. Funded entitlement and unfunded gap are
+materialized read-only from the same current boundary index and position history used by claims,
+without independently capping the reported funded component by aggregate boundary assets. Every
+deficit view therefore preserves `nominalUnits = paidAssets + fundedEntitlement + unfundedGap`.
+Prior paid assets are final. A fully paid deficit tombstone retains its fixed nominal and
+identity with zero remaining/funded/gap; active `DEAL` and `RESERVATION` positions may expose
+components but remain non-claimable. `positionNominal` is the stored-nominal compatibility
+getter, while `positionNominalRemaining` is the currently unpaid-nominal getter. For a replaced
+source it is the frozen replacement-time remaining nominal retained for provenance, not a
+currently claimable amount. `replacementRoundingDust` is zero for every non-replaced position.
+All of these queries are O(1), perform no position iteration, and mutate no position or checkpoint
+state.
+
+Authorized terminal reassignment sets `consumed = true` and `replaced = true` on each source
+`DEAL` or `RESERVATION` tombstone. `replaced` is explicit state, not an inferred terminal-hash
+sentinel; ordinary payout consumption leaves it false. After all child histories are fixed and
+their integer components are materialized, Ledger freezes the source gap to the sum of child
+gaps, derives source funded value from stored nominal minus that gap, and stores
+`replacementRoundingDust` as the conservative funded-to-gap shift defined in §4.6. Thus the
+observable replaced source equals the final child sums exactly at replacement. `getPosition`
+returns that child-sum snapshot forever even after later recovery, loss, child claims, generation
+resets, or boundary checkpoint changes, while still returning current boundary
+mode/checkpoint metadata. Pre-split components reconstruct as
+`preSplitFunded = frozenFunded + replacementRoundingDust` and
+`preSplitGap = frozenGap - replacementRoundingDust`.
 
 ### 3.4 Healthy invariants
 
@@ -366,6 +421,7 @@ After each reconciled healthy action:
 accountedAssets == nominalOutstanding
 raw token balance == accountedAssets + quarantinedSurplus
 sum(live unpaid position amounts) == nominalOutstanding
+nominalOutstanding <= MAX_BOUNDARY_NOMINAL
 CoreEscrow token balance == 0
 ```
 
@@ -375,7 +431,11 @@ An unexplained positive raw delta increases only `quarantinedSurplus`. It does n
 
 ## 4. Irreversible checkpointed deficit semantics
 
-This section defines observable exact-model semantics. The independent rational model at `test/helpers/ReferenceRecoveryModel.sol` MUST prove any global-index/generation encoding equivalent under the §15.2 differential gate. This candidate intentionally does not prescribe an unproven Solidity index formula.
+This section defines observable exact-model semantics. The independent rational model at
+`test/helpers/ReferenceRecoveryModel.sol` MUST prove any global-index/generation encoding
+equivalent under the §15.2 differential gate. The narrow initial-coefficient result below is
+proved, but this candidate does not treat the complete Solidity index/generation formula as
+accepted before the remaining gate passes.
 
 ### 4.1 Deficit entry
 
@@ -397,6 +457,21 @@ unfundedGap_i        = nominalUnits_i - fundedEntitlement_i
 
 Pre-deficit successful transfers are closed history and excluded from `N`. Active deals remain deal-owned and cannot claim before terminal reassignment.
 
+For the production candidate's first Q128 deficit checkpoint, let `S = 2^128`, exact loss
+`L = N - A`, coefficient `a = ceil(L*S/N)`, and the one-position materialized gap
+`G = min(N, ceil(a*N/S))`. Because §2.2 requires `N <= S - 1`, the ceiling definition gives
+`L <= a*N/S < L + N/S < L + 1`, hence `0 <= G - L <= 1` smallest token unit. At the cap,
+a one-unit exact loss materializes as two gap units, funded entitlement is `N - 2`, assets are
+`N - 1`, and `deficitRoundingDust = A - (N - G) = 1`. Ledger MUST refresh and store that dust
+after initializing the first deficit coefficient and before deriving `boundaryCheckpointId` or
+emitting either status-`4` record. Without the cap, `N = type(uint256).max` would materialize that
+loss as `2^128` gap units. The complete derivation and executable reduced-domain checks are in
+`docs/security/Q128_BOUNDARY_BOUND.md` and `tools/check_q128_boundary_bound.py`.
+
+This initial result does not prove repeated loss/recovery checkpoints, claim history, or saturation.
+The separately scoped reachable active-source replacement bound is proved in §4.6 and the same
+security note; the complete encoding remains release-gated under §15.2.
+
 For every position and checkpoint:
 
 ```text
@@ -404,7 +479,12 @@ nominalUnits_i =
   paidAssets_i + fundedEntitlement_i + unfundedGap_i
 ```
 
-The sum of nominal units never changes after entry. Position identities may be replaced only by an authorized whole-position terminal split of a deal or reservation that conserves every component.
+The sum of nominal units never changes after entry. Position identities may be replaced only by
+an authorized whole-position terminal split of a deal or reservation. The exact rational oracle
+conserves every component; production integer children may conservatively shift only the bounded
+§4.6 `replacementRoundingDust` from funded value to gap. The consumed source retains the explicit
+immutable child-sum snapshot and dust; subsequent boundary evolution affects only its live
+descendants.
 
 ### 4.2 Raw-balance reconciliation
 
@@ -480,13 +560,81 @@ BoundaryReconciled(
 )
 ```
 
-The accepted interface artifacts may choose the Solidity event name/indexing only after the §§15.2–15.3 gates pass, but this field meaning and emission cardinality are normative. Statuses `1`, `3`, and `4` emit; `UNCHANGED` emits nothing and status `2` is invalid. For status `3`, before/after accounted assets and checkpoint id are identical, and no `DeficitEntered` or `LossCheckpointed` record emits. If the continuing outer action later reverts, this surplus-accounting update and event revert with it; the next reconciliation observes the delta again. A standalone `checkpointBoundary` or successful outer action persists it.
+The checkpoint identity domain and field order are exact:
+
+```text
+BOUNDARY_CHECKPOINT_V1_TYPEHASH =
+  keccak256("BoundaryCheckpointV1(uint64 chainId,address ledger,address token,uint256 accountedAssets,uint256 nominalOutstanding,uint256 deficitNominalUnits,uint256 deficitPaidAssets,uint256 deficitGapCoefficient,uint256 deficitHistoryScale,uint256 deficitHistoryTotal,uint256 deficitGeneration,uint256 deficitRoundingDust,bool deficitPrecisionFloor)")
+
+boundaryCheckpointId(token) =
+  bytes32(0)                                                        if mode == HEALTHY
+  keccak256(abi.encode(
+    BOUNDARY_CHECKPOINT_V1_TYPEHASH,
+    chainId,
+    address(Ledger),
+    token,
+    accountedAssets,
+    nominalOutstanding,
+    deficitNominalUnits,
+    deficitPaidAssets,
+    deficitGapCoefficient,
+    deficitHistoryScale,
+    deficitHistoryTotal,
+    deficitGeneration,
+    deficitRoundingDust,
+    deficitPrecisionFloor
+  ))                                                                if mode == DEFICIT
+```
+
+`quarantinedSurplus` is deliberately excluded: status `1` or `3` quarantine-only accounting cannot change checkpoint identity. Status `1` and `3` events carry the unchanged current identity, while status `4` carries the post-loss identity.
+
+The accepted interface fixes the status-`4` transition records:
+
+```text
+DeficitEntered(
+  address indexed token,
+  uint256 nominalUnits,
+  uint256 assets
+)
+
+LossCheckpointed(
+  address indexed token,
+  bytes32 indexed checkpointId,
+  uint256 accountedAssets,
+  uint256 nominalOutstanding,
+  uint256 deficitNominalUnits,
+  uint256 deficitPaidAssets,
+  uint256 deficitGapCoefficient,
+  uint256 deficitHistoryScale,
+  uint256 deficitHistoryTotal,
+  uint256 deficitGeneration,
+  uint256 deficitRoundingDust,
+  bool deficitPrecisionFloor
+)
+```
+
+For a `HEALTHY -> DEFICIT` transition, Ledger first initializes every deficit field, including
+`deficitRoundingDust`, derives the post-transition checkpoint id, emits `BoundaryReconciled`, then
+emits exactly one `DeficitEntered`; it MUST NOT emit `LossCheckpointed`. For a later status-`4`
+loss, Ledger first applies the complete checkpoint and dust update, derives the new id, emits
+`BoundaryReconciled`, then emits exactly one `LossCheckpointed` carrying the post-loss checkpoint
+preimage fields; it MUST NOT emit `DeficitEntered`. This order lets indexers treat
+`BoundaryReconciled` as the canonical reconciliation record while using the second typed record to
+distinguish entry from an appended loss.
+
+Statuses `1`, `3`, and `4` emit `BoundaryReconciled`; `UNCHANGED` emits nothing and status `2`
+cannot be produced by the closed reconciler. For status `3`, before/after accounted assets and
+checkpoint id are identical, and neither `DeficitEntered` nor `LossCheckpointed` emits. If the
+continuing outer action later reverts, its surplus-accounting update and event revert with it; the
+next reconciliation observes the delta again. A successful outer action persists its
+reconciliation. Standalone `checkpointBoundary(token)` succeeds, returns, and persists every valid
+status `0`, `1`, `3`, or `4`; status `0` emits no reconciliation event.
 
 For a sorted multi-boundary preflight, Ledger reconciles every listed boundary before movement. Overall status is `4` if any boundary returns `4`, else `3` if any returns `3`, else `1` if any returns `1`, else `0`; per-token records preserve each individual status. Overall status `4` stops the whole requested action. Statuses `0`, `1`, and `3` continue.
 
 `DEFICIT_CHECKPOINTED` (`4`) MUST stop the requested value movement before any token call, position ownership change, action nonce consumption, or Core state/terminal write. The reconciliation-only transaction succeeds and returns/emits typed status `4` so the deficit checkpoint persists. The caller may retry against the new state.
 
-When a Core preflight receives status `4`, Core MUST leave its deal state, terminal record, action nonce, and signatures unconsumed, return status `4`, and MUST NOT revert or wrap it in a revert. A wrapper that reverts successful status `4` is non-conforming because it would roll back the deficit checkpoint.
+When a Core preflight receives status `4`, Core MUST leave its deal state, terminal record, action nonce, and signatures unconsumed, return status `4`, and MUST NOT revert or wrap it in a revert. Ledger MUST likewise leave the active source position unconsumed with zero terminal-hash provenance and create no terminal position. A wrapper that reverts successful status `4` is non-conforming because it would roll back the deficit checkpoint.
 
 On retry:
 
@@ -494,7 +642,7 @@ On retry:
 - a healthy withdrawal observes `DEFICIT` and returns the typed `DEFICIT_CLAIM_REQUIRED` result without a push;
 - recovery deposit proceeds only through §4.4;
 - deficit claim materializes from the new checkpoint under §4.5; and
-- terminal settlement uses the component-conserving §4.6 path.
+- terminal settlement uses the conservative, bounded, dust-reporting §4.6 path.
 
 All distinct boundaries for one atomic multi-token activation are reconciled before the first pull or position split. Status `4` in any one of them yields one reconciliation-only result and no funding in any boundary. A token transfer failure after status `0`, `1`, or `3` remains an ordinary atomic failure; no newly discovered deficit transition is being relied on in that call.
 
@@ -535,7 +683,7 @@ This transformation affects only unpaid funded value. Prior successful payments 
 
 ### 4.4 Exact attributable recovery
 
-`depositRecovery(token, from, amount)` is the only path that classifies a positive transfer as recovery.
+`depositRecovery(token, amount)` is the only path that classifies a positive transfer as recovery. It is caller-funded: Ledger exact-pulls only from `msg.sender`, and there is no relayed donor or caller-selected `from` mode.
 
 Preconditions:
 
@@ -543,7 +691,7 @@ Preconditions:
 - boundary is already `DEFICIT`;
 - `amount > 0`;
 - `amount <= G`, where `G = Σ unfundedGap_i`;
-- exact §5.2 Ledger pull from the depositor to Ledger succeeds; and
+- exact §5.2 Ledger pull from the calling depositor (`msg.sender`) to Ledger succeeds; and
 - the depositor receives no position, units, receiver authority, or priority.
 
 The exact checkpoint transformation for recovery `R = amount` is:
@@ -598,7 +746,10 @@ G_d = unfundedGap_d
 F_d + G_d = N_d
 ```
 
-Core supplies the holder, provider-net, and completion-fee nominal allocations. Ledger coalesces allocations with the same beneficiary before component splitting, yielding at most three nonzero child amounts `n_j` with `Σ n_j = N_d`; the terminal record retains the uncoalesced semantic breakdown.
+Core supplies the holder, provider-net, and completion-fee semantic amounts. Ledger's Escrow-only
+read-only planner coalesces equal beneficiaries before returning the final allocation array,
+yielding `m <= 3` nonzero child amounts `n_j` with `Σ n_j = N_d`; the terminal record retains the
+uncoalesced semantic breakdown. The exact rational oracle splits:
 
 For each child position:
 
@@ -609,21 +760,114 @@ fundedEntitlement_j  = F_d * n_j / N_d
 unfundedGap_j        = G_d * n_j / N_d
 ```
 
-The original deal position becomes consumed. No token transfer, unit creation, general beneficiary-to-beneficiary reallocation, or per-child checkpoint rounding occurs.
+Those exact rational children conserve every component. Production Q128.128 materialization is
+intentionally more conservative. Active `DEAL` and `RESERVATION` sources cannot claim, so Ledger
+enforces `paidAssets_d == 0` and position-local history `h_d == 0` before terminal replacement.
+There is no reachable parent-history scaling path. Each child starts with zero paid assets and
+zero local history and therefore inherits the current boundary's global coefficient directly.
 
-An active reservation position uses the identical transformation with `N_r`, `F_r`, and `G_r` after coalescing equal beneficiaries within that reservation, with at most the two nonzero §8.5 disposition amounts whose sum is `N_r`. Deal and reservation positions are materialized against the same current boundary checkpoint before splitting.
+Let `S = 2^128` and `a` be the current gap coefficient, with `0 <= a <= S`. Production computes:
+
+```text
+G_pre = ceil(a * N_d / S)
+g_j = ceil(a * n_j / S)
+
+G_children = Σ g_j
+F_children = N_d - G_children
+D_replace  = G_children - G_pre
+```
+
+A successful settlement requires `G_children >= G_pre` and
+`D_replace <= m - 1`. Otherwise it rejects atomically before retaining any tombstone or child.
+The lower-side guard is retained as a fail-closed conservative invariant even though the reachable
+zero-history proof below establishes it mathematically. Ledger then freezes the replaced source
+view as:
+
+```text
+nominalUnits              = N_d
+nominalRemaining          = N_d
+paidAssets                = 0
+fundedEntitlement         = F_children
+unfundedGap               = G_children
+replacementRoundingDust   = D_replace
+```
+
+Thus the frozen source equals the sum of the final integer child components exactly. Its
+pre-split materialization is reconstructable without ambiguity:
+
+```text
+F_pre = fundedEntitlement + replacementRoundingDust
+G_pre = unfundedGap - replacementRoundingDust
+```
+
+The bound is the standard ceiling-partition inequality. Set `x_j = a*n_j/S`. Since
+`Σn_j = N_d`:
+
+```text
+ceil(Σx_j) <= Σceil(x_j) <= ceil(Σx_j) + (m - 1)
+```
+
+Therefore:
+
+```text
+0 <= G_children - G_pre <= m - 1
+```
+
+Because `a <= S`, each `g_j <= n_j`; no child clamp or history saturation is needed, and
+`G_children <= Σn_j = N_d <= MAX_BOUNDARY_NOMINAL`, so the sum cannot overflow. Nominal
+conservation is the exact allocation check `Σn_j = N_d`, and paid-asset conservation is exact
+because both the nonclaimable source and every child have zero paid assets at replacement.
+
+The frozen source stores only explicit `replaced`, frozen replacement gap, and replacement dust
+state; nominal is already stored and funded value is derived. Deal settlement permits at most
+three final children, so the runtime bound is at most two smallest units.
+`replacementRoundingDust` remains packed as `uint8` storage while `PositionView` widens it to
+`uint256` for ABI clarity.
+
+No child can capture `D_replace`: immediately after replacement the sum of child funded
+entitlements is exactly `F_pre - D_replace`, and claims read only those child entitlements. The
+dust remains conservatively classified as gap. A later exact attributable recovery may fund that
+gap under §4.4; there is no sweep, privileged recipient, or claim-order capture.
+
+An active reservation position uses the identical exact-oracle and conservative-production
+transformations with `N_r`, `F_r`, and `G_r` after coalescing equal beneficiaries within that
+reservation, with at most the two nonzero §8.5 disposition amounts whose sum is `N_r`. Deal and
+reservation positions are materialized against the same current boundary checkpoint before
+splitting.
 
 ### 4.7 Rounding and complexity
 
-- Checkpoint equations above use exact rational semantics.
-- Production arithmetic MUST use proven full-precision indices/generations and `mulDiv`-equivalent floor/ceiling operations.
-- Token payout is the only position-level floor.
-- Stored gap MUST be conservative: representation error may delay dust but MUST NOT permit payment above nominal entitlement.
-- Fractional and integer dust remains publicly attributable to the boundary. There is no sweep, governance recipient, or last-claimer rule.
-- Deficit entry, sync, loss, recovery, claim, and terminal reassignment MUST each be O(1), independent of position count and checkpoint history.
-- Lazy materialization is permitted only if observably identical to the equations and O(1).
+- Checkpoint equations and proportional splits above retain exact rational semantics as the
+  independent oracle.
+- The production candidate uses Q128.128 boundary indices/generations, full-precision
+  `mulDiv`-equivalent floor/ceiling operations, upward gap materialization, and downward derived
+  funded entitlement.
+- `MAX_BOUNDARY_NOMINAL = 2^128 - 1` bounds first-checkpoint single-position materialized gap
+  error to at most one smallest token unit and excludes the prior `uint256`-wide
+  `2^128`-gap one-unit-loss regression.
+- Non-integral production splits need not equal each exact rational child. The complete
+  split-induced aggregate funded-to-gap divergence from the production Q128 pre-split
+  materialization MUST equal the explicit, immutable, bounded `replacementRoundingDust` in §4.6.
+  Pre-existing Q128 checkpoint representation error relative to the exact rational oracle remains
+  separately attributable boundary rounding and is not relabeled as replacement dust.
+- Stored gap MUST remain conservative: representation error may delay value as gap but MUST NOT
+  permit payment above the exact rational entitlement.
+- Fractional and integer dust remains publicly attributable. There is no sweep, governance
+  recipient, or last-claimer rule.
+- Deficit entry, sync, loss, recovery, claim, and each bounded terminal reassignment MUST remain
+  O(1), independent of position count and checkpoint history.
+- Lazy materialization is permitted only under the selected conservative equations and proof
+  bounds above.
 
-No production Solidity implementation of this section is authorized until `test/helpers/ReferenceRecoveryModel.sol` and the implementation agree on every repeated-loss, partial-claim, recovery, split, dust, and claim-order vector required by §15.2.
+The boundary cap and reachable zero-history replacement proof close only those scoped blockers;
+they do not make the Q128 model production-approved. Production acceptance remains subject to the
+remaining Q128 proof gate. Exact-domain vectors MUST agree
+component-for-component with `test/helpers/ReferenceRecoveryModel.sol`; non-integral split vectors
+whose pre-split production materialization agrees with the oracle MUST show only the conservative
+divergence reported by `replacementRoundingDust`. General vectors MUST distinguish pre-existing
+boundary representation error from the split-induced dust, prove the `m-1` bound and
+no-capture property, and satisfy every repeated-loss, partial-claim, recovery, split, dust, and
+claim-order vector required by §15.2.
 
 ---
 
@@ -687,9 +931,9 @@ Source and destination MUST differ. Zero-amount channels skip the token call. Fe
 
 ### 5.4 Receiver restrictions
 
-A fixed beneficiary and every authorized alternate receiver MUST be nonzero and differ from Ledger. Escrow and other protocol custody contracts MUST also be rejected as beneficiary receivers to avoid circular or unpayable protocol positions.
+A fixed beneficiary and every authorized alternate receiver MUST be nonzero and differ from Ledger. Escrow and other protocol custody contracts MUST also be rejected as beneficiary receivers to avoid circular or unpayable protocol positions. Coordinator MUST likewise be rejected as a protocol-internal receiver even though it is non-custodial. Ledger MUST bind the predicted Coordinator as an immutable constructor argument, expose that reverse link, and apply one Ledger/Escrow/Coordinator receiver predicate to activation-fee positions, terminal allocations, healthy signed redirection, and deficit signed redirection.
 
-Native ETH is unsupported; payable fallbacks reject.
+Native ETH is unsupported; Ledger and Escrow expose no payable receive or fallback entry point, so native transfers reject.
 
 ---
 
@@ -716,7 +960,7 @@ chainId           = immutable deployment chain
 verifyingContract = CreditLedger
 ```
 
-The constructor MUST reject if `block.chainid` does not fit the stored domain. Every signed action MUST recheck `block.chainid == chainId`; a fork or chain-id change cannot reuse the cached separator.
+The constructor MUST reject `block.chainid > type(uint64).max` before any narrowing conversion and MUST compare the live `uint256` value against `uint256(chainId)`; comparison only after truncation is forbidden. Every signed action MUST recheck `block.chainid == uint256(chainId)` before validation, signature/token calls, nonce use, or state effects; a fork or chain-id change cannot reuse the cached separator. If child finalization is a separate transaction, `deployTriad` MUST repeat that live-chain check before initcode validation or `CREATE`.
 
 Document version `0.3.0-rc1` is not the EIP-712 protocol version. Deployment address plus immutable `techSpecHash` identify this candidate's code; protocol-domain version remains `"2"`.
 
@@ -863,6 +1107,34 @@ fundingSpecHash = hashStruct(FundingSpec)
 For `WALLET_PULL`, `source == authority`, `sourcePositionId == bytes32(0)`, and Ledger executes `exactTransferFrom(token, source, Ledger, amount)` with both §5.2 deltas. A direct deal requires that address to be `holder`; a pool-origin deal requires it to be the exact §6.10 `pool`. The source's separate `FundingAuth` is required even when allowance exists, so allowance alone remains insufficient. Only after exact receipt does Ledger increase both `accountedAssets` and nominal outstanding by `amount` and allocate that same amount to the new deal or activation-fee position.
 
 For `LEDGER_POSITION`, `sourcePositionId` is nonzero and identifies an existing HEALTHY matured beneficiary position in the same Ledger and token boundary; `source == authority` is its fixed beneficiary/payout authority, and its unpaid amount is at least `amount`. Direct funding requires that address to be `holder`; pool-origin funding requires it to be the exact §6.10 `pool`. Ledger reduces that source position by exactly `amount`, consuming it only when the remainder is zero, and allocates exactly `amount` to the new deal or activation-fee position. No token call occurs and boundary `accountedAssets` and nominal outstanding remain unchanged. Active deal/reservation positions, consumed positions, deficit positions, wrong-token positions, and insufficient positions reject. No mode permits allowance, a pool/module callback, or a caller-supplied address to substitute for signed authority.
+
+After all applicable request, hash, authorization, signature, expiry, nonce-availability, source-mode,
+and source-position validations succeed, but before the first pull, source-position debit,
+funding-nonce use, target-position creation, or funding-accounting mutation, Ledger computes:
+
+```text
+addedUnits =
+  Σ amount for every WALLET_PULL leg in this atomic funding operation
+```
+
+Principal, nonzero activation fee, and each reservation contribute their full amount when their
+source mode is `WALLET_PULL`. Every `LEDGER_POSITION` leg contributes zero because it reassigns
+units already included in the same boundary. Addition is checked; an unrepresentable `uint256`
+sum is treated as arithmetic-invalid and reported as `type(uint256).max` in the typed rejection.
+Ledger then requires:
+
+```text
+nominalOutstanding <= MAX_BOUNDARY_NOMINAL
+addedUnits <= MAX_BOUNDARY_NOMINAL - nominalOutstanding
+```
+
+Failure reverts with
+`BoundaryNominalLimitExceeded(currentNominal, addedUnits, MAX_BOUNDARY_NOMINAL)`. The error is
+evaluated after the required request/auth validation, so an invalid authorization does not become a
+limit error. It is evaluated before any funding leg executes, so a principal-plus-fee aggregate
+crossing, mixed wallet/same-Ledger crossing, or arithmetic-invalid sum cannot partially pull,
+debit, consume a nonce, create a position, or alter funding accounting. At the cap, a valid
+all-`LEDGER_POSITION` reallocation remains permitted. Each token boundary evaluates independently.
 
 All target ids and source sufficiency are checked before the first pull/debit. Across principal, fee, and reservations, every pull/debit/allocation is one atomic Ledger operation: a later failure restores source positions and boundary accounting, rolls back token transfers, creates no target position, and consumes no nonce.
 
@@ -1412,26 +1684,37 @@ Core exposes:
 - deal, state, terms-hash, funding, package-selection/economics/contest, pool-kind/authority/permission, arbitration-terms/open-request/open-result/deadline, reservation-snapshot, module-snapshot, nonce, and immutable-identity views; and
 - stored terminal-record, terminal-hash, and terminal reservation-disposition views.
 
-Core never exposes a generic arbitrary module call or token movement function.
+Core owns terminal settlement authority: it obtains the planned terminal record and coalesced
+allocations from Coordinator's pure `planDealTerminal` helper (which MUST NOT read admission
+state or owner), stores the canonical terminal record, then calls Ledger only to commit custody
+reassignment. Core supplies zero evidence for deterministic outcomes or the evidence it has
+authenticated for the winning action, so no external caller can inject terminal evidence. Core
+never exposes a generic arbitrary module call or token movement function.
 
 ### 8.2 CreditLedger
 
 Ledger exposes:
 
+- `MAX_BOUNDARY_NOMINAL()`, fixed to `type(uint128).max`, as the immutable aggregate nominal limit applied independently to every `(chain, version, Ledger, token)` boundary;
 - `preflightValueAction(tokens[])`, callable only by bound Escrow, to reconcile a bounded sorted/unique set before any stateful module call and return the §4.2 status; `0`, `1`, and `3` continue, `4` returns reconciliation-only, and `2` is invalid;
-- `fundDealAndReservations(...)`, callable only by bound Escrow, to reconcile every touched boundary, validate the exact §6.4 funding specs/authorizations, exact-pull or same-vault debit principal/activation fee/reservations, and create the deterministic §3.3 positions atomically;
-- `settleDealAndReservations(...)`, callable only by bound Escrow, to reconcile and consume/reassign the whole deal position plus every reservation against one stored terminal hash and exact disposition hash;
+- `fundDealAndReservations(...)`, callable only by bound Escrow, to reconcile every touched boundary, validate the exact §6.4 funding specs/authorizations, enforce the aggregate new-wallet-unit limit before any leg executes, exact-pull or same-vault debit principal/activation fee/reservations, and create the deterministic §3.3 positions atomically;
+- `settleDealAndReservations(...)`, callable only by bound Escrow, to reconcile and consume/reassign the whole deal position plus every reservation against one stored terminal hash and exact disposition hash, explicitly mark each source replaced, and freeze its conservative child-sum components plus bounded replacement dust; duplicate allocation beneficiaries/target ids and any existing target tombstone reject;
 - healthy `withdrawPosition(positionId, maxAmount)` and signed `withdrawPositionTo(auth, signature)`, returning §6.7 `PositionPayoutResult`;
-- permissionless `checkpointBoundary(token)`;
-- permissionless `depositRecovery(token, from, amount)`;
+- permissionless `checkpointBoundary(token)`, which returns and persists one of the closed valid reconciliation statuses `0`, `1`, `3`, or `4`; the reconciler cannot produce reserved status `2`;
+- permissionless caller-funded `depositRecovery(token, amount)`, which can exact-pull recovery only from `msg.sender` and exposes no relayed donor mode;
 - permissionless `claimRecovery(positionId, maxAmount)` and signed `claimRecoveryTo(auth, signature)`, returning the same typed result;
-- boundary, position, reservation, accounted-asset, quarantined-surplus, checkpoint, and component views.
+- boundary, reservation, accounted-asset, quarantined-surplus, and exact `boundaryCheckpointId(token)` views;
+- canonical O(1) `getPosition(positionId) -> PositionView` with explicit `positionId` and
+  `replaced` fields plus nested `DeficitComponents`; missing queries echo `positionId` and zero
+  every other field, replaced sources return frozen child-sum components and
+  `replacementRoundingDust`, and scalar compatibility getters retain stored-nominal versus
+  unpaid-nominal semantics.
 
-Ledger MUST NOT expose a module-callable reservation creator/disposer, the old general `credit(...)`, or beneficiary-to-beneficiary `reallocateRecovery(...)` authority. Completion-fee and terminal credits arise only from whole-deal settlement allocations. New healthy fee/reservation positions require exact attributable funding in the same atomic operation.
+Ledger MUST NOT expose terminal business planning, a reverse callback into Core for deal fields, a module-callable reservation creator/disposer, the old general `credit(...)`, or beneficiary-to-beneficiary `reallocateRecovery(...)` authority. Completion-fee and terminal credits arise only from whole-deal settlement allocations supplied by Core. New healthy fee/reservation positions require exact attributable funding in the same atomic operation.
 
 ### 8.3 Coordinator
 
-Coordinator exposes complete-binding admission lookup and future-only allow/disallow administration. Administration cannot call Core/Ledger, settle a deal, change a snapshot, or pause an exit.
+Coordinator exposes complete-binding admission lookup, future-only allow/disallow administration, and pure static deal-terminal planning (`planDealTerminal`) that MUST NOT read admission state or owner. Administration cannot call Core/Ledger, settle a deal, change a snapshot, or pause an exit. Planning helpers cannot rewrite active obligations.
 
 ### 8.4 Module API
 
@@ -1664,7 +1947,9 @@ The lifecycle is closed:
 5. a terminal Core path evaluates every stored rule before terminal commit; only mutual split may supply a signed `MUTUAL_AUTH` disposition, while cancel/release use immutable rules; and
 6. `settleDealAndReservations` consumes each reservation once, coalesces equal beneficiaries within that reservation only, and reassigns its existing healthy amount or deficit components into the deterministic §3.3 output positions.
 
-No terminal module callback exists. A reservation in `DEFICIT` uses the same component-conserving split as §4.6. A reservation never mints units at disposition, and an unresolved reservation cannot be claimed.
+No terminal module callback exists. A reservation in `DEFICIT` uses the same exact-oracle /
+conservative-production split and bounded replacement-dust policy as §4.6. A reservation never
+mints units at disposition, and an unresolved reservation cannot be claimed.
 
 ---
 
@@ -1674,14 +1959,19 @@ No terminal module callback exists. A reservation in `DEFICIT` uses the same com
 
 Activation MUST:
 
-1. enter a Core reentrancy guard;
-2. verify live chain and protocol version;
+1. verify live chain and protocol version;
+2. enter a Core reentrancy guard;
 3. require unexpired creation authorization;
-4. validate positive principal, distinct nonzero parties, receivers, token, exact funding-spec preimages/hashes, separate funding signatures/nonces/expiries, and source-mode constraints;
+4. validate positive principal, distinct nonzero parties, nonzero receivers, token, positive Core
+   durations, `0..10_000` residual bps, fee recipients, the completion-fee principal cap, and
+   Core/profile field consistency;
 5. reject Ledger/Escrow/protocol-custody receivers;
-6. validate positive Core durations, `0..10_000` residual bps, and checked deadlines;
-7. validate fee amounts/recipients and profile/package consistency;
-8. derive and match `custodyBoundaryId`;
+6. derive and match `custodyBoundaryId`;
+7. before any Ledger
+   preflight, funding, token call, nonce use, position creation, or Core state write, capture the
+   activation timestamp as `uint64`, checked-add `fiatDuration`, and separately checked-add the
+   immediate `releaseDuration + disputeDuration` chain; retain the resulting `fiatDeadline`;
+8. validate exact funding-spec preimages/hashes and basic source-mode constraints;
 9. reject `CROWDFUNDED_POOL`;
 10. validate `PackageSelectionV1`, `PackageEconomicsV1`, contest terms, every cross-commitment, or their canonical absence, and enforce the reference-package gate;
 11. validate direct authority or the complete pool-kind/authority/mandate/operator-acceptance preimages, capability/permission masks, signatures, and nonce;
@@ -1691,8 +1981,14 @@ Activation MUST:
 15. verify the provider and exact §6.10 activation-authority signatures and prove the activation-nonce tuple/deal id unused;
 16. call Ledger's bounded preflight for every touched boundary; status `3` continues, while status `4` takes the reconciliation-only branch before any module call;
 17. invoke `ACTIVATION_VALIDATE` once per selected role in ascending order;
-18. ask Ledger to recheck and execute every exact wallet pull or authorized same-vault debit for principal, activation fee, and reservations atomically;
-19. store the complete immutable deal, funding, package, authority, arbitration, reservation, position-id, and module snapshot; and
+18. ask Ledger to validate the separate funding signatures/nonces/expiries and sources, recheck,
+    compute all newly introduced `WALLET_PULL` nominal units, enforce
+    `nominalOutstanding + addedUnits <= MAX_BOUNDARY_NOMINAL` with checked arithmetic before any
+    funding leg, and then execute every exact wallet pull or authorized same-vault debit for
+    principal, activation fee, and reservations atomically;
+19. store the complete immutable deal, funding, package, authority, arbitration, reservation,
+    position-id, and module snapshot using the precomputed `fiatDeadline`, with no post-funding
+    deadline derivation; and
 20. consume every successful action, funding, reservation-funding, and operator-acceptance nonce and emit activation only after Ledger succeeds.
 
 Core-only direct activation requires no package, package-contest, pool-authority, arbitration, reservation, module-binding, or extension preimage; it still requires the exact principal and any nonzero activation-fee funding preimages/authorizations with holder as funding authority and activation authority.
@@ -1709,6 +2005,13 @@ No new exposure may be admitted after a latent or persisted deficit. Activation 
 
 After preflight status `0`, `1`, or `3`, any funding signature, exact-pull, source-position debit, position-id collision, or token failure reverts the attempted activation atomically. A quarantine-absorbed delta at Ledger's post-module recheck applies status-`3` accounting and may continue; an attributable residual loss reverts that branch without returning status `4` or claiming persistence. Funding failure consumes no nonce and creates no partial position or fee. An implementation MUST NOT write `DEFICIT` and then revert in the same call while claiming that the write persisted.
 
+After those required funding request/auth/source checks, a boundary-limit failure is an ordinary
+typed atomic rejection, not reconciliation status `4`. It reports current/added/max values and
+occurs before any pull, same-vault debit, funding nonce, target position, or funding-accounting
+effect. Principal and activation fee cannot be checked leg-by-leg: the complete wallet-funded sum
+must fit before either executes. A same-vault reallocation that introduces zero units remains valid
+at the exact cap.
+
 ---
 
 ## 10. Core transitions and settlement math
@@ -1717,7 +2020,7 @@ After preflight status `0`, `1`, or `3`, any funding signature, exact-pull, sour
 
 | Action | From | Authority | Timing/result |
 | --- | --- | --- | --- |
-| Mark fiat | `FUNDED` | provider | enter `FIAT_SENT`; start release deadline |
+| Mark fiat | `FUNDED` | provider | checked release/dispute horizon, then enter `FIAT_SENT` and store the release deadline |
 | Provider cancel | `FUNDED` | provider | `CANCELLED`, provider-cancel outcome |
 | Fiat timeout | `FUNDED` | anyone | at/after fiat deadline; `CANCELLED` |
 | Holder release | `FIAT_SENT` | exact §6.10 release actor | `RELEASED`, voluntary-release outcome |
@@ -1736,6 +2039,16 @@ After preflight status `0`, `1`, or `3`, any funding signature, exact-pull, sour
 Optional payment-proof and arbitration transitions use §7 and the business outcome map. While `DISPUTED` or `ARBITRATION_ACTIVE`, unilateral holder release and permissionless claim reject.
 
 Eligibility uses storage at execution. The first successful state-changing transaction wins; incompatible later calls revert without economic effect. Fiat timeout intentionally races mark-fiat at/after `fiatDeadline`.
+
+Before any `markFiatSent` state write, Core MUST first prove that the execution timestamp itself fits
+`uint64`, checked-add that timestamp and the snapshotted `releaseDuration`, then prove that release
+deadline plus the snapshotted `disputeDuration` also fits `uint64`. At a representable execution
+timestamp, downstream overflow leaves the deal `FUNDED` with no release-deadline write, so the
+existing fiat-timeout exit remains available while a terminal timestamp is also representable. This
+precheck guarantees that every base dispute opened strictly before the stored release deadline can
+derive its dispute deadline; `openDispute` still performs its own checked addition at execution. If
+the chain timestamp itself exceeds `type(uint64).max`, mark-fiat and every timestamp-writing fallback,
+including fiat-timeout settlement, reject; Core makes no post-horizon liveness claim.
 
 ### 10.2 Arbitration clock and races
 
@@ -1815,7 +2128,11 @@ Completion of step 6 starts the settlement commit. No code path may return to mo
 1. call `Ledger.settleDealAndReservations` with only the final precomputed hashes, coalesced allocations, and deterministic position ids;
 2. Ledger rechecks raw balances immediately before position movement;
 3. if that recheck sees a quarantine-absorbed delta, apply status-`3` accounting and continue; if it sees an attributable residual loss, revert the whole transaction, including Phase-A module effects, without returning status `4` or claiming a persisted checkpoint;
-4. otherwise Ledger rejects any id collision, consumes/reassigns the deal and every reservation position exactly once, and creates only the §3.3 terminal positions;
+4. otherwise Ledger rejects any duplicate allocation or id collision, consumes/reassigns the deal
+   and every reservation position exactly once, marks each source tombstone explicitly replaced,
+   freezes its child-sum components and bounded replacement dust, persists the canonical terminal hash, emits each
+   `PositionCreated` with its final coalesced nominal plus the canonical consumption/settlement
+   events, and creates only the §3.3 terminal positions;
 5. Core stores terminal state, outcome, timestamp, the full terminal record, full reservation-disposition preimages, and terminal hash;
 6. Core consumes the action nonce when applicable and emits the canonical terminal event; and
 7. any later mandatory failure reverts both phases atomically.
@@ -1871,15 +2188,15 @@ providerNet + completionCollected = providerGross
 operatorFeePaid + operatorFeeUnlocked = reservedOperatorFee
 ```
 
-These fields record nominal terminal allocations, not immediate token transfers. `holderSideReturn` is the exact deal-token principal nominally reassigned to the signed holder receiver; it excludes separate bond or collateral outputs. For every deal without an `OPERATOR_FEE` reservation—including a pool deal whose computed reserve is zero—`reservedOperatorFee`, both operator amounts, and both terminal-record operator addresses are zero. When an operator reservation exists, `operatorFeePaid` is its nominal amount assigned to the snapshotted operator-fee recipient and `operatorFeeUnlocked` is its nominal amount returned to the snapshotted pool/return receiver. Those addresses/amounts MUST equal the corresponding stored `ReservationDisposition` outputs exactly. In `DEFICIT`, each amount carries its proportional funded/gap components under §4.6. At most one `OPERATOR_FEE` reservation is permitted.
+These fields record nominal terminal allocations, not immediate token transfers. `holderSideReturn` is the exact deal-token principal nominally reassigned to the signed holder receiver; it excludes separate bond or collateral outputs. For every deal without an `OPERATOR_FEE` reservation—including a pool deal whose computed reserve is zero—`reservedOperatorFee`, both operator amounts, and both terminal-record operator addresses are zero. When an operator reservation exists, `operatorFeePaid` is its nominal amount assigned to the snapshotted operator-fee recipient and `operatorFeeUnlocked` is its nominal amount returned to the snapshotted pool/return receiver. Those addresses/amounts MUST equal the corresponding stored `ReservationDisposition` outputs exactly. In `DEFICIT`, the exact rational oracle carries proportional funded/gap components while production uses the bounded conservative materialization in §4.6. At most one `OPERATOR_FEE` reservation is permitted.
 
 `reservationsHash` is the activation commitment from §8.5. `reservationDispositionsHash` commits the exact stored, queryable `ReservationDisposition[]` preimages from §8.5; it is zero exactly when `reservationsHash` is zero. There is no opaque or undefined terminal extension hash.
 
 `operatorFaultCode` and evidence are the normalized §2.6 classification used to compute operator-fee eligibility. Code zero requires zero evidence; codes `1` and `2` require the exact nonzero authenticated evidence hash. They do not replace `outcome`.
 
-`evidenceHash` is the validated module result's evidence hash for proof/ruling outcomes, the stored `arbitrationOpenResultHash` for arbitration timeout, the `ResolutionAuth` struct hash for mutual outcomes, and zero for other deterministic unilateral/Core-timeout outcomes. `terminatedAt` is the checked `uint64(block.timestamp)` of the winning terminal transaction.
+`evidenceHash` is the validated module result's evidence hash for proof/ruling outcomes, the stored `arbitrationOpenResultHash` for arbitration timeout, the exact EIP-712 `ResolutionAuth` struct hash (`DealHashing.hashResolution(auth)`) for mutual outcomes, and zero for other deterministic unilateral/Core-timeout outcomes. It is never the domain-separated signature digest. Before narrowing or invoking terminal planning, Core rejects `block.timestamp > type(uint64).max` with no terminal state, record, nonce, position, or tombstone mutation. `terminatedAt` is the checked `uint64(block.timestamp)` of the winning terminal transaction.
 
-Zero-value principal allocations retain their signed receiver fields but create no Ledger position. Equal-beneficiary deal allocations are coalesced only for position creation; the terminal record retains the semantic holder/provider/fee breakdown. Unused operator fields use canonical zero values.
+Zero-value principal allocations retain their signed receiver fields but create no Ledger position. Equal-beneficiary deal allocations are coalesced in terminal planning before the final array is passed to stateful settlement; the terminal record retains the semantic holder/provider/fee breakdown. Unused operator fields use canonical zero values.
 
 ### 11.2 Hash
 
@@ -1894,7 +2211,7 @@ terminalHash = keccak256(abi.encode(
 ))
 ```
 
-Core stores `terminalHash`, the full fixed record, and the full bounded reservation-disposition preimages. Ledger stores the same terminal hash and disposition hash on every consumed deal/reservation position and rejects a second, omitted, duplicated, or mismatched settlement.
+Core stores `terminalHash`, the full fixed record, and the full bounded reservation-disposition preimages. Ledger stores the same terminal hash and disposition hash on every consumed deal/reservation position, exposes the terminal component through `positionTerminalHash(positionId)`, and rejects a second, omitted, duplicated, or mismatched settlement without rewriting the tombstone.
 
 The terminal event includes at least indexed deal id, terminal state, outcome, and terminal hash. Fine-grained events do not alter the canonical preimage.
 
@@ -1924,29 +2241,48 @@ Core stores no active-principal balance or token liability scalar.
 
 - immutable Escrow/chain/version binding;
 - per-token boundary mode, accounted assets, healthy nominal outstanding, quarantined surplus, fixed deficit units, and checkpoint/index state;
-- every §3.3 position-id preimage, explicit live position, and permanent consumed tombstone;
-- per-position nominal, paid, funded, and gap materialization state in deficit;
+- every §3.3 position-id preimage, explicit live position, and permanent consumed tombstone,
+  including a distinct replacement flag, frozen replacement gap, and packed bounded `uint8`
+  replacement dust for terminal sources; funded value derives from the already-stored nominal and
+  the external view widens dust to `uint256`;
+- per-position stored nominal, final paid assets, and lazy history/generation sufficient to
+  materialize funded entitlement and gap in O(1); claims never reduce stored deficit nominal;
 - principal/fee funding, payout-redirection, and reservation-funding authorization nonces; and
 - consumed deal/reservation terminal and disposition hashes.
+
+The current immutable deployment candidate packs boundary mode with the precision-floor flag and
+packs each position's token, kind, lifecycle flags, and bounded dust in one storage slot. This
+internal layout does not change the public getters or `PositionView` ABI. Storage compatibility
+with experimental predecessor deployments is not required because §0.3 forbids in-place upgrade
+or migration.
 
 Storage MAY encode rational funded/gap values through global indices and lazy snapshots only after differential agreement with `test/helpers/ReferenceRecoveryModel.sol` under §15.2. It MUST NOT encode the old single `cumulativeDistributable`/`claimed` model.
 
 ---
 
-## 13. Deployment intent and immutable manifest
+## 13. Deployment intent and evidence
 
-### 13.1 V1 top-level ABI schema
+On-chain Mandatory Core deployment identity is the predeployment **Intent** hash only.
+Postdeployment **Evidence** references that Intent after children exist; Evidence is not
+constructor-bound and MUST NOT be mixed into `intentHash`.
+
+### 13.1 V1 top-level ABI schemas
 
 ```text
-MANIFEST_SCHEMA_ID      = keccak256("pluriswap.mandatory-core.manifest.v1")
-MANIFEST_SCHEMA_VERSION = 1
+INTENT_SCHEMA_ID        = keccak256("pluriswap.mandatory-core.intent.v1")
+INTENT_SCHEMA_VERSION   = 1
+EVIDENCE_SCHEMA_ID      = keccak256("pluriswap.mandatory-core.evidence.v1")
+EVIDENCE_SCHEMA_VERSION = 1
 DEPLOYMENT_KIND         = 1 // MANDATORY_CORE
 ```
 
-The exact top-level preimage is:
+#### 13.1.1 CoreDeploymentIntentV1
+
+Facts knowable before child CREATE. CoreDeployer computes `intentHash` from predicted child
+addresses and the Intent off-chain fields, then binds that hash into Escrow.
 
 ```text
-MandatoryCoreManifestV1(
+CoreDeploymentIntentV1(
   bytes32 schemaId,
   uint16  schemaVersion,
   uint8   deploymentKind,
@@ -1955,26 +2291,25 @@ MandatoryCoreManifestV1(
   bytes32 charterHash,
   bytes32 techSpecHash,
   bytes32 buildHash,
-  bytes32 deploymentMethodHash,
-  bytes32 coreDeployerArtifactHash,
-  bytes32 factoryArtifactHash,
-  bytes32 ledgerArtifactHash,
-  bytes32 coordinatorArtifactHash,
-  bytes32 escrowArtifactHash,
+  bytes32 plannedDeploymentMethodHash,
+  bytes32 coreDeployerCreationCodeHash,
+  bytes32 factoryCreationCodeHash,
+  bytes32 ledgerCreationCodeHash,
+  bytes32 coordinatorCreationCodeHash,
+  bytes32 escrowCreationCodeHash,
   address coreDeployer,
   address ledger,
   address coordinator,
   address escrow,
   bytes32 capabilityHash,
   bytes32 governanceHash,
-  bytes32 verificationHash,
-  bytes32 predecessorManifestHash
+  bytes32 predecessorIntentHash
 )
 
-MANDATORY_CORE_MANIFEST_V1_TYPEHASH = keccak256("MandatoryCoreManifestV1(bytes32 schemaId,uint16 schemaVersion,uint8 deploymentKind,uint64 chainId,uint32 protocolVersion,bytes32 charterHash,bytes32 techSpecHash,bytes32 buildHash,bytes32 deploymentMethodHash,bytes32 coreDeployerArtifactHash,bytes32 factoryArtifactHash,bytes32 ledgerArtifactHash,bytes32 coordinatorArtifactHash,bytes32 escrowArtifactHash,address coreDeployer,address ledger,address coordinator,address escrow,bytes32 capabilityHash,bytes32 governanceHash,bytes32 verificationHash,bytes32 predecessorManifestHash)")
+CORE_DEPLOYMENT_INTENT_V1_TYPEHASH = keccak256("CoreDeploymentIntentV1(bytes32 schemaId,uint16 schemaVersion,uint8 deploymentKind,uint64 chainId,uint32 protocolVersion,bytes32 charterHash,bytes32 techSpecHash,bytes32 buildHash,bytes32 plannedDeploymentMethodHash,bytes32 coreDeployerCreationCodeHash,bytes32 factoryCreationCodeHash,bytes32 ledgerCreationCodeHash,bytes32 coordinatorCreationCodeHash,bytes32 escrowCreationCodeHash,address coreDeployer,address ledger,address coordinator,address escrow,bytes32 capabilityHash,bytes32 governanceHash,bytes32 predecessorIntentHash)")
 
-manifestHash = keccak256(abi.encode(
-  MANDATORY_CORE_MANIFEST_V1_TYPEHASH,
+intentHash = keccak256(abi.encode(
+  CORE_DEPLOYMENT_INTENT_V1_TYPEHASH,
   schemaId,
   schemaVersion,
   deploymentKind,
@@ -1983,32 +2318,86 @@ manifestHash = keccak256(abi.encode(
   charterHash,
   techSpecHash,
   buildHash,
-  deploymentMethodHash,
-  coreDeployerArtifactHash,
-  factoryArtifactHash,
-  ledgerArtifactHash,
-  coordinatorArtifactHash,
-  escrowArtifactHash,
+  plannedDeploymentMethodHash,
+  coreDeployerCreationCodeHash,
+  factoryCreationCodeHash,
+  ledgerCreationCodeHash,
+  coordinatorCreationCodeHash,
+  escrowCreationCodeHash,
   coreDeployer,
   ledger,
   coordinator,
   escrow,
   capabilityHash,
   governanceHash,
-  verificationHash,
-  predecessorManifestHash
+  predecessorIntentHash
 ))
 
-deploymentIdentity = manifestHash
+deploymentIdentity = intentHash
 ```
 
-`schemaId`, `schemaVersion`, and `deploymentKind` MUST equal the constants above. `coreDeployer` and all triad addresses are nonzero, equal their artifact and deployment-method preimages, and match live immutable readback/reverse links. Same addresses on another chain produce a different identity.
+`schemaId`, `schemaVersion`, and `deploymentKind` MUST equal the Intent constants above.
+`buildHash = hashStruct(BuildV1)` commits compiler/source inputs only.
+`plannedDeploymentMethodHash` commits the planned method/factory/salt/predicted deployer and
+children and creation-code identities; it MUST NOT include transaction hashes, block numbers,
+block hashes, or live runtime code hashes.
+Creation-code hash fields are `keccak256(raw creation bytecode)` for each role (factory may be
+canonical zero for method `1`). Predicted triad addresses MUST equal CoreDeployer's CREATE
+nonce predictions. `capabilityHash` MUST include `maxBoundaryNominal == type(uint128).max`.
+`governanceHash` is the planned Coordinator governance commitment (authority address and policy
+params) and MUST NOT require a live authority runtime code hash. `predecessorIntentHash` is
+canonical zero when there is no conforming predecessor.
 
 `charterHash = keccak256(exact raw bytes of PROTOCOL.md)` and `techSpecHash = keccak256(exact raw bytes of this frozen specification)`. Line endings and final newline are part of those preimages; a normalized rendering is not.
 
+#### 13.1.2 CoreDeploymentEvidenceV1
+
+Postdeployment record. It references `intentHash` and MUST NOT be required by constructors or
+stored as an Escrow immutable.
+
+```text
+CoreDeploymentEvidenceV1(
+  bytes32 schemaId,
+  uint16  schemaVersion,
+  bytes32 intentHash,
+  bytes32 coreDeployerArtifactHash,
+  bytes32 factoryArtifactHash,
+  bytes32 ledgerArtifactHash,
+  bytes32 coordinatorArtifactHash,
+  bytes32 escrowArtifactHash,
+  bytes32 deploymentMethodHash,
+  bytes32 verificationHash
+)
+
+CORE_DEPLOYMENT_EVIDENCE_V1_TYPEHASH = keccak256("CoreDeploymentEvidenceV1(bytes32 schemaId,uint16 schemaVersion,bytes32 intentHash,bytes32 coreDeployerArtifactHash,bytes32 factoryArtifactHash,bytes32 ledgerArtifactHash,bytes32 coordinatorArtifactHash,bytes32 escrowArtifactHash,bytes32 deploymentMethodHash,bytes32 verificationHash)")
+
+evidenceHash = keccak256(abi.encode(
+  CORE_DEPLOYMENT_EVIDENCE_V1_TYPEHASH,
+  schemaId,
+  schemaVersion,
+  intentHash,
+  coreDeployerArtifactHash,
+  factoryArtifactHash,
+  ledgerArtifactHash,
+  coordinatorArtifactHash,
+  escrowArtifactHash,
+  deploymentMethodHash,
+  verificationHash
+))
+```
+
+`intentHash` MUST be nonzero and equal the on-chain Intent identity. Artifact hashes are full
+`ArtifactV1` commitments including `runtimeCodeHash`. `deploymentMethodHash` is the completed
+`DeploymentMethodV1` including `DeploymentTransactionV1` / `ChildCreationV1`.
+`verificationHash` is `hashStruct(VerificationV1)` (reverse links, immutable readbacks, finality,
+evidence root). A zero or mismatched `intentHash` rejects Evidence.
+
+ModuleBinding's `manifestHash` field carries `deploymentIdentity` (= `intentHash`) for deal-level
+module admission; that wire name is unchanged.
+
 ### 13.2 Required nested preimages
 
-Every nonzero nested hash uses `keccak256(abi.encode(TYPEHASH, fields...))` in the exact displayed order. The manifest distribution MUST include each full nested preimage, not only its hash.
+Every nonzero nested hash uses `keccak256(abi.encode(TYPEHASH, fields...))` in the exact displayed order. Intent and Evidence distributions MUST include each full nested preimage they commit, not only its hash. Runtime code hashes, deployment transactions/blocks, and live readbacks belong only under Evidence.
 
 Artifact identity:
 
@@ -2024,7 +2413,7 @@ ArtifactV1(
 ARTIFACT_V1_TYPEHASH = keccak256("ArtifactV1(address deployedAddress,bytes32 creationCodeHash,bytes32 runtimeCodeHash,bytes32 constructorSchemaHash,bytes32 constructorArgsHash)")
 ```
 
-`creationCodeHash = keccak256(raw creation bytecode)`. `runtimeCodeHash = extcodehash(deployedAddress)`. `constructorSchemaHash = keccak256(bytes(exact canonical constructor ABI signature))`, and `constructorArgsHash = keccak256(exact abi.encode constructor arguments)`. The raw creation bytecode, constructor signature, typed argument values, and encoded argument bytes are required published preimages. There is one nonzero artifact preimage each for mandatory CoreDeployer, Ledger, Coordinator, and Escrow, plus one for a factory when method `2` is used.
+`creationCodeHash = keccak256(raw creation bytecode)`. `runtimeCodeHash = extcodehash(deployedAddress)`. `constructorSchemaHash = keccak256(bytes(exact canonical constructor ABI signature))`, and `constructorArgsHash = keccak256(exact abi.encode constructor arguments)`. The raw creation bytecode, constructor signature, typed argument values, and encoded argument bytes are required published preimages. There is one nonzero artifact preimage each for mandatory CoreDeployer, Ledger, Coordinator, and Escrow, plus one for a factory when method `2` is used. Ledger's exact constructor schema preimage is `constructor(address,address,uint64)`, ordered as `(escrow, coordinator, chainId)`, and its constructor-argument preimage is `abi.encode(escrow, coordinator, chainId)`.
 
 Compiler and build identity:
 
@@ -2120,7 +2509,7 @@ Closed deployment method ids are `1 DIRECT_CORE_DEPLOYER` and `2 CREATE2_FACTORY
 
 For method `1`, the transaction sender creates CoreDeployer directly and `factory`, `salt`, and `factoryArtifactHash` are zero. For method `2`, the declared factory CREATE2-creates CoreDeployer and those fields are nonzero and match its artifact/address. `transactionSender` MUST equal the sender of the transaction that initiates CoreDeployer creation. `coreDeployerInitCodeHash`, top-level and deployment-method CoreDeployer address, all child addresses, actual create order, and creation transaction hashes MUST recompute from the published sender/nonces, preimages, receipts, and live chain facts.
 
-CoreDeployer creation and triad-child creation MAY be separate transactions. In that case, CoreDeployer MUST expose a one-time deployment-only finalizer bound to the explicit deployment operator in its constructor. The finalizer MUST validate the canonical Ledger, Coordinator, and Escrow creation bytecode plus exact constructor arguments before issuing CREATE operations in the order Ledger, Coordinator, Escrow; the finalizer MUST atomically validate the resulting addresses, code, and reverse links, then permanently disable itself. No Core child is usable before finalization, and the deployment operator has no protocol authority after finalization. `DeploymentTransactionV1` MUST include both the CoreDeployer-creation transaction and the child-finalization transaction; each `ChildCreationV1.transactionHash` MUST identify the transaction that created that child.
+CoreDeployer creation and triad-child creation MAY be separate transactions. In that case, CoreDeployer MUST expose a one-time deployment-only finalizer bound to the explicit deployment operator in its constructor. The finalizer MUST validate the canonical Ledger, Coordinator, and Escrow creation bytecode plus exact constructor arguments before issuing CREATE operations in the order Ledger, Coordinator, Escrow; the finalizer MUST atomically validate the resulting addresses, code, and reverse links, including Ledger-to-Escrow and Ledger-to-Coordinator, then permanently disable itself. No Core child is usable before finalization, and the deployment operator has no protocol authority after finalization. `DeploymentTransactionV1` MUST include both the CoreDeployer-creation transaction and the child-finalization transaction; each `ChildCreationV1.transactionHash` MUST identify the transaction that created that child.
 
 Capability identity:
 
@@ -2184,12 +2573,13 @@ CapabilityV1(
   uint16  maxModuleCallsPerAction,
   uint32  maxModuleDataBytes,
   uint32  maxExtensionBytes,
+  uint256 maxBoundaryNominal,
   bytes32 commandMatrixHash,
   bytes32 reservationSchemaHash,
   bytes32 coreSurfaceSchemaHash
 )
 
-CAPABILITY_V1_TYPEHASH = keccak256("CapabilityV1(bytes32 moduleApiId,bytes32 moduleResultSchemaHash,uint32 supportedProfileBits,uint32 disabledProfileBits,uint8 supportedPoolKindMask,uint8 disabledPoolKindMask,uint16 maxModulesPerDeal,uint16 maxModuleCallsPerAction,uint32 maxModuleDataBytes,uint32 maxExtensionBytes,bytes32 commandMatrixHash,bytes32 reservationSchemaHash,bytes32 coreSurfaceSchemaHash)")
+CAPABILITY_V1_TYPEHASH = keccak256("CapabilityV1(bytes32 moduleApiId,bytes32 moduleResultSchemaHash,uint32 supportedProfileBits,uint32 disabledProfileBits,uint8 supportedPoolKindMask,uint8 disabledPoolKindMask,uint16 maxModulesPerDeal,uint16 maxModuleCallsPerAction,uint32 maxModuleDataBytes,uint32 maxExtensionBytes,uint256 maxBoundaryNominal,bytes32 commandMatrixHash,bytes32 reservationSchemaHash,bytes32 coreSurfaceSchemaHash)")
 ```
 
 For `sourceStateMask`, bits `0..4` mean `NONE`, `FUNDED`, `FIAT_SENT`, `DISPUTED`, and `ARBITRATION_ACTIVE`. `resultCodeMask` bit `n` means result code `n`; `faultCodeMask` uses the same convention for §2.6. Role `255` means every selected activation role in ascending order. `callOrder` values are `0 FIRST_OR_SOLE`, `1 AFTER_PACKAGE_POLICY_AND_EXACT_FEES`, and `255 ASCENDING_ACTIVATION_ROLE`; value `1` has the exact §6.3 toll/quote ordering, not merely relative module order. Core effects are `0 CONTINUE`, `1 PROOF_RELEASE`, `2 ENTER_ARBITRATION`, and `3 ARBITRATION_TERMINAL`.
@@ -2205,6 +2595,13 @@ For `sourceStateMask`, bits `0..4` mean `NONE`, `FUNDED`, `FIAT_SENT`, `DISPUTED
 ```
 
 `reservationSchemaHash` is `hashStruct(ReservationSchemaV1)` with the §8.5 spec, rule, disposition, and reservation-id type hashes, `operatorFeeRulesHash = OPERATOR_FEE_RULES_V1`, `operatorFaultRuleSchemaId = OPERATOR_FAULT_RULE_SCHEMA_V1`, `operatorFaultClassMask = 0x07`, `operatorFaultPredicateMask = 0x0f`, `kindMask = 0x001e`, `formulaMask = 0x001f`, and the exact §2.2 reservation limits. It therefore commits both deterministic reservation identity and the authenticated classifications/closed rule predicates. `supportedProfileBits` is the exact implemented set. `disabledProfileBits` is a subset of that set which cannot be selected on this deployment and MUST include `CROWDFUNDED_POOL`; bits in neither set are unsupported. The exact selectable set is `supportedProfileBits & ~disabledProfileBits`.
+
+`maxBoundaryNominal` MUST equal `MAX_BOUNDARY_NOMINAL = type(uint128).max` and MUST match the
+Ledger getter and artifact behavior. It is an identity-bound capability fact, not a
+deployment-selected risk parameter. Zero, another value, a missing preimage, or a getter mismatch
+rejects the capability and manifest identity. The capability/verification evidence identifies
+`docs/security/Q128_BOUNDARY_BOUND.md` and its checker, while release metadata separately records
+that the remaining repeated-checkpoint/saturation Q128 gates are open.
 
 `coreSurfaceSchemaHash` is `hashStruct(CoreSurfaceSchemaV1)` with the exact type hashes from §§3.3, 6.3, 6.4, 6.7, and 6.9. Its `referencePackageSpecHash` equals the candidate constant, which is zero and therefore disables reference SKUs. A zero or mismatched surface hash rejects the manifest; package, funding, position, payout, or arbitration-open wire schemas cannot drift independently of deployment identity.
 
@@ -2266,19 +2663,20 @@ Canonical absence is zero of the field's ABI type: `address(0)`, `bytes32(0)`, o
 
 Conditional absence encoded as canonical zero is limited to:
 
-- top-level `factoryArtifactHash` plus deployment-method `factory` and `salt` for method `1`;
-- top-level `predecessorManifestHash` when there is no conforming predecessor;
+- Intent `factoryCreationCodeHash` plus planned deployment-method `factory` and `salt` for method `1`;
+- Evidence `factoryArtifactHash` plus completed deployment-method `factory` and `salt` for method `1`;
+- Intent `predecessorIntentHash` when there is no conforming predecessor;
 - nested `BuildV1.dependenciesHash` when the verified build truly has no external dependency.
 
 Separately, the sole required nested hash field intentionally fixed to canonical zero in this candidate is `CoreSurfaceSchemaV1.referencePackageSpecHash`. It MUST be present in the ABI preimage and equal `REFERENCE_PACKAGE_SPEC_HASH == bytes32(0)`, recording that reference SKUs are disabled; it is not an omitted preimage. This exception does not make the enclosing schema optional: `coreSurfaceSchemaHash = hashStruct(CoreSurfaceSchemaV1)` MUST be nonzero and exact, and the enclosing `CapabilityV1`/`capabilityHash` MUST also be nonzero and exact.
 
-Every other required nested hash/address and every other top-level hash/address is nonzero. Method-specific zero numeric/salt fields follow their exact §13.2 rules and are not missing preimages. A present artifact with empty constructor bytes uses `keccak256(bytes(""))` for `constructorArgsHash`, not zero. Missing preimages, placeholder values, unknown schema/method/role/bit values, duplicate or unsorted arrays, hash mismatch, live-code/readback mismatch, or a noncanonical absent value rejects the manifest.
+Every other required nested hash/address and every other top-level Intent/Evidence hash/address is nonzero. Method-specific zero numeric/salt fields follow their exact §13.2 rules and are not missing preimages. A present artifact with empty constructor bytes uses `keccak256(bytes(""))` for `constructorArgsHash`, not zero. Missing preimages, placeholder values, unknown schema/method/role/bit values, duplicate or unsorted arrays, hash mismatch, live-code/readback mismatch, or a noncanonical absent value rejects Intent or Evidence as applicable.
 
-JSON, CBOR, and repository files are transport representations only. A verifier MUST decode to the exact ABI fields above, recompute every nested hash bottom-up, and finally recompute `manifestHash`.
+JSON, CBOR, and repository files are transport representations only. A verifier MUST decode to the exact ABI fields above, recompute every nested hash bottom-up, recompute `intentHash`, and—when Evidence is published—recompute `evidenceHash` against that Intent.
 
 ### 13.4 Release metadata
 
-Conformance status, release class, audits, incidents, endorsements, deprecation, and successor recommendations are append-only metadata and do not alter `manifestHash`, deployment identity, or execution.
+Conformance status, release class, audits, incidents, endorsements, deprecation, and successor recommendations are append-only metadata and do not alter `intentHash`, deployment identity, or execution.
 
 ---
 
@@ -2294,6 +2692,9 @@ Conformance status, release class, audits, incidents, endorsements, deprecation,
 6. Every token or position value movement begins with §4.2 reconciliation.
 7. Preflight status `4` persists in a successful reconciliation-only transaction before the requested action can retry.
 8. A negative raw delta fully absorbed by quarantine changes only quarantine, emits status `3`, and does not stop the requested action or enter deficit; only status `4` enters/persists deficit and stops the requested action.
+9. Aggregate nominal outstanding never exceeds `MAX_BOUNDARY_NOMINAL` in one boundary. Only
+   `WALLET_PULL` funding adds units; all legs are summed before execution, same-Ledger reassignment
+   adds zero, and each token boundary is independent.
 
 ### 14.2 Positions and deficit
 
@@ -2303,7 +2704,9 @@ Conformance status, release class, audits, incidents, endorsements, deprecation,
 4. Loss changes only funded/gap; recovery changes only gap/funded; claim changes only funded/paid.
 5. Prior payments are final.
 6. Same-checkpoint claim order cannot change entitlement.
-7. Whole-deal and whole-reservation settlement conserve nominal, funded, and gap components.
+7. Whole-deal and whole-reservation settlement conserve nominal and paid components exactly. The
+   exact rational oracle conserves funded and gap separately; production materialization may move
+   only bounded, fully reported `replacementRoundingDust` from funded into gap under §4.6.
 8. Every operation is O(1); no beneficiary/deal/checkpoint iteration.
 9. Payout never exceeds nominal units and floor dust has no privileged recipient.
 10. Position ids follow the closed §3.3 preimages; consumed ids never revive, and coalescing occurs only within one declared source and beneficiary.
@@ -2313,7 +2716,9 @@ Conformance status, release class, audits, incidents, endorsements, deprecation,
 
 1. Every deal has at most one terminal record and Ledger settlement.
 2. Terminal membership is explicit; arbitration-active is nonterminal.
-3. Every mandatory timeout remains permissionlessly executable until another valid transition wins.
+3. While `block.timestamp <= type(uint64).max`, every mandatory timeout remains permissionlessly
+   executable until another valid transition wins, subject to its stored state/timing predicates;
+   §2.1 makes no timeout-liveness claim after that timestamp horizon.
 4. `DISPUTED` and `ARBITRATION_ACTIVE` block unilateral release and claim.
 5. Core dispute timeout never burns principal.
 6. Module failure cannot block an independent Core exit.
@@ -2333,12 +2738,15 @@ Conformance status, release class, audits, incidents, endorsements, deprecation,
 5. Coordinator changes are future-only.
 6. Principal/fee funding, package selection/economics/contest, pool-authority, arbitration/open, and reservation preimages are fully typed and included in consent or the exact named runtime request.
 7. Terminal records and deployment manifests are domain-separated and reproducible.
-8. `manifestHash` is the exact V1 ABI struct hash with all published nested preimages.
+8. `intentHash` is the exact Intent V1 ABI struct hash from predeployment nested preimages; Evidence references that hash and is not part of on-chain identity.
 9. Signed pool kind selects the exact owned/custom authority matrix; controller/operator permissions are independent, snapshotted, and future mandate changes cannot alter active authority.
 10. Operator-fee recipient, bps, cap, reserve, return receiver, acceptance, and fault policy are signed before activation.
 11. Modules authenticate only the closed fault classification; Core alone matches the signed reservation predicate and executes its fixed formula.
 12. Core validates package cross-commitments but never claims to interpret an opaque package label/policy hash; reference SKUs remain disabled while `REFERENCE_PACKAGE_SPEC_HASH` is zero.
 13. Every supported deployment method uses the nonzero manifest-bound CoreDeployer as creator of all three triad children.
+14. The exact `MAX_BOUNDARY_NOMINAL` value is exposed by Ledger and committed in the nonzero
+    `CapabilityV1`/`capabilityHash`; release metadata cannot relabel the remaining Q128 gates as
+    closed.
 
 ---
 
@@ -2353,6 +2761,11 @@ A production-candidate implementation MUST provide evidence for at least:
 - every Core-only terminal path reassigns one deal position exactly;
 - fee and holder-dust math at bps extremes and odd principal;
 - wallet and same-vault principal/fee funding, wrong mode/source/authority/token/amount/position, separate signatures, nonce/expiry, and all-or-nothing rollback;
+- boundary-cap values just below, exactly at, and above `type(uint128).max`; `uint256` extremes and
+  overflowing principal-plus-fee sums; exact-cap acceptance; existing exposure plus later wallet
+  funding; mixed wallet/same-Ledger counting; exact-cap same-vault reallocation; independent token
+  boundaries; typed current/added/max error data; pre-pull/debit ordering; and reusable nonces with
+  no partial effect;
 - deterministic ids and collision/tombstone rejection for deal, activation-fee, deal-terminal, reservation, and reservation-terminal positions;
 - healthy finite partial/full and max-sentinel withdrawal; zero-payable, deficit-routing, alternate receiver, and exact nonce-consumption results;
 - failed receiver transfer preserves the position and nonce;
@@ -2362,18 +2775,41 @@ A production-candidate implementation MUST provide evidence for at least:
 ### 15.2 Deficit reference and differential paths
 
 - deficit entry with active deals and matured credits;
+- maximum-boundary one-unit loss materializes a conservative gap no more than one unit above the
+  exact gap and never the removed `2^128`-unit wide-boundary collapse; the dependency-free proof
+  checker passes deterministic production edges and exhaustive reduced domains while explicitly
+  leaving repeated-checkpoint and saturation proof open;
 - partial claims, repeated claims, full loss, partial/full recovery;
 - loss after payment, recovery after loss, and repeated alternating checkpoints;
 - terminal reassignment before and after recovery;
 - same beneficiary across multiple positions;
+- canonical position views for missing, healthy live/partial/consumed, deficit
+  entry/recovery/claim/loss, active non-claimable, split, fully paid tombstone, and explicit
+  replaced-source states; healthy and deficit replacements freeze child-sum components and
+  replacement dust across later recovery, loss, child claims, and generation/checkpoint changes;
+- bounded one-, two-, and three-child property/fuzz vectors prove nominal/paid conservation,
+  conservative funded/gap direction, both replacement-dust identities, the `m-1` bound, and
+  that aggregate child claims cannot capture dust;
+- a required non-integral `nominal = 3`, `assets = 2`, children `1/1/1` differential vector (or an
+  arithmetically equivalent vector) separately proves the exact rational components, nonzero
+  pre-split Q128 representation error, nonzero split-induced `replacementRoundingDust`, and
+  `postSplitDivergence = preExistingRepresentationError + replacementRoundingDust` in both funded
+  and gap directions without double counting;
+- malformed allocation-sum and more-than-three-child settlement vectors prove atomic rollback of
+  the source, children, checkpoint, and replacement snapshot;
 - every claim-order permutation at a fixed checkpoint;
 - raw positive balance quarantine and over-recovery rejection;
 - negative raw deltas below/equal/above quarantine, including status, accounting/event fields, continuation, and exact deficit boundary;
 - preflight status `4` immediately before activation, healthy withdrawal, recovery deposit, deficit claim, and terminal settlement persists, moves no value, and succeeds on the correct retry path;
 - no test relies on a deficit write surviving an outer revert;
 - no new exposure after full gap refill;
-- O(1) gas growth across position and checkpoint history; and
-- differential agreement between the implementation and `test/helpers/ReferenceRecoveryModel.sol`.
+- O(1) gas growth across materially different position and checkpoint histories under matched
+  cold and warm access, with a tolerance small enough to reject historical iteration; and
+- differential agreement between the production Ledger and
+  `test/helpers/ReferenceRecoveryModel.sol` across a deterministic exact-domain sequence covering
+  entry, claims, recovery, repeated loss, terminal split, payouts, and parent/child views; plus
+  non-integral split vectors that separate pre-existing Q128 checkpoint representation error from
+  the split-induced divergence reported as bounded replacement dust.
 
 ### 15.3 Token and signature paths
 
@@ -2410,7 +2846,8 @@ A production-candidate implementation MUST provide evidence for at least:
 - reservation bounds, spec-without-generic-beneficiary semantics, per-rule primary beneficiaries, `(slot,outcome,faultPredicate)` ordering, any-versus-specific exclusivity, exact fault-class matches, impossible-predicate rejection, default return, every closed formula, split-only `MUTUAL_AUTH` signer coverage, and cancel/release rewrite rejection;
 - same arbitration outcome with no-fault release versus authenticated-fault slash under fixed signed rows;
 - exact operator bps/cap reserve derivation and `OPERATOR_FEE` spec match, full/partial/zero provider gross, mutual/arbitration fault, no-fault timeout, one-time consumption, and full unlock remainder;
-- healthy and deficit reservation disposition conserves every component;
+- healthy reservation disposition conserves every component; deficit disposition follows §4.6
+  exact rational conservation plus conservative bounded production replacement dust;
 - one terminal record in storage plus stored disposition preimages and golden terminal-hash vectors;
 - explicit holder-side return and operator-fee paid/unlocked vectors for every outcome;
 - no undefined extension-terminal hash;
@@ -2421,10 +2858,12 @@ A production-candidate implementation MUST provide evidence for at least:
 - required deployment inputs and placeholder rejection;
 - mandatory nonzero CoreDeployer under both methods, deterministic addresses, creation/runtime hashes, constructor schemas/preimages, CoreDeployer-only child order, and reverse links;
 - every V1 nested preimage/hash, canonical absent value, sorted array root, and one-bit mismatch rejection;
-- exact nonzero `coreSurfaceSchemaHash`/`capabilityHash` with the sole required nested hash field fixed to canonical zero, `referencePackageSpecHash`;
+- exact nonzero `coreSurfaceSchemaHash`/`capabilityHash`, including
+  `maxBoundaryNominal == type(uint128).max` and live Ledger readback, with the sole required nested
+  hash field fixed to canonical zero, `referencePackageSpecHash`;
 - supported/disabled pool-kind masks and every kind/flag/authority-matrix mismatch;
 - reservation fault schema id/class/predicate masks and one-bit mismatch rejection;
-- golden `manifestHash` vectors from exact ABI encoding, including method `1` and method `2`;
+- golden `intentHash` and `evidenceHash` vectors from exact ABI encoding, including method `1` and method `2`;
 - EIP-170/EIP-3860 size gates and reproducible build;
 - pinned Arbitrum fork evidence for the approved release token/code set.
 
@@ -2434,7 +2873,9 @@ Passing tests is necessary but not sufficient for ratification, audit, candidate
 
 ## 16. Out of scope for this candidate
 
-- The low-level recovery index/generation formula until `test/helpers/ReferenceRecoveryModel.sol` and §15.2 prove it
+- The complete repeated-checkpoint, history/saturation, dust-exhaustion, and fairness proof for the
+  low-level recovery index/generation formula; the scoped initial-boundary and reachable
+  active-source replacement bounds do not complete it
 - Final Solidity selectors, physical slot packing, errors, and event declarations until the `src/interfaces/` artifacts pass the applicable §§15.2–15.6 acceptance gates
 - Payment-proof verifier and nullifier internals
 - Arbitration court, quote-policy generation, appeal, and ruling-policy internals (not the typed §6.3 open request, bound maximum, exact payment, result, or rollback surface)

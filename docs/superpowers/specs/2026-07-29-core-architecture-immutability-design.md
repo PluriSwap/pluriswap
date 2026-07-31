@@ -65,9 +65,9 @@ This document freezes the topology and trust boundaries needed to implement `PRO
 
 | Contract | Holds protocol tokens? | Role | Mutable after deployment? |
 | --- | --- | --- | --- |
-| `CoreEscrow` | **No** | Bilateral consent, nonce and signature validation, deal state machine, module dispatch, settlement calculations, canonical terminal records | No proxy or bytecode upgrade; constructor-bound configuration is immutable |
-| `CreditLedger` | **Yes — exclusively** | Exact funding, active deal/reservation positions, activation-fee positions, matured beneficiary positions, withdrawals, irreversible deficit checkpoints, exact recovery deposits | No proxy, admin rescue, or custody pause |
-| `Coordinator` | No | Admission registry for complete module identities on future activations | Bytecode and authority bounds are fixed; admitted tuples may change only for future deals |
+| `CoreEscrow` | **No** | Bilateral consent, nonce and signature validation, deal state machine, module dispatch, canonical terminal storage, and Ledger commit after Coordinator static planning | No proxy or bytecode upgrade; constructor-bound configuration is immutable |
+| `CreditLedger` | **Yes — exclusively** | Exact funding, active deal/reservation positions, activation-fee positions, matured beneficiary positions, withdrawals, irreversible deficit checkpoints, exact recovery deposits; no terminal business planning or reverse Core callback | No proxy, admin rescue, or custody pause |
+| `Coordinator` | No | Admission registry for complete module identities on future activations, plus pure static terminal planning | Bytecode and authority bounds are fixed; admitted tuples may change only for future deals; planning helpers do not read admission state |
 
 ```mermaid
 flowchart LR
@@ -168,11 +168,30 @@ nominalUnits = paidAssets + fundedEntitlement + unfundedGap
 - no checkpoint creates units or restores healthy status; and
 - every boundary and position operation is O(1), independent of position count and checkpoint history.
 
-The executable specification defines observable rounding and reconciliation. `test/helpers/ReferenceRecoveryModel.sol` must prove a full-precision index implementation equivalent to this model under `MANDATORY_CORE.md` §15.2 before that encoding is accepted.
+The executable specification defines observable rounding and reconciliation. The exact rational
+model in `test/helpers/ReferenceRecoveryModel.sol` remains the independent oracle. The production
+candidate uses conservative Q128.128 indices: it MUST match the oracle except for explicitly
+attributed boundary representation error and the bounded terminal-replacement shift authorized by
+`MANDATORY_CORE.md` §4.6. That encoding remains release-gated by the differential, saturation,
+rollback, fairness, and independent-review evidence in §§15.2–15.3; this architecture reconciliation
+does not make it production-approved.
 
 ### 5.3 Terminal reassignment
 
-Settlement transfers no token. Ledger consumes the deal-owned position, coalesces equal-beneficiary outputs only within that deal source, and creates deterministic terminal beneficiary positions. It similarly consumes each active reservation and coalesces only within that reservation. It never coalesces across deals, fee sources, or reservations. Nominal allocations follow Core settlement math and sum exactly to each source position. In DEFICIT, funded entitlement and gap travel with each whole-position split; arbitrary beneficiary-to-beneficiary recovery-unit transfer is forbidden.
+Settlement transfers no token. Ledger consumes the deal-owned position, coalesces equal-beneficiary
+outputs only within that deal source, and creates deterministic terminal beneficiary positions. It
+similarly consumes each active reservation and coalesces only within that reservation. It never
+coalesces across deals, fee sources, or reservations. Nominal allocations follow Core settlement
+math and sum exactly to each source position.
+
+Active `DEAL` and `RESERVATION` sources are nonclaimable, so they reach terminal replacement with
+zero paid assets and zero position-local claim history. In DEFICIT, each child inherits the current
+boundary's global Q128 gap coefficient with zero local history. Independent upward materialization
+MAY conservatively move funded value into gap, but nominal and paid assets conserve exactly, the
+child gap sum cannot be below the source gap, and recorded `replacementRoundingDust` cannot exceed
+`childCount - 1` smallest token units. Arbitrary beneficiary-to-beneficiary recovery-unit transfer
+is forbidden. The exact rational oracle remains authoritative for economic intent, and production
+use remains subject to the release gates above.
 
 ### 5.4 Generic reservation lifecycle
 
@@ -287,7 +306,7 @@ The stored terminal record explicitly includes holder-side principal return, pro
 - Native ETH is not a Core custody asset.
 - `block.timestamp` is the Core clock. Permissionless timeouts, not an admin pause, address ordinary sequencer liveness risk.
 - Cross-chain funding helpers are ecosystem infrastructure; they do not hold active positions or drive Core settlement.
-- Deployment identity is the exact versioned ABI `manifestHash` in `MANDATORY_CORE.md` §13. Mandatory CoreDeployer and every artifact/build/deployment/capability/core-surface-schema/governance/verification hash has a published typed preimage and canonical absent value; JSON is transport only. This candidate requires the nested reference-package-spec field to be canonical zero while the enclosing Core-surface-schema and capability hashes remain nonzero and exact.
+- Deployment identity is the exact versioned ABI `intentHash` (`CoreDeploymentIntentV1`) in `MANDATORY_CORE.md` §13. Postdeployment `CoreDeploymentEvidenceV1` references that Intent and is not constructor-bound. Mandatory CoreDeployer and every Intent nested preimage (build, planned deployment method, creation-code identities, capability/core-surface-schema, planned governance) has a published typed preimage and canonical absent value; Evidence carries runtime/tx/readback facts; JSON is transport only. This candidate requires the nested reference-package-spec field to be canonical zero while the enclosing Core-surface-schema and capability hashes remain nonzero and exact.
 
 ---
 

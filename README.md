@@ -9,15 +9,19 @@ Permissionless protocol for escrowed crypto against an offchain fiat agreement.
 | Architecture / immutability | [`docs/superpowers/specs/2026-07-29-core-architecture-immutability-design.md`](./docs/superpowers/specs/2026-07-29-core-architecture-immutability-design.md) |
 | Superseded historical Foundry plan | [`docs/superpowers/plans/2026-07-29-mandatory-core-foundry.md`](./docs/superpowers/plans/2026-07-29-mandatory-core-foundry.md) |
 
-> **Production-remediation status:** the governing documents above define the `0.3.0-rc1` candidate. The current Solidity implementation and tests are experimental, pre-remediation evidence and are not production-conforming until the sole-vault, checkpoint, reservation, module, terminal-record, and manifest requirements are implemented and verified.
+> **Production-remediation status:** the governing documents above define the `0.3.0-rc1`
+> candidate. The current Solidity implementation contains the Core-only sole-vault, checkpoint,
+> terminal-record, and manifest candidate with release-gated conservative deficit recovery. It is
+> not production-conforming while the named profile edges and remaining release evidence are open.
 
-## Current prototype files and target roles
+## Current candidate files and roles
 
-The repository currently contains experimental pre-remediation contracts at the target paths below. Their intended production roles are:
+The current contracts at the canonical paths are:
 
-- `src/CoreEscrow.sol` — target tokenless consent, timing, module-dispatch, and deal state machine
-- `src/CreditLedger.sol` — target sole physical vault for active principal, fee/reservation positions, matured credits, withdrawals, and deficit recovery
-- `src/Coordinator.sol` — target module-admission registry for future activations
+- `src/CoreEscrow.sol` — tokenless consent, timing, module-dispatch, and deal state machine
+- `src/CreditLedger.sol` — sole physical vault for active principal, fee/reservation positions,
+  matured credits, withdrawals, and release-gated deficit recovery
+- `src/Coordinator.sol` — module-admission registry for future activations
 
 `src/CoreDeployer.sol` is mandatory target deployment infrastructure that creates/cross-binds the triad; it is not a fourth Core contract and has no post-deployment authority. File presence or a passing prototype test does not establish conformance with the governing documents.
 
@@ -29,7 +33,9 @@ forge test
 forge build --sizes
 ```
 
-`CoreEscrow` must stay under the EIP-170 24KB runtime limit.
+CI parses explicit rows for `Coordinator`, `CoreDeployer`, `CoreEscrow`, and `CreditLedger`.
+Each must remain below the 24,576-byte EIP-170 runtime limit and the 49,152-byte EIP-3860
+initcode limit; any stricter published per-contract budget also applies.
 
 ### Current prototype deploy workflow (local / Arbitrum)
 

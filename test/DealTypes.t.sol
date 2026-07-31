@@ -81,7 +81,7 @@ contract DealTypesTest is Test {
     }
 
     function test_PositionKind_ids() public pure {
-        assertEq(PositionKind.Deal, 1);
+        assertEq(PositionKind.ActiveDeal, 1);
         assertEq(PositionKind.ActivationFee, 2);
         assertEq(PositionKind.DealTerminal, 3);
         assertEq(PositionKind.Reservation, 4);

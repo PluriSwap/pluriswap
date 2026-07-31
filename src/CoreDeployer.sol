@@ -4,9 +4,9 @@ pragma solidity ^0.8.24;
 import {CoreEscrow} from "./CoreEscrow.sol";
 import {CreditLedger} from "./CreditLedger.sol";
 import {Coordinator} from "./Coordinator.sol";
-import {DealHashing} from "./libraries/DealHashing.sol";
+import {ManifestHashing} from "./libraries/ManifestHashing.sol";
 import {CoreArtifactConstants} from "./libraries/CoreArtifactConstants.sol";
-import {CoreManifestOffchain} from "./libraries/DealTypes.sol";
+import {CoreDeploymentIntentOffchain} from "./libraries/ManifestTypes.sol";
 import {
     DeploymentAlreadyFinalized,
     InvalidChainId,
@@ -17,10 +17,11 @@ import {
     ZeroAddress
 } from "./libraries/CoreErrors.sol";
 
-/// @notice Computes the Mandatory Core identity and creates its three children.
+/// @notice Computes the Mandatory Core Intent identity and creates its three children.
 /// @dev Child deployment is staged so CoreDeployer initcode does not embed the triad's
 ///      creation bytecode. The finalization call remains atomic and CoreDeployer is
-///      permanently inert after it succeeds.
+///      permanently inert after it succeeds. On-chain identity is `intentHash` only;
+///      postdeployment Evidence references that hash off-chain and is not constructor-bound.
 contract CoreDeployer {
     uint8 public constant DIRECT_CORE_DEPLOYER = 1;
     uint8 public constant CREATE2_FACTORY_CORE_DEPLOYER = 2;
@@ -28,7 +29,7 @@ contract CoreDeployer {
     CreditLedger public immutable ledger;
     Coordinator public immutable coordinator;
     CoreEscrow public immutable escrow;
-    bytes32 public immutable manifestHash;
+    bytes32 public immutable intentHash;
     uint64 public immutable chainId;
     uint32 public immutable protocolVersion;
     uint8 public immutable deploymentMethod;
@@ -46,7 +47,7 @@ contract CoreDeployer {
         bytes32 techSpecHash_,
         address coordinatorOwner_,
         address deploymentOperator_,
-        CoreManifestOffchain memory offchain
+        CoreDeploymentIntentOffchain memory offchain
     ) {
         if (
             (deploymentMethod_ != DIRECT_CORE_DEPLOYER
@@ -60,17 +61,16 @@ contract CoreDeployer {
         }
         if (block.chainid > type(uint64).max) revert InvalidChainId();
         if (
-            offchain.buildHash == bytes32(0) || offchain.deploymentMethodHash == bytes32(0)
-                || offchain.coreDeployerArtifactHash == bytes32(0)
-                || offchain.ledgerArtifactHash == bytes32(0)
-                || offchain.coordinatorArtifactHash == bytes32(0)
-                || offchain.escrowArtifactHash == bytes32(0)
+            offchain.buildHash == bytes32(0) || offchain.plannedDeploymentMethodHash == bytes32(0)
+                || offchain.coreDeployerCreationCodeHash == bytes32(0)
+                || offchain.ledgerCreationCodeHash == bytes32(0)
+                || offchain.coordinatorCreationCodeHash == bytes32(0)
+                || offchain.escrowCreationCodeHash == bytes32(0)
                 || offchain.capabilityHash == bytes32(0) || offchain.governanceHash == bytes32(0)
-                || offchain.verificationHash == bytes32(0)
         ) revert ManifestMismatch();
         if (deploymentMethod_ == DIRECT_CORE_DEPLOYER
-                ? offchain.factoryArtifactHash != bytes32(0)
-                : offchain.factoryArtifactHash == bytes32(0)) revert ManifestMismatch();
+                ? offchain.factoryCreationCodeHash != bytes32(0)
+                : offchain.factoryCreationCodeHash == bytes32(0)) revert ManifestMismatch();
 
         uint64 chainId_ = uint64(block.chainid);
         address ledgerPredicted = _createAddress(address(this), 1);
@@ -82,7 +82,7 @@ contract CoreDeployer {
                 || ledgerPredicted == escrowPredicted || coordinatorPredicted == escrowPredicted
         ) revert ManifestMismatch();
 
-        bytes32 manifestHash_ = DealHashing.hashCoreManifest(
+        bytes32 intentHash_ = ManifestHashing.hashDeploymentIntent(
             chainId_,
             protocolVersion_,
             charterHash_,
@@ -93,12 +93,12 @@ contract CoreDeployer {
             escrowPredicted,
             offchain
         );
-        if (manifestHash_ == bytes32(0)) revert ManifestMismatch();
+        if (intentHash_ == bytes32(0)) revert ManifestMismatch();
 
         ledger = CreditLedger(payable(ledgerPredicted));
         coordinator = Coordinator(coordinatorPredicted);
         escrow = CoreEscrow(payable(escrowPredicted));
-        manifestHash = manifestHash_;
+        intentHash = intentHash_;
         chainId = chainId_;
         protocolVersion = protocolVersion_;
         deploymentMethod = deploymentMethod_;
@@ -107,7 +107,7 @@ contract CoreDeployer {
         coordinatorOwner = coordinatorOwner_;
         deploymentOperator = deploymentOperator_;
 
-        emit ManifestComputed(manifestHash_, ledgerPredicted, coordinatorPredicted, escrowPredicted);
+        emit IntentComputed(intentHash_, ledgerPredicted, coordinatorPredicted, escrowPredicted);
     }
 
     /// @notice Atomically creates Ledger, Coordinator, and Escrow in CREATE order.
@@ -120,6 +120,9 @@ contract CoreDeployer {
         external
         returns (address deployedLedger, address deployedCoordinator, address deployedEscrow)
     {
+        if (block.chainid != uint256(chainId)) {
+            revert InvalidChainId();
+        }
         if (msg.sender != deploymentOperator) {
             revert Unauthorized();
         }
@@ -129,7 +132,7 @@ contract CoreDeployer {
             ledgerInitCode,
             CoreArtifactConstants.CREDIT_LEDGER_CREATION_CODE_LENGTH,
             CoreArtifactConstants.CREDIT_LEDGER_CREATION_CODE_HASH,
-            abi.encode(address(escrow), chainId)
+            abi.encode(address(escrow), address(coordinator), chainId)
         );
         _validateInitCode(
             coordinatorInitCode,
@@ -148,7 +151,7 @@ contract CoreDeployer {
                 techSpecHash,
                 address(ledger),
                 address(coordinator),
-                manifestHash
+                intentHash
             )
         );
 
@@ -166,10 +169,11 @@ contract CoreDeployer {
 
         if (
             CreditLedger(payable(deployedLedger)).escrow() != deployedEscrow
+                || CreditLedger(payable(deployedLedger)).coordinator() != deployedCoordinator
                 || Coordinator(deployedCoordinator).escrow() != deployedEscrow
                 || address(CoreEscrow(payable(deployedEscrow)).ledger()) != deployedLedger
                 || address(CoreEscrow(payable(deployedEscrow)).coordinator()) != deployedCoordinator
-                || CoreEscrow(payable(deployedEscrow)).manifestHash() != manifestHash
+                || CoreEscrow(payable(deployedEscrow)).intentHash() != intentHash
         ) revert ManifestMismatch();
 
         triadDeployed = true;
@@ -218,8 +222,8 @@ contract CoreDeployer {
         );
     }
 
-    event ManifestComputed(
-        bytes32 indexed manifestHash,
+    event IntentComputed(
+        bytes32 indexed intentHash,
         address indexed ledger,
         address indexed coordinator,
         address escrow

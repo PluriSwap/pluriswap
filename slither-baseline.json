@@ -1,0 +1,487 @@
+{
+  "schema": 1,
+  "slither_version": "0.11.6",
+  "config": "slither.config.json",
+  "findings": [
+    {
+      "fingerprint": "1394081035ab946ee096066e07ea070e85029829236942c40b8517b21004800a",
+      "check": "assembly",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/libraries/ExactERC20.sol#L76-L83",
+      "reason": "Reviewed memory-safe assembly decodes the exact 32-byte ERC-20 return/balance word."
+    },
+    {
+      "fingerprint": "48f7f7173117373b4c60a7cabf758f3a7d192ce863a0a23f4bb35d63d5a762f8",
+      "check": "assembly",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/libraries/DeficitMath.sol#L32-L55",
+      "reason": "Reviewed memory-safe 512-bit arithmetic assembly implements exact or saturating mulDiv."
+    },
+    {
+      "fingerprint": "4b1347fe44106c65893bcad99a154a574f1c8e04bef76a7d1d710ad4f2cd6d30",
+      "check": "assembly",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/libraries/SignatureValidation.sol#L39-L68",
+      "reason": "Reviewed memory-safe assembly decodes canonical 64/65-byte signatures."
+    },
+    {
+      "fingerprint": "4f96bb0e636b23bd5083b916d4225f54a8b6320eaa60853e89fe8872768d84e4",
+      "check": "assembly",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/CoreDeployer.sol#L207-L213",
+      "reason": "CREATE consumes dynamic child initcode and requires the reviewed memory-safe opcode block."
+    },
+    {
+      "fingerprint": "a6ce980c2bda6c6047f7dee1e031d3f64f4f791f0baa3b51d9b366855e11ec07",
+      "check": "assembly",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/libraries/ExactERC20.sol#L66-L74",
+      "reason": "Reviewed memory-safe assembly decodes the exact 32-byte ERC-20 return/balance word."
+    },
+    {
+      "fingerprint": "b92dfbc91905a2afff8a244f4b87198f825fa22fe4ef0cc9e24a7d5fe210f1e3",
+      "check": "assembly",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/libraries/FullMath.sol#L11-L80",
+      "reason": "Reviewed memory-safe 512-bit arithmetic assembly implements exact or saturating mulDiv."
+    },
+    {
+      "fingerprint": "ede9d49a4097124d2e820757af526937bba6c2d669a07d17d957617bf10d4702",
+      "check": "assembly",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/libraries/SignatureValidation.sol#L12-L37",
+      "reason": "Reviewed memory-safe assembly decodes canonical 64/65-byte signatures."
+    },
+    {
+      "fingerprint": "9a72667ed93ba1b5249e0dd7aed589a87e607f17f41cd43f744444b5cd484599",
+      "check": "calls-loop",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CreditLedger.sol#L183-L283",
+      "reason": "Only Escrow can call this path and supplies the protocol-bounded sorted token set; each exact balance query is required for independent boundary reconciliation."
+    },
+    {
+      "fingerprint": "4e3beea2f90b8519b0771883b21bc09112c96b9f3db8007ac6cf635c3d248d37",
+      "check": "cyclomatic-complexity",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/CoreEscrow.sol#L137-L234",
+      "reason": "The bounded validation/state branch set mirrors the closed protocol cases; splitting it would obscure required check ordering without reducing reachable paths."
+    },
+    {
+      "fingerprint": "74487bb574c764a2808c5879f6eef23925544b40e32d1f6a49e02d1b844a4308",
+      "check": "cyclomatic-complexity",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L407-L457",
+      "reason": "The bounded validation/state branch set mirrors the closed protocol cases; splitting it would obscure required check ordering without reducing reachable paths."
+    },
+    {
+      "fingerprint": "bc87ff5fb18ae1f46fd37b6aa2b54569ddeced152d698c5ae051f3acec2c87a9",
+      "check": "cyclomatic-complexity",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/CoreEscrow.sol#L330-L389",
+      "reason": "The bounded validation/state branch set mirrors the closed protocol cases; splitting it would obscure required check ordering without reducing reachable paths."
+    },
+    {
+      "fingerprint": "e9cf978c1dd9b78e420c4c719f7a53a87c5a5df4d46fdedfc1c45c956bd2cf91",
+      "check": "cyclomatic-complexity",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L641-L694",
+      "reason": "The bounded validation/state branch set mirrors the closed protocol cases; splitting it would obscure required check ordering without reducing reachable paths."
+    },
+    {
+      "fingerprint": "194d91a0ad467bd940f9bf1d8dd0365edb410d9bc6adb507b6befc197e054cda",
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/libraries/FullMath.sol#L11-L80",
+      "reason": "Intentional Remco Bloemen/Uniswap FullMath modular-inverse algorithm; XOR seeds the Newton inverse and divisions remove exact powers of two."
+    },
+    {
+      "fingerprint": "2dc83fbcd97924bc530544a9bb25ead256967418b1d7582ddd1ee05660125a4e",
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/libraries/FullMath.sol#L11-L80",
+      "reason": "Intentional Remco Bloemen/Uniswap FullMath modular-inverse algorithm; XOR seeds the Newton inverse and divisions remove exact powers of two."
+    },
+    {
+      "fingerprint": "365641bac427337272eb56347a324f7df277187ec966c08c2dc39f8d3bce8180",
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/libraries/FullMath.sol#L11-L80",
+      "reason": "Intentional Remco Bloemen/Uniswap FullMath modular-inverse algorithm; XOR seeds the Newton inverse and divisions remove exact powers of two."
+    },
+    {
+      "fingerprint": "3a04911199c37ad100cc3ff57c9c67e4b78ce6db63444cfbd6bf43f55578c3bb",
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/libraries/FullMath.sol#L11-L80",
+      "reason": "Intentional Remco Bloemen/Uniswap FullMath modular-inverse algorithm; XOR seeds the Newton inverse and divisions remove exact powers of two."
+    },
+    {
+      "fingerprint": "4a02c73891b8d475f66db2eb20db062ecb6bc074bf57c285bdbc2c966a6b9ebb",
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/libraries/FullMath.sol#L11-L80",
+      "reason": "Intentional Remco Bloemen/Uniswap FullMath modular-inverse algorithm; XOR seeds the Newton inverse and divisions remove exact powers of two."
+    },
+    {
+      "fingerprint": "5dad85dc4655b7774e711651b5f06f064fafada31cf165834e6d5584559f1abc",
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/libraries/FullMath.sol#L11-L80",
+      "reason": "Intentional Remco Bloemen/Uniswap FullMath modular-inverse algorithm; XOR seeds the Newton inverse and divisions remove exact powers of two."
+    },
+    {
+      "fingerprint": "d30627f3826adc62bdd1d10c6f36b596750f3917661e4a478a08bbd672dbf0a0",
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/libraries/FullMath.sol#L11-L80",
+      "reason": "Intentional Remco Bloemen/Uniswap FullMath modular-inverse algorithm; XOR seeds the Newton inverse and divisions remove exact powers of two."
+    },
+    {
+      "fingerprint": "d76d374e6455cecc822871bd4559d97c242e00bf42a5f6c047cf1db0b90b49dc",
+      "check": "divide-before-multiply",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/libraries/FullMath.sol#L11-L80",
+      "reason": "Intentional Remco Bloemen/Uniswap FullMath modular-inverse algorithm; XOR seeds the Newton inverse and divisions remove exact powers of two."
+    },
+    {
+      "fingerprint": "0b3f77b01c99c578eb5ff293ae8a220730ee3d1155f0071ba1eab713fe50073c",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L307-L405",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "0e7797b20e9cf89276e05ded191d66195d5fae9da5aa70a59c778d10bc839bf1",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L1024-L1047",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "17e8a5d876079a8223f83930866a157149194c9f27d86589d96c2a003b4c7021",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CoreEscrow.sol#L422-L469",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "2c3f7ed28f56ff17b2141b1e6e47ce4aaf229481d0bf91ab62565637eaf0aab5",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L183-L283",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "630039952f8c2f97bf7d310ce2efba47786f1ce6bd751bab5339c077d19a0ebc",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L407-L457",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "959b6ebcd8aa483554c65a83547ecb5ac15bd749001d81a169365c62468ca9fb",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L183-L283",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "97bbd26e0ed67707e4c081835d60055aa3bd84ab33cf2064e6aa99a0eb97d286",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L287-L303",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "beeebec2e8dfe9a3433e52d5e849139f880b7ab0976dc45e61569110c9a5462c",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L1163-L1165",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "c8ade19c31462ffdb053e0251ae4ca688f38ea1a70916f9e1fc7549b229ec302",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L1229-L1237",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "d2d0ae6c8e355a7071c54326b5392c9a7c9dc6d9c1528e5ab64a6ebeb2dd82ec",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L696-L742",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "f3cec401af89ed85d4f7895082d4d9511ada44cdc6312e8e4bff9114a6c03379",
+      "check": "incorrect-equality",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CreditLedger.sol#L307-L405",
+      "reason": "Exact equality is intentional for closed enum/status branches, zero boundaries, and exact token-accounting reconciliation."
+    },
+    {
+      "fingerprint": "9aa58223eb83ef2e339b0fa245f13f4c1986604b2fdeaffc2f5139a153dd51b6",
+      "check": "incorrect-exp",
+      "impact": "High",
+      "confidence": "Medium",
+      "location": "src/libraries/FullMath.sol#L11-L80",
+      "reason": "Intentional Remco Bloemen/Uniswap FullMath modular-inverse algorithm; XOR seeds the Newton inverse and divisions remove exact powers of two."
+    },
+    {
+      "fingerprint": "65cdbfc64b0361a79463d7e5ac68640fe7c484a9824c42d26329aa6756d92b87",
+      "check": "locked-ether",
+      "impact": "Medium",
+      "confidence": "High",
+      "location": "src/CoreEscrow.sol#L43-L667",
+      "reason": "The payable arbitration stub always reverts; native and forced ETH are unsupported and no privileged sweep path is permitted."
+    },
+    {
+      "fingerprint": "00e90383587abd3cd35b83aa32e14e7a37a866fdafa8480730a2af2a618c3b5c",
+      "check": "low-level-calls",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/libraries/SignatureValidation.sol#L12-L37",
+      "reason": "The bounded staticcall is the required ERC-1271 signature check and validates the returned magic value without granting state-changing control."
+    },
+    {
+      "fingerprint": "59ca6cc2af39d22291929c1a7dc2dfbc794e9b7edd4c96b51e4cacc3adee0a02",
+      "check": "low-level-calls",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/libraries/ExactERC20.sol#L76-L83",
+      "reason": "Raw ERC-20 calls intentionally validate optional return data and exact before/after balances; high-level IERC20 calls cannot enforce this token boundary."
+    },
+    {
+      "fingerprint": "8f8c999c7445f473b7ff47a348c57dade94a8a14f5824a81b44620fa6839b8cf",
+      "check": "low-level-calls",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/libraries/ExactERC20.sol#L19-L39",
+      "reason": "Raw ERC-20 calls intentionally validate optional return data and exact before/after balances; high-level IERC20 calls cannot enforce this token boundary."
+    },
+    {
+      "fingerprint": "e9ae4fb51d86aacf93782bf217ca5df28d8694f06ad864b27e3423d02cdce72c",
+      "check": "low-level-calls",
+      "impact": "Informational",
+      "confidence": "High",
+      "location": "src/libraries/ExactERC20.sol#L41-L60",
+      "reason": "Raw ERC-20 calls intentionally validate optional return data and exact before/after balances; high-level IERC20 calls cannot enforce this token boundary."
+    },
+    {
+      "fingerprint": "21e32afb814b8416a6330fd9b7d5eade83ba51a90e1c2927a122ad275d6e5481",
+      "check": "reentrancy-benign",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CreditLedger.sol#L487-L507",
+      "reason": "The entrypoint is nonReentrant; external calls use the fixed Ledger or exact-token boundary, and effects commit only after the atomic external operation succeeds."
+    },
+    {
+      "fingerprint": "5ba135856d5242c985bde071014e7f3a22cd738e29f8649b6006673a587a4668",
+      "check": "reentrancy-benign",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L137-L234",
+      "reason": "The entrypoint is nonReentrant; external calls use the fixed Ledger or exact-token boundary, and effects commit only after the atomic external operation succeeds."
+    },
+    {
+      "fingerprint": "961ffd849984d5776eea592763219759f41c33fe50f89108103f1b546c9724e0",
+      "check": "reentrancy-benign",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L422-L469",
+      "reason": "The entrypoint is nonReentrant; external calls use the fixed Ledger or exact-token boundary, and effects commit only after the atomic external operation succeeds."
+    },
+    {
+      "fingerprint": "3fc5b8c0cc7c8120f18c3adb2a9c03a87b9aa006c53e19bdf0a8c5b2c928522b",
+      "check": "reentrancy-no-eth",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L137-L234",
+      "reason": "The entrypoint is nonReentrant; external calls use the fixed Ledger or exact-token boundary, and effects commit only after the atomic external operation succeeds."
+    },
+    {
+      "fingerprint": "6ebd3591954cf94ecbd533a843d9b9e190eafa478f606e84b21884f5b4d8754e",
+      "check": "reentrancy-no-eth",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L330-L389",
+      "reason": "The entrypoint is nonReentrant; external calls use the fixed Ledger or exact-token boundary, and effects commit only after the atomic external operation succeeds."
+    },
+    {
+      "fingerprint": "77c1757390281af6da1f368f561c63f113495cae21b6885cd248de66dbf885c5",
+      "check": "reentrancy-no-eth",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/CreditLedger.sol#L307-L405",
+      "reason": "The entrypoint is nonReentrant; external calls use the fixed Ledger or exact-token boundary, and effects commit only after the atomic external operation succeeds."
+    },
+    {
+      "fingerprint": "a29d6a80770e06c29ba64631f49406ee97d17edc1f8e7ca97c89737f3e3a70c8",
+      "check": "reentrancy-no-eth",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/CreditLedger.sol#L757-L778",
+      "reason": "The entrypoint is nonReentrant; external calls use the fixed Ledger or exact-token boundary, and effects commit only after the atomic external operation succeeds."
+    },
+    {
+      "fingerprint": "b4ae9876d833a349e193e3daa2f60bd3104c862b9cc71c6b971f829dfb68dd75",
+      "check": "reentrancy-no-eth",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L422-L469",
+      "reason": "The entrypoint is nonReentrant; external calls use the fixed Ledger or exact-token boundary, and effects commit only after the atomic external operation succeeds."
+    },
+    {
+      "fingerprint": "1e746bc7573aa31fe08a7a7628682ca30a717e322ce081dbfd7ebca1f8260602",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CreditLedger.sol#L641-L694",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "3cbbd6087a0edca28b5f74682d7b90a038d8ca2445dbfb38a5675f7a7d81a464",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CreditLedger.sol#L816-L863",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "4bc376a4ec0de27b60bc1c6f9d174b53f2eab231183b1d62304690df8c2ad87a",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L330-L389",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "8ec85eeb8a09128f8c668bd3b26f8e67232b31121682c41639c0e66a16a430e0",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L311-L327",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "8ee96a7bbc0a3362582d10572e08f38f6ad0d64c2ba65bd4d6a5d652b9a041da",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L299-L308",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "9a33e83d5355fb2bc844f3126e9e05d94ed167398cb74a9d4edfe41e374bfe6d",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L422-L469",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "ba32b7b3e3fa53620b477a8ffe875ce9dd287865a08604df793e55e357c5deaf",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CreditLedger.sol#L407-L457",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "c0245538d745405008e76e1296ec6f5c23eb1b8d4698e09d12a0bd6f61cece50",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L267-L276",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "c02705905791ccd7b08206208ba744ffc482e6be36fbb41e5c3e10d1195a1258",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L505-L516",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "d8806b87046457c9d5ce312f71c5b3aab63dde68c44197fc303cb99eb792529a",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L291-L296",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "e0aa88f6408afbac044f8dcfdf17e3ce6dfedaf6cab58f86f1236a0cbbb5a064",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L137-L234",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "e2e8b7e185ba650d3049a9d91988bfb8158f061824857cce63f8adcc5344b182",
+      "check": "timestamp",
+      "impact": "Low",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L239-L252",
+      "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
+    },
+    {
+      "fingerprint": "fdd5df1f5c8e8ce2b2c3c058093c88946b24564cd3794c1ab3da6e96551be997",
+      "check": "uninitialized-local",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/libraries/TerminalPlanning.sol#L79",
+      "reason": "Solidity deliberately zero-initializes the fixed memory allocation array; a separate count exposes only entries written by the bounded append routine."
+    },
+    {
+      "fingerprint": "1d825fd11b54b73dd27e3b6ac8daab183e34454a6060fd42ac3eb0f2d3688b97",
+      "check": "unused-return",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L505-L516",
+      "reason": "The checked-add call is intentionally used as a reverting representability assertion; the validated horizon value itself is not stored at this transition."
+    },
+    {
+      "fingerprint": "86301b43dd1f3d7a864aa65da0a423e936e3012ddfeca3c391304c5cccb8d660",
+      "check": "unused-return",
+      "impact": "Medium",
+      "confidence": "Medium",
+      "location": "src/CoreEscrow.sol#L239-L252",
+      "reason": "The checked-add call is intentionally used as a reverting representability assertion; the validated horizon value itself is not stored at this transition."
+    }
+  ]
+}

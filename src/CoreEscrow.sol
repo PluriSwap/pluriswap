@@ -31,6 +31,7 @@ import {
     InvalidTiming,
     NonceUsed,
     ProfileNotSelected,
+    Reentrancy,
     TerminalDeal,
     Unauthorized,
     ZeroAddress,
@@ -57,7 +58,7 @@ contract CoreEscrow is ICoreEscrow {
     ICreditLedger public immutable ledger;
     ICoordinator public immutable coordinator;
     bytes32 public immutable DOMAIN_SEPARATOR;
-    bytes32 public immutable manifestHash;
+    bytes32 public immutable intentHash;
 
     // ── State ───────────────────────────────────────────────────────────────────
 
@@ -69,14 +70,23 @@ contract CoreEscrow is ICoreEscrow {
 
     uint256 private _locked = 1;
 
+    modifier liveChain() {
+        _requireLiveChain();
+        _;
+    }
+
     modifier nonReentrant() {
         _lock();
         _;
         _unlock();
     }
 
+    function _requireLiveChain() private view {
+        if (block.chainid != uint256(chainId)) revert InvalidChainId();
+    }
+
     function _lock() private {
-        require(_locked == 1, "REENTRANCY");
+        if (_locked != 1) revert Reentrancy();
         _locked = 2;
     }
 
@@ -91,12 +101,13 @@ contract CoreEscrow is ICoreEscrow {
         bytes32 techSpecHash_,
         address ledger_,
         address coordinator_,
-        bytes32 manifestHash_
+        bytes32 intentHash_
     ) {
-        if (chainId_ != uint64(block.chainid)) revert InvalidChainId();
+        if (block.chainid > type(uint64).max) revert InvalidChainId();
+        if (block.chainid != uint256(chainId_)) revert InvalidChainId();
         if (
             protocolVersion_ != 2 || charterHash_ == bytes32(0) || techSpecHash_ == bytes32(0)
-                || manifestHash_ == bytes32(0)
+                || intentHash_ == bytes32(0)
         ) {
             revert InvalidTerms();
         }
@@ -115,18 +126,10 @@ contract CoreEscrow is ICoreEscrow {
         techSpecHash = techSpecHash_;
         ledger = ICreditLedger(ledger_);
         coordinator = ICoordinator(coordinator_);
-        manifestHash = manifestHash_;
+        intentHash = intentHash_;
         DOMAIN_SEPARATOR = keccak256(
             abi.encode(_TYPE_HASH, _NAME_HASH, _VERSION_HASH, uint256(chainId_), address(this))
         );
-    }
-
-    receive() external payable {
-        revert();
-    }
-
-    fallback() external payable {
-        revert();
     }
 
     // ── Activation ──────────────────────────────────────────────────────────────
@@ -141,7 +144,9 @@ contract CoreEscrow is ICoreEscrow {
         bytes calldata activationFeeFundingSig,
         bytes calldata holderSig,
         bytes calldata providerSig
-    ) external nonReentrant returns (bytes32 dealId, uint8 reconciliationStatus) {
+    ) external liveChain nonReentrant returns (bytes32 dealId, uint8 reconciliationStatus) {
+        if (block.timestamp >= terms.createExpiry) revert Expired();
+
         // ── Core-only validation ────────────────────────────────────────────────
         if (terms.profileFlags != 0) revert ProfileNotSelected();
         if (
@@ -160,7 +165,6 @@ contract CoreEscrow is ICoreEscrow {
         if (terms.fiatDuration == 0 || terms.releaseDuration == 0 || terms.disputeDuration == 0) {
             revert InvalidTerms();
         }
-        if (block.timestamp >= terms.createExpiry) revert Expired();
         if (terms.holder == terms.provider) revert InvalidTerms();
         if (terms.completionFee > terms.principal) revert InvalidTerms();
         if (terms.completionFee > 0 && terms.completionFeeRecipient == address(0)) {
@@ -170,6 +174,8 @@ contract CoreEscrow is ICoreEscrow {
             revert ZeroAddress();
         }
 
+        _validateActivationReceivers(terms);
+
         if (
             terms.custodyBoundaryId
                 != DealHashing.custodyBoundaryId(
@@ -177,7 +183,7 @@ contract CoreEscrow is ICoreEscrow {
                 )
         ) revert InvalidTerms();
 
-        _validateActivationReceivers(terms);
+        uint64 fiatDeadline = _validateActivationDeadlines(terms);
 
         _validateActivationFunding(terms, principalFunding, activationFeeFunding);
 
@@ -221,7 +227,7 @@ contract CoreEscrow is ICoreEscrow {
         _holderNonceUsed[terms.holder][terms.nonce] = true;
 
         // ── Snapshot deal ──────────────────────────────────────────────────────
-        _storeDeal(dealId, terms, termsHash);
+        _storeDeal(dealId, terms, termsHash, fiatDeadline);
         _dealExists[dealId] = true;
 
         emit DealActivated(dealId, terms.holder, terms.provider, terms.token, terms.principal);
@@ -231,12 +237,16 @@ contract CoreEscrow is ICoreEscrow {
 
     /// @notice CASE-CORE-002: Provider marks fiat sent.
     function markFiatSent(bytes32 dealId) external nonReentrant {
-        Deal storage d = _deals[dealId];
-        if (d.state != DealState.Funded) revert InvalidState();
+        Deal storage d = _dealInState(dealId, DealState.Funded);
         if (msg.sender != d.provider) revert Unauthorized();
 
+        if (block.timestamp > type(uint64).max) revert InvalidTiming();
+        uint64 releaseDeadline =
+            SettlementMath.checkedAdd64(uint64(block.timestamp), d.releaseDuration);
+        SettlementMath.checkedAdd64(releaseDeadline, d.disputeDuration);
+
         d.state = DealState.FiatSent;
-        d.releaseDeadline = SettlementMath.checkedAdd64(uint64(block.timestamp), d.releaseDuration);
+        d.releaseDeadline = releaseDeadline;
 
         emit FiatSent(dealId);
     }
@@ -247,11 +257,10 @@ contract CoreEscrow is ICoreEscrow {
         nonReentrant
         returns (uint8 reconciliationStatus)
     {
-        Deal storage d = _deals[dealId];
-        if (d.state != DealState.Funded) revert InvalidState();
+        Deal storage d = _dealInState(dealId, DealState.Funded);
         if (msg.sender != d.provider) revert Unauthorized();
 
-        return _settle(d, dealId, DealState.Cancelled, Outcome.ProviderCancel, 0);
+        return _settle(d, dealId, DealState.Cancelled, Outcome.ProviderCancel, 0, bytes32(0));
     }
 
     /// @notice CASE-CORE-005: Anyone executes fiat timeout.
@@ -260,11 +269,10 @@ contract CoreEscrow is ICoreEscrow {
         nonReentrant
         returns (uint8 reconciliationStatus)
     {
-        Deal storage d = _deals[dealId];
-        if (d.state != DealState.Funded) revert InvalidState();
+        Deal storage d = _dealInState(dealId, DealState.Funded);
         if (block.timestamp < d.fiatDeadline) revert InvalidTiming();
 
-        return _settle(d, dealId, DealState.Cancelled, Outcome.FiatTimeoutCancel, 0);
+        return _settle(d, dealId, DealState.Cancelled, Outcome.FiatTimeoutCancel, 0, bytes32(0));
     }
 
     /// @notice CASE-CORE-007: Holder releases to provider.
@@ -273,26 +281,23 @@ contract CoreEscrow is ICoreEscrow {
         nonReentrant
         returns (uint8 reconciliationStatus)
     {
-        Deal storage d = _deals[dealId];
-        if (d.state != DealState.FiatSent) revert InvalidState();
+        Deal storage d = _dealInState(dealId, DealState.FiatSent);
         if (msg.sender != d.holder) revert Unauthorized();
 
-        return _settle(d, dealId, DealState.Released, Outcome.VoluntaryRelease, 10_000);
+        return _settle(d, dealId, DealState.Released, Outcome.VoluntaryRelease, 10_000, bytes32(0));
     }
 
     /// @notice CASE-CORE-009: Permissionless claim after release deadline.
     function claim(bytes32 dealId) external nonReentrant returns (uint8 reconciliationStatus) {
-        Deal storage d = _deals[dealId];
-        if (d.state != DealState.FiatSent) revert InvalidState();
+        Deal storage d = _dealInState(dealId, DealState.FiatSent);
         if (block.timestamp < d.releaseDeadline) revert InvalidTiming();
 
-        return _settle(d, dealId, DealState.Released, Outcome.TimeoutClaim, 10_000);
+        return _settle(d, dealId, DealState.Released, Outcome.TimeoutClaim, 10_000, bytes32(0));
     }
 
     /// @notice CASE-CORE-021: Holder opens Core dispute.
     function openDispute(bytes32 dealId, bytes calldata) external nonReentrant {
-        Deal storage d = _deals[dealId];
-        if (d.state != DealState.FiatSent) revert InvalidState();
+        Deal storage d = _dealInState(dealId, DealState.FiatSent);
         if (msg.sender != d.holder) revert Unauthorized();
         if (block.timestamp >= d.releaseDeadline) revert InvalidTiming();
 
@@ -308,8 +313,7 @@ contract CoreEscrow is ICoreEscrow {
         nonReentrant
         returns (uint8 reconciliationStatus)
     {
-        Deal storage d = _deals[dealId];
-        if (d.state != DealState.Disputed) revert InvalidState();
+        Deal storage d = _dealInState(dealId, DealState.Disputed);
         if (block.timestamp < d.disputeDeadline) revert InvalidTiming();
 
         return _settle(
@@ -317,7 +321,8 @@ contract CoreEscrow is ICoreEscrow {
             dealId,
             DealState.ResolvedByDisputeTimeout,
             Outcome.DisputeTimeout,
-            d.disputeTimeoutProviderBps
+            d.disputeTimeoutProviderBps,
+            bytes32(0)
         );
     }
 
@@ -327,7 +332,7 @@ contract CoreEscrow is ICoreEscrow {
         ResolutionAuth calldata auth,
         bytes calldata holderSig,
         bytes calldata providerSig
-    ) external nonReentrant returns (uint8 reconciliationStatus) {
+    ) external liveChain nonReentrant returns (uint8 reconciliationStatus) {
         Deal storage d = _deals[dealId];
         if (!_dealExists[dealId]) revert InvalidState();
         if (isTerminal(d.state)) revert TerminalDeal();
@@ -345,36 +350,37 @@ contract CoreEscrow is ICoreEscrow {
 
         // ── Validate action vs state ─────────────────────────────────────────────
         uint8 action = auth.action;
+        uint8 terminalState = DealState.None;
+        uint8 outcome = Outcome.Invalid;
         if (action == uint8(ResolutionAction.MutualCancel)) {
             if (auth.providerShareBps != 0) revert InvalidBps();
+            terminalState = DealState.Cancelled;
+            outcome = Outcome.MutualCancel;
             // Valid from FUNDED, FIAT_SENT, DISPUTED
         } else if (action == uint8(ResolutionAction.CosignedRelease)) {
             if (auth.providerShareBps != 10_000) revert InvalidBps();
             if (d.state == DealState.Funded) revert InvalidState();
+            terminalState = DealState.Released;
+            outcome = Outcome.CosignedRelease;
             // Valid from FIAT_SENT, DISPUTED
         } else if (action == uint8(ResolutionAction.Split)) {
             if (d.state == DealState.Funded) revert InvalidState();
+            terminalState = DealState.ResolvedSplit;
+            outcome = Outcome.MutualSplit;
             // Valid from FIAT_SENT, DISPUTED
         } else {
             revert InvalidTerms();
         }
 
         // ── Verify dual signatures ──────────────────────────────────────────────
-        bytes32 resDigest = DealHashing.digest(DOMAIN_SEPARATOR, DealHashing.hashResolution(auth));
+        bytes32 resolutionHash = DealHashing.hashResolution(auth);
+        bytes32 resDigest = DealHashing.digest(DOMAIN_SEPARATOR, resolutionHash);
         _verifySigner(d.holder, resDigest, holderSig);
         _verifySigner(d.provider, resDigest, providerSig);
 
         // ── Settle ──────────────────────────────────────────────────────────────
-        uint8 status;
-        if (action == uint8(ResolutionAction.MutualCancel)) {
-            status = _settle(d, dealId, DealState.Cancelled, Outcome.MutualCancel, 0);
-        } else if (action == uint8(ResolutionAction.CosignedRelease)) {
-            status = _settle(d, dealId, DealState.Released, Outcome.CosignedRelease, 10_000);
-        } else {
-            status = _settle(
-                d, dealId, DealState.ResolvedSplit, Outcome.MutualSplit, auth.providerShareBps
-            );
-        }
+        uint8 status =
+            _settle(d, dealId, terminalState, outcome, auth.providerShareBps, resolutionHash);
 
         if (status != ReconciliationStatus.DeficitCheckpointed) {
             _resolutionNonceUsed[dealId][action][auth.resolutionNonce] = true;
@@ -402,21 +408,50 @@ contract CoreEscrow is ICoreEscrow {
 
     // ── Internal: settlement ────────────────────────────────────────────────────
 
-    /// @dev Settle a deal with the given provider bps. Computes terminal record,
-    ///      calls Ledger to create terminal positions, and updates deal state.
+    function _dealInState(bytes32 dealId, uint8 expectedState)
+        private
+        view
+        returns (Deal storage d)
+    {
+        d = _deals[dealId];
+        if (d.state != expectedState) revert InvalidState();
+    }
+
+    /// @dev Settle a deal with the given provider bps. Coordinator statically plans; Core
+    ///      stores the terminal record; Ledger only commits custody (no reverse callback).
     function _settle(
         Deal storage d,
         bytes32 dealId,
         uint8 terminalState,
         uint8 outcome,
-        uint16 providerBps
+        uint16 providerBps,
+        bytes32 evidenceHash
     ) internal returns (uint8 reconciliationStatus) {
+        uint64 terminatedAt = SettlementMath.checkedUint64(block.timestamp);
         (
             TerminalRecord memory terminalRecord,
             bytes32 terminalHash,
             TerminalAllocation[] memory allocations
-        ) = ledger.planSettlement(
-            dealId, terminalState, outcome, providerBps, uint64(block.timestamp)
+        ) = coordinator.planDealTerminal(
+            chainId,
+            protocolVersion,
+            address(this),
+            address(ledger),
+            dealId,
+            d.token,
+            d.principal,
+            d.completionFee,
+            d.holderReceiver,
+            d.providerReceiver,
+            d.completionFeeRecipient,
+            d.termsHash,
+            d.modulesHash,
+            d.custodyBoundaryId,
+            terminalState,
+            outcome,
+            providerBps,
+            evidenceHash,
+            terminatedAt
         );
 
         reconciliationStatus =
@@ -431,7 +466,6 @@ contract CoreEscrow is ICoreEscrow {
         _terminalRecords[dealId] = terminalRecord;
 
         emit DealClosed(dealId, terminalState, outcome, terminalHash);
-        return reconciliationStatus;
     }
 
     // ── Internal: signature verification ─────────────────────────────────────────
@@ -446,25 +480,39 @@ contract CoreEscrow is ICoreEscrow {
     }
 
     function _validateActivationReceivers(DealTerms calldata terms) internal view {
-        address holderReceiver =
-            terms.holderReceiver == address(0) ? terms.holder : terms.holderReceiver;
-        address providerReceiver =
-            terms.providerReceiver == address(0) ? terms.provider : terms.providerReceiver;
-        if (_isCustodyReceiver(holderReceiver) || _isCustodyReceiver(providerReceiver)) {
+        if (terms.holderReceiver == address(0) || terms.providerReceiver == address(0)) {
+            revert ZeroAddress();
+        }
+        if (
+            _isProtocolReceiver(terms.holderReceiver) || _isProtocolReceiver(terms.providerReceiver)
+        ) {
             revert InvalidTerms();
         }
         if (
             terms.completionFeeRecipient != address(0)
-                && _isCustodyReceiver(terms.completionFeeRecipient)
+                && _isProtocolReceiver(terms.completionFeeRecipient)
         ) {
             revert InvalidTerms();
         }
         if (
             terms.activationFeeRecipient != address(0)
-                && _isCustodyReceiver(terms.activationFeeRecipient)
+                && _isProtocolReceiver(terms.activationFeeRecipient)
         ) {
             revert InvalidTerms();
         }
+    }
+
+    function _validateActivationDeadlines(DealTerms calldata terms)
+        internal
+        view
+        returns (uint64 fiatDeadline)
+    {
+        if (block.timestamp > type(uint64).max) revert InvalidTiming();
+        uint64 activatedAt = uint64(block.timestamp);
+        fiatDeadline = SettlementMath.checkedAdd64(activatedAt, terms.fiatDuration);
+        uint64 immediateReleaseDeadline =
+            SettlementMath.checkedAdd64(activatedAt, terms.releaseDuration);
+        SettlementMath.checkedAdd64(immediateReleaseDeadline, terms.disputeDuration);
     }
 
     function _validateActivationFunding(
@@ -475,17 +523,16 @@ contract CoreEscrow is ICoreEscrow {
         if (principalFunding.authority != terms.holder || principalFunding.source != terms.holder) {
             revert InvalidTerms();
         }
-        if (
-            terms.activationFee > 0
-                && (activationFeeFunding.authority != terms.holder
-                    || activationFeeFunding.source != terms.holder)
-        ) revert InvalidTerms();
         if (terms.principalFundingHash != DealHashing.hashFundingSpec(principalFunding)) {
             revert InvalidTerms();
         }
         if (terms.activationFee > 0) {
-            if (terms.activationFeeFundingHash != DealHashing.hashFundingSpec(activationFeeFunding))
-            {
+            if (
+                activationFeeFunding.authority != terms.holder
+                    || activationFeeFunding.source != terms.holder
+                    || terms.activationFeeFundingHash
+                        != DealHashing.hashFundingSpec(activationFeeFunding)
+            ) {
                 revert InvalidTerms();
             }
         } else if (terms.activationFeeFundingHash != bytes32(0)) {
@@ -529,19 +576,20 @@ contract CoreEscrow is ICoreEscrow {
         return statuses[0];
     }
 
-    function _storeDeal(bytes32 dealId, DealTerms calldata terms, bytes32 termsHash) internal {
+    function _storeDeal(
+        bytes32 dealId,
+        DealTerms calldata terms,
+        bytes32 termsHash,
+        uint64 fiatDeadline
+    ) internal {
         uint64 now_ = uint64(block.timestamp);
         _deals[dealId] = Deal({
             state: DealState.Funded,
             outcome: Outcome.Invalid,
             holder: terms.holder,
             provider: terms.provider,
-            holderReceiver: terms.holderReceiver == address(0)
-                ? terms.holder
-                : terms.holderReceiver,
-            providerReceiver: terms.providerReceiver == address(0)
-                ? terms.provider
-                : terms.providerReceiver,
+            holderReceiver: terms.holderReceiver,
+            providerReceiver: terms.providerReceiver,
             token: terms.token,
             principal: terms.principal,
             activationFee: terms.activationFee,
@@ -550,7 +598,7 @@ contract CoreEscrow is ICoreEscrow {
             completionFeeRecipient: terms.completionFeeRecipient,
             disputeTimeoutProviderBps: terms.disputeTimeoutProviderBps,
             activatedAt: now_,
-            fiatDeadline: SettlementMath.checkedAdd64(now_, terms.fiatDuration),
+            fiatDeadline: fiatDeadline,
             releaseDuration: terms.releaseDuration,
             releaseDeadline: 0,
             disputeDuration: terms.disputeDuration,
@@ -563,8 +611,9 @@ contract CoreEscrow is ICoreEscrow {
         });
     }
 
-    function _isCustodyReceiver(address receiver) internal view returns (bool) {
-        return receiver == address(ledger) || receiver == address(this);
+    function _isProtocolReceiver(address receiver) internal view returns (bool) {
+        return receiver == address(ledger) || receiver == address(this)
+            || receiver == address(coordinator);
     }
 
     // ── Views ───────────────────────────────────────────────────────────────────

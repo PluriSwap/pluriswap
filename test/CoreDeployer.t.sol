@@ -7,7 +7,8 @@ import {CoreEscrow} from "../src/CoreEscrow.sol";
 import {CreditLedger} from "../src/CreditLedger.sol";
 import {Coordinator} from "../src/Coordinator.sol";
 import {CoreArtifactConstants} from "../src/libraries/CoreArtifactConstants.sol";
-import {CoreManifestOffchain} from "../src/libraries/DealTypes.sol";
+
+import {CoreDeploymentIntentOffchain} from "../src/libraries/ManifestTypes.sol";
 import {
     DeploymentAlreadyFinalized,
     InvalidChildInitCode,
@@ -54,10 +55,11 @@ contract CoreDeployerTest is Test {
         assertGt(deployedEscrow.code.length, 0);
         assertEq(_createAddress(address(deployer), 4).code.length, 0);
         assertEq(CreditLedger(payable(deployedLedger)).escrow(), deployedEscrow);
+        assertEq(CreditLedger(payable(deployedLedger)).coordinator(), deployedCoordinator);
         assertEq(Coordinator(deployedCoordinator).escrow(), deployedEscrow);
         assertEq(address(CoreEscrow(payable(deployedEscrow)).ledger()), deployedLedger);
         assertEq(address(CoreEscrow(payable(deployedEscrow)).coordinator()), deployedCoordinator);
-        assertEq(CoreEscrow(payable(deployedEscrow)).manifestHash(), deployer.manifestHash());
+        assertEq(CoreEscrow(payable(deployedEscrow)).intentHash(), deployer.intentHash());
     }
 
     function test_deployTriadRejectsUnauthorizedOperator() public {
@@ -120,6 +122,19 @@ contract CoreDeployerTest is Test {
         deployer.deployTriad(ledgerInitCode, wrongCoordinatorInitCode, escrowInitCode);
     }
 
+    function test_deployTriadRejectsLedgerCoordinatorMismatch() public {
+        CoreDeployer deployer = _newDeployer(1);
+        (, bytes memory coordinatorInitCode, bytes memory escrowInitCode) = _initCodes(deployer);
+        bytes memory wrongLedgerInitCode = abi.encodePacked(
+            type(CreditLedger).creationCode,
+            abi.encode(address(deployer.escrow()), OTHER, deployer.chainId())
+        );
+
+        vm.expectRevert(InvalidChildInitCode.selector);
+        vm.prank(OPERATOR);
+        deployer.deployTriad(wrongLedgerInitCode, coordinatorInitCode, escrowInitCode);
+    }
+
     function test_deployTriadRollsBackIfCreateCollides() public {
         CoreDeployer deployer = _newDeployer(1);
         (
@@ -141,15 +156,15 @@ contract CoreDeployerTest is Test {
         _newDeployer(1);
         _newDeployer(2);
 
-        CoreManifestOffchain memory methodOneWithFactory = _offchain(1);
-        methodOneWithFactory.factoryArtifactHash = bytes32(uint256(99));
+        CoreDeploymentIntentOffchain memory methodOneWithFactory = _offchain(1);
+        methodOneWithFactory.factoryCreationCodeHash = bytes32(uint256(99));
         vm.expectRevert(ManifestMismatch.selector);
         new CoreDeployer(
             1, 2, keccak256("charter"), keccak256("tech"), OWNER, OPERATOR, methodOneWithFactory
         );
 
-        CoreManifestOffchain memory methodTwoWithoutFactory = _offchain(2);
-        methodTwoWithoutFactory.factoryArtifactHash = bytes32(0);
+        CoreDeploymentIntentOffchain memory methodTwoWithoutFactory = _offchain(2);
+        methodTwoWithoutFactory.factoryCreationCodeHash = bytes32(0);
         vm.expectRevert(ManifestMismatch.selector);
         new CoreDeployer(
             2, 2, keccak256("charter"), keccak256("tech"), OWNER, OPERATOR, methodTwoWithoutFactory
@@ -200,19 +215,22 @@ contract CoreDeployerTest is Test {
         );
     }
 
-    function _offchain(uint8 method) internal pure returns (CoreManifestOffchain memory offchain) {
-        offchain = CoreManifestOffchain({
+    function _offchain(uint8 method)
+        internal
+        pure
+        returns (CoreDeploymentIntentOffchain memory offchain)
+    {
+        offchain = CoreDeploymentIntentOffchain({
             buildHash: bytes32(uint256(1)),
-            deploymentMethodHash: bytes32(uint256(2)),
-            coreDeployerArtifactHash: bytes32(uint256(3)),
-            factoryArtifactHash: method == 1 ? bytes32(0) : bytes32(uint256(4)),
-            ledgerArtifactHash: bytes32(uint256(5)),
-            coordinatorArtifactHash: bytes32(uint256(6)),
-            escrowArtifactHash: bytes32(uint256(7)),
+            plannedDeploymentMethodHash: bytes32(uint256(2)),
+            coreDeployerCreationCodeHash: bytes32(uint256(3)),
+            factoryCreationCodeHash: method == 1 ? bytes32(0) : bytes32(uint256(4)),
+            ledgerCreationCodeHash: bytes32(uint256(5)),
+            coordinatorCreationCodeHash: bytes32(uint256(6)),
+            escrowCreationCodeHash: bytes32(uint256(7)),
             capabilityHash: bytes32(uint256(8)),
             governanceHash: bytes32(uint256(9)),
-            verificationHash: bytes32(uint256(10)),
-            predecessorManifestHash: bytes32(0)
+            predecessorIntentHash: bytes32(0)
         });
     }
 
@@ -227,7 +245,9 @@ contract CoreDeployerTest is Test {
     {
         ledgerInitCode = abi.encodePacked(
             type(CreditLedger).creationCode,
-            abi.encode(address(deployer.escrow()), deployer.chainId())
+            abi.encode(
+                address(deployer.escrow()), address(deployer.coordinator()), deployer.chainId()
+            )
         );
         coordinatorInitCode = abi.encodePacked(
             type(Coordinator).creationCode,
@@ -242,7 +262,7 @@ contract CoreDeployerTest is Test {
                 deployer.techSpecHash(),
                 address(deployer.ledger()),
                 address(deployer.coordinator()),
-                deployer.manifestHash()
+                deployer.intentHash()
             )
         );
     }

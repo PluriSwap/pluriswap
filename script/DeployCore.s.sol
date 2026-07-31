@@ -6,7 +6,7 @@ import {CoreDeployer} from "../src/CoreDeployer.sol";
 import {CoreEscrow} from "../src/CoreEscrow.sol";
 import {CreditLedger} from "../src/CreditLedger.sol";
 import {Coordinator} from "../src/Coordinator.sol";
-import {CoreManifestOffchain} from "../src/libraries/DealTypes.sol";
+import {CoreDeploymentIntentOffchain} from "../src/libraries/ManifestTypes.sol";
 
 /// @notice CREATE2-deploys `CoreDeployer`, then atomically creates the Core triad.
 /// @dev Child addresses are deterministic from CoreDeployer (CREATE nonces 1..3).
@@ -24,18 +24,17 @@ contract DeployCore is Script {
         // ASCII "pluriswap.core.v2" left-aligned in bytes32 (matches deploy.toml.example).
         bytes32 salt = vm.envBytes32("SALT_CORE");
 
-        CoreManifestOffchain memory offchain = CoreManifestOffchain({
+        CoreDeploymentIntentOffchain memory offchain = CoreDeploymentIntentOffchain({
             buildHash: vm.envBytes32("BUILD_HASH"),
-            deploymentMethodHash: vm.envBytes32("DEPLOYMENT_METHOD_HASH"),
-            coreDeployerArtifactHash: vm.envBytes32("DEPLOYER_ARTIFACT_HASH"),
-            factoryArtifactHash: vm.envBytes32("FACTORY_ARTIFACT_HASH"),
-            ledgerArtifactHash: vm.envBytes32("LEDGER_ARTIFACT_HASH"),
-            coordinatorArtifactHash: vm.envBytes32("COORDINATOR_ARTIFACT_HASH"),
-            escrowArtifactHash: vm.envBytes32("ESCROW_ARTIFACT_HASH"),
+            plannedDeploymentMethodHash: vm.envBytes32("PLANNED_DEPLOYMENT_METHOD_HASH"),
+            coreDeployerCreationCodeHash: vm.envBytes32("DEPLOYER_CREATION_CODE_HASH"),
+            factoryCreationCodeHash: vm.envBytes32("FACTORY_CREATION_CODE_HASH"),
+            ledgerCreationCodeHash: vm.envBytes32("LEDGER_CREATION_CODE_HASH"),
+            coordinatorCreationCodeHash: vm.envBytes32("COORDINATOR_CREATION_CODE_HASH"),
+            escrowCreationCodeHash: vm.envBytes32("ESCROW_CREATION_CODE_HASH"),
             capabilityHash: vm.envBytes32("CAPABILITY_HASH"),
             governanceHash: vm.envBytes32("GOVERNANCE_HASH"),
-            verificationHash: vm.envBytes32("VERIFICATION_HASH"),
-            predecessorManifestHash: bytes32(0)
+            predecessorIntentHash: bytes32(0)
         });
 
         bytes memory initCode = abi.encodePacked(
@@ -78,7 +77,9 @@ contract DeployCore is Script {
 
         bytes memory ledgerInitCode = abi.encodePacked(
             type(CreditLedger).creationCode,
-            abi.encode(address(deployed.escrow()), deployed.chainId())
+            abi.encode(
+                address(deployed.escrow()), address(deployed.coordinator()), deployed.chainId()
+            )
         );
         bytes memory coordinatorInitCode = abi.encodePacked(
             type(Coordinator).creationCode,
@@ -93,7 +94,7 @@ contract DeployCore is Script {
                 deployed.techSpecHash(),
                 address(deployed.ledger()),
                 address(deployed.coordinator()),
-                deployed.manifestHash()
+                deployed.intentHash()
             )
         );
         deployed.deployTriad(ledgerInitCode, coordinatorInitCode, escrowInitCode);
@@ -112,6 +113,10 @@ contract DeployCore is Script {
             deployed.ledger().escrow() == address(deployed.escrow()), "ledger reverse link mismatch"
         );
         require(
+            deployed.ledger().coordinator() == address(deployed.coordinator()),
+            "ledger coordinator link mismatch"
+        );
+        require(
             deployed.coordinator().escrow() == address(deployed.escrow()),
             "coordinator reverse link mismatch"
         );
@@ -123,12 +128,13 @@ contract DeployCore is Script {
             address(deployed.escrow().coordinator()) == address(deployed.coordinator()),
             "escrow coordinator link mismatch"
         );
-        require(deployed.escrow().manifestHash() == deployed.manifestHash(), "manifest mismatch");
+        require(deployed.escrow().intentHash() == deployed.intentHash(), "intent mismatch");
 
         console2.log("Deployed CoreDeployer", address(deployed));
         console2.log("Deployed CreditLedger", address(deployed.ledger()));
         console2.log("Deployed Coordinator", address(deployed.coordinator()));
         console2.log("Deployed CoreEscrow", address(deployed.escrow()));
+        console2.log("intentHash", vm.toString(deployed.intentHash()));
         console2.log("Ledger initcode hash", vm.toString(keccak256(ledgerInitCode)));
         console2.log("Coordinator initcode hash", vm.toString(keccak256(coordinatorInitCode)));
         console2.log("Escrow initcode hash", vm.toString(keccak256(escrowInitCode)));

@@ -217,7 +217,10 @@ contract IndexedRecoveryModel {
         if (!deficitEntered) revert DeficitNotEntered();
 
         IndexedPosition storage parent = _position(parentId);
-        if (!parent.active || parent.consumed || parent.replaced || parent.paidAssets != 0) {
+        if (
+            !parent.active || parent.consumed || parent.replaced || parent.paidAssets != 0
+                || !_isZero(parent.history)
+        ) {
             revert PositionNotSplittable();
         }
 
@@ -244,12 +247,7 @@ contract IndexedRecoveryModel {
         }
         if (totalChildNominal != parentNominal) revert InvalidSplit();
 
-        Rational memory parentHistory = _currentHistory(parent);
         (Rational memory parentFunded, Rational memory parentGap) = _currentComponents(parent);
-        Rational[] memory childHistories = new Rational[](childCount);
-        for (uint256 i; i < childCount; ++i) {
-            childHistories[i] = _mulRatio(parentHistory, childNominalUnits[i], parentNominal);
-        }
 
         parent.active = false;
         parent.consumed = true;
@@ -262,7 +260,7 @@ contract IndexedRecoveryModel {
             _positions[childId] = IndexedPosition({
                 nominalUnits: childNominalUnits[i],
                 paidAssets: 0,
-                history: childHistories[i],
+                history: _zero(),
                 generation: generation,
                 replacedFunded: _zero(),
                 replacedGap: _zero(),

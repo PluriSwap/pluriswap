@@ -36,9 +36,20 @@ library SettlementMath {
 
     /// @dev Checked uint64 addition; reverts on overflow.
     function checkedAdd64(uint64 a, uint64 b) internal pure returns (uint64) {
-        uint64 result = a + b;
+        uint64 result;
+        unchecked {
+            result = a + b;
+        }
         if (result < a) revert Overflow();
         return result;
+    }
+
+    /// @dev Checked uint256-to-uint64 conversion; reverts on truncation.
+    function checkedUint64(uint256 value) internal pure returns (uint64) {
+        if (value > type(uint64).max) revert Overflow();
+        // The preceding bound proves this narrowing conversion cannot truncate.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        return uint64(value);
     }
 }
 
