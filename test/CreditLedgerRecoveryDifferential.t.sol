@@ -10,6 +10,7 @@ import {MockERC20} from "./helpers/MockERC20.sol";
 import {ReferenceRecoveryModel} from "./helpers/ReferenceRecoveryModel.sol";
 import {DealHashing} from "../src/libraries/DealHashing.sol";
 import {
+
     FundingAuth,
     FundingPurpose,
     FundingSourceMode,
@@ -493,7 +494,6 @@ contract CreditLedgerRecoveryDifferentialTest is Test {
         assertLe(largeCheckpointGas, smallCheckpointGas + MUTATION_GAS_TOLERANCE);
         assertLe(largeRecoveryGas, smallRecoveryGas + MUTATION_GAS_TOLERANCE);
     }
-
     function test_getPositionGasDoesNotGrowWithUnrelatedPositionsOrCheckpoints() public {
         bytes32 smallDealId = keccak256("gas-small-target");
         _fundDeal(ledger, token, escrow, smallDealId, 100, 100, 1);
@@ -916,7 +916,6 @@ contract CreditLedgerRecoveryDifferentialTest is Test {
         vm.prank(targetEscrow);
         target.settleDealAndReservations(dealId, address(asset), terminalHash, allocations);
     }
-
     function _settleBoundedSplit(
         bytes32 dealId,
         bytes32 terminalHash,

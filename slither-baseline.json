@@ -388,6 +388,7 @@
       "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
     },
     {
+
       "fingerprint": "8ec85eeb8a09128f8c668bd3b26f8e67232b31121682c41639c0e66a16a430e0",
       "check": "timestamp",
       "impact": "Low",
@@ -444,6 +445,7 @@
       "reason": "Timestamp comparisons implement signed expiries and protocol deadlines, not randomness; uint64 horizon and no-mutation behavior are explicitly checked."
     },
     {
+
       "fingerprint": "e0aa88f6408afbac044f8dcfdf17e3ce6dfedaf6cab58f86f1236a0cbbb5a064",
       "check": "timestamp",
       "impact": "Low",

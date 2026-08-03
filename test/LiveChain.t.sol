@@ -9,6 +9,7 @@ import {Coordinator} from "../src/Coordinator.sol";
 import {MockERC20} from "./helpers/MockERC20.sol";
 import {DealHashing} from "../src/libraries/DealHashing.sol";
 import {
+
     DealState,
     DealTerms,
     FundingAuth,
