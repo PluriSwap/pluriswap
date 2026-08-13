@@ -19,12 +19,12 @@ contract ReputationTest is Test {
     function setUp() public {
         token = new TestToken();
         passport = new PassportMock();
-        reputation = new Reputation(passport, feeRecipient, 0);
+        reputation = new Reputation(passport, feeRecipient, 0, 0);
     }
 
     function test_packageId_passportAndReputationStable() public view {
         assertEq(passport.packageId(), PackageId.passport(address(passport)));
-        assertEq(reputation.packageId(), PackageId.reputation(address(reputation), feeRecipient, 0));
+        assertEq(reputation.packageId(), PackageId.reputation(address(reputation), feeRecipient, 0, 0));
     }
 
     function test_noPassport_noAdmit() public {

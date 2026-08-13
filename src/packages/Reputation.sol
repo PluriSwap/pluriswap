@@ -26,16 +26,18 @@ contract Reputation {
     PassportMock public immutable passport;
     address public immutable feeRecipient;
     uint256 public immutable activationFee;
+    uint256 public immutable completionFee;
     bytes32 public immutable packageId;
 
     mapping(bytes32 subject => mapping(address token => uint256 amount)) public inFlight;
     mapping(bytes32 subject => mapping(address token => Stat)) internal _stat;
 
-    constructor(PassportMock passport_, address feeRecipient_, uint256 activationFee_) {
+    constructor(PassportMock passport_, address feeRecipient_, uint256 activationFee_, uint256 completionFee_) {
         passport = passport_;
         feeRecipient = feeRecipient_;
         activationFee = activationFee_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_);
+        completionFee = completionFee_;
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_);
     }
 
     function admit(address wallet, address token, uint256 principal, bool withBond) external returns (bytes32 subject) {
