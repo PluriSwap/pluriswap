@@ -44,6 +44,7 @@ contract Paths is Script {
         }
 
         (token, escrow) = _loadOrDeploy();
+        _writeAddresses();
 
         vm.startBroadcast(holderPk);
         token.mint(holder, PRINCIPAL * PATHS);
@@ -257,6 +258,18 @@ contract Paths is Script {
         vm.stopBroadcast();
         console.log("TestToken", address(t));
         console.log("Escrow", address(e));
+    }
+
+    function _writeAddresses() internal {
+        string memory obj = "paths";
+        vm.serializeUint(obj, "chainId", block.chainid);
+        vm.serializeAddress(obj, "testToken", address(token));
+        string memory json = vm.serializeAddress(obj, "escrow", address(escrow));
+        string memory path = block.chainid == 421614
+            ? "deployments/sepolia-paths.json"
+            : string.concat("deployments/", vm.toString(block.chainid), "-paths.json");
+        vm.writeJson(json, path);
+        console.log("wrote", path);
     }
 
     function _keys() internal view returns (uint256 h, uint256 p) {
