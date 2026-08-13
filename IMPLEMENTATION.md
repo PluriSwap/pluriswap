@@ -67,7 +67,7 @@ Permit2 (Uniswap) es un **path de pull** opt-in del Holder, no una dependencia d
 
 Tests: `forge-std`. Nada de crypto casera en tests de firmas: las mismas primitives.
 
-Plan de testnet (Core primero, Arbitrum Sepolia, USDC Circle): `TESTNET_PLAN.md`.
+Plan de implementación (Foundry, Sepolia, ERC-20 propia): `PLAN.md`.
 
 ---
 
