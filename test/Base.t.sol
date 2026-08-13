@@ -7,7 +7,10 @@ import {
     DealTerms,
     HolderAuthorization,
     ProviderAgreement,
-    ControllerAcceptance
+    ControllerAcceptance,
+    MutualCancel,
+    CoSignedRelease,
+    MutualSplit
 } from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
@@ -131,5 +134,45 @@ contract BaseTest is Test {
         ProviderAgreement memory pa = _providerAuth(terms, providerNonce);
         ControllerAcceptance memory ca = _controllerAuth(terms, controllerNonce);
         return escrow.activate(ha, _signHolder(ha), pa, _signProvider(pa), ca, _signController(ca));
+    }
+
+    function _markFiat(bytes32 id) internal {
+        vm.prank(provider);
+        escrow.markFiat(id);
+    }
+
+    function _mutualCancel(bytes32 id, uint256 providerNonce, uint256 controllerNonce) internal {
+        uint256 deadline = block.timestamp + 1 days;
+        MutualCancel memory p = MutualCancel({dealId: id, nonce: providerNonce, deadline: deadline});
+        MutualCancel memory c = MutualCancel({dealId: id, nonce: controllerNonce, deadline: deadline});
+        escrow.mutualCancel(
+            p, _sign(_typed(Consent.hashMutualCancel(p)), providerPk),
+            c, _sign(_typed(Consent.hashMutualCancel(c)), holderPk)
+        );
+    }
+
+    function _coSignedRelease(bytes32 id, uint256 providerNonce, uint256 controllerNonce) internal {
+        uint256 deadline = block.timestamp + 1 days;
+        CoSignedRelease memory p = CoSignedRelease({dealId: id, nonce: providerNonce, deadline: deadline});
+        CoSignedRelease memory c = CoSignedRelease({dealId: id, nonce: controllerNonce, deadline: deadline});
+        escrow.coSignedRelease(
+            p, _sign(_typed(Consent.hashCoSignedRelease(p)), providerPk),
+            c, _sign(_typed(Consent.hashCoSignedRelease(c)), holderPk)
+        );
+    }
+
+    function _mutualSplit(bytes32 id, uint16 bps, uint256 providerNonce, uint256 controllerNonce) internal {
+        uint256 deadline = block.timestamp + 1 days;
+        MutualSplit memory p = MutualSplit({dealId: id, providerBps: bps, nonce: providerNonce, deadline: deadline});
+        MutualSplit memory c = MutualSplit({dealId: id, providerBps: bps, nonce: controllerNonce, deadline: deadline});
+        escrow.mutualSplit(
+            p, _sign(_typed(Consent.hashMutualSplit(p)), providerPk),
+            c, _sign(_typed(Consent.hashMutualSplit(c)), holderPk)
+        );
+    }
+
+    function _openDisputed(bytes32 id) internal {
+        vm.prank(holder);
+        escrow.openDisputed(id);
     }
 }

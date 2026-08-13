@@ -23,7 +23,14 @@ contract Deal is Script {
         address holder = vm.addr(holderPk);
         address provider = vm.addr(providerPk);
 
-        (TestToken token, Escrow escrow) = _loadOrDeploy();
+        if (provider.balance < 0.001 ether) {
+            vm.startBroadcast(holderPk);
+            (bool ok,) = provider.call{value: 0.005 ether}("");
+            require(ok, "fund provider");
+            vm.stopBroadcast();
+        }
+
+        (TestToken token, Escrow escrow) = _loadOrDeploy(holderPk);
 
         vm.startBroadcast(holderPk);
         token.mint(holder, PRINCIPAL * 2);
@@ -60,14 +67,14 @@ contract Deal is Script {
         vm.writeJson(json, _path());
     }
 
-    function _loadOrDeploy() internal returns (TestToken token, Escrow escrow) {
+    function _loadOrDeploy(uint256 deployerPk) internal returns (TestToken token, Escrow escrow) {
         if (vm.exists(_path())) {
             string memory json = vm.readFile(_path());
             token = TestToken(json.readAddress(".testToken"));
             escrow = Escrow(json.readAddress(".escrow"));
             if (address(escrow).code.length > 0) return (token, escrow);
         }
-        vm.startBroadcast();
+        vm.startBroadcast(deployerPk);
         token = new TestToken();
         escrow = new Escrow();
         vm.stopBroadcast();
