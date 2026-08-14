@@ -2,11 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {PackageId} from "./PackageId.sol";
+import {IPassport} from "./interfaces/IPassport.sol";
 
-/// @dev Testnet adapter: address → subject. Not Human Passport.
-contract PassportMock {
-    error NoPassport();
-
+/// @dev Sepolia adapter: wallet → subject. Official decoder is not on Arbitrum Sepolia.
+contract PassportMock is IPassport {
     bytes32 public immutable packageId;
     mapping(address wallet => bytes32 subject) public subjectOf;
 

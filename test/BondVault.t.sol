@@ -4,7 +4,9 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {TestToken} from "../src/TestToken.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
+import {PassportMock} from "../src/packages/PassportMock.sol";
 import {PackageId} from "../src/packages/PackageId.sol";
+import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 
 contract BondVaultTest is Test {
     uint256 internal constant PRINCIPAL = 1_000_000;
@@ -12,15 +14,20 @@ contract BondVaultTest is Test {
     bytes32 internal constant SUBJECT_P = keccak256("subject-p");
 
     TestToken internal token;
+    PassportMock internal passport;
     BondVault internal vault;
     address internal sink = address(0xdeaD);
     address internal holder = address(0xA11CE);
     address internal provider = address(0xB0B);
     address internal controller = address(0xC0);
+    address internal otherWallet = address(0xA11CE2);
 
     function setUp() public {
         token = new TestToken();
-        vault = new BondVault(address(this), sink);
+        passport = new PassportMock();
+        vault = new BondVault(address(this), sink, passport);
+        passport.setHuman(holder, SUBJECT);
+        passport.setHuman(provider, SUBJECT_P);
         token.mint(holder, PRINCIPAL);
         vm.prank(holder);
         token.approve(address(vault), type(uint256).max);
@@ -52,6 +59,27 @@ contract BondVaultTest is Test {
         assertEq(vault.available(SUBJECT, address(token)), 0);
     }
 
+    function test_withdrawRequiresSubject() public {
+        vm.prank(holder);
+        vault.deposit(SUBJECT, address(token), PRINCIPAL);
+        vm.prank(provider);
+        vm.expectRevert(BondVault.Unauthorized.selector);
+        vault.withdraw(SUBJECT, address(token), PRINCIPAL);
+        vm.prank(controller);
+        vm.expectRevert(IPassport.NoPassport.selector);
+        vault.withdraw(SUBJECT, address(token), PRINCIPAL);
+    }
+
+    function test_withdrawSharedBySameHuman() public {
+        vm.prank(holder);
+        vault.deposit(SUBJECT, address(token), PRINCIPAL);
+        passport.setHuman(otherWallet, SUBJECT);
+        vm.prank(otherWallet);
+        vault.withdraw(SUBJECT, address(token), PRINCIPAL);
+        assertEq(token.balanceOf(otherWallet), PRINCIPAL);
+        assertEq(vault.available(SUBJECT, address(token)), 0);
+    }
+
     function test_lockTenPercent() public {
         vm.prank(holder);
         vault.deposit(SUBJECT, address(token), PRINCIPAL);
@@ -61,6 +89,15 @@ contract BondVaultTest is Test {
         assertEq(vault.lockOf(SUBJECT, dealId), lockAmount);
         assertEq(vault.locked(SUBJECT, address(token)), lockAmount);
         assertEq(vault.available(SUBJECT, address(token)), PRINCIPAL - lockAmount);
+        assertTrue(vault.locked(SUBJECT, address(token)) * 10 >= PRINCIPAL);
+    }
+
+    function test_twoDealsLockSum() public {
+        vm.prank(holder);
+        vault.deposit(SUBJECT, address(token), PRINCIPAL);
+        vault.reserve(SUBJECT, address(token), keccak256("deal-a"), PRINCIPAL / 2);
+        vault.reserve(SUBJECT, address(token), keccak256("deal-b"), PRINCIPAL / 2);
+        assertEq(vault.locked(SUBJECT, address(token)), PRINCIPAL / 10);
         assertTrue(vault.locked(SUBJECT, address(token)) * 10 >= PRINCIPAL);
     }
 
@@ -79,6 +116,23 @@ contract BondVaultTest is Test {
         assertEq(vault.locked(SUBJECT, address(token)), PRINCIPAL / 10);
     }
 
+    function test_unlockPeaceful() public {
+        bytes32 dealId = keccak256("deal-unlock");
+        vm.prank(holder);
+        vault.deposit(SUBJECT, address(token), PRINCIPAL);
+        vault.reserve(SUBJECT, address(token), dealId, PRINCIPAL);
+        vm.prank(holder);
+        vm.expectRevert(BondVault.Unauthorized.selector);
+        vault.unlock(SUBJECT, address(token), dealId);
+        vault.unlock(SUBJECT, address(token), dealId);
+        assertEq(vault.lockOf(SUBJECT, dealId), 0);
+        assertEq(vault.locked(SUBJECT, address(token)), 0);
+        assertEq(vault.available(SUBJECT, address(token)), PRINCIPAL);
+        vm.prank(holder);
+        vault.withdraw(SUBJECT, address(token), PRINCIPAL);
+        assertEq(token.balanceOf(holder), PRINCIPAL);
+    }
+
     function test_slashToWinnerSigningAddress() public {
         bytes32 dealId = keccak256("deal-slash");
         _lockBoth(dealId);
@@ -94,6 +148,9 @@ contract BondVaultTest is Test {
         assertEq(vault.deposited(SUBJECT_P, address(token)), PRINCIPAL - lockAmount);
         assertEq(vault.available(SUBJECT, address(token)), PRINCIPAL);
         assertEq(token.balanceOf(address(vault)), PRINCIPAL * 2 - lockAmount);
+        vm.prank(holder);
+        vault.withdraw(SUBJECT, address(token), PRINCIPAL);
+        assertEq(token.balanceOf(holder), lockAmount + PRINCIPAL);
     }
 
     function test_neverToController() public {
@@ -120,6 +177,14 @@ contract BondVaultTest is Test {
         assertEq(token.balanceOf(controller), 0);
         assertEq(token.balanceOf(holder), 0);
         assertEq(token.balanceOf(provider), 0);
+    }
+
+    function test_reserveOnlyOperator() public {
+        vm.prank(holder);
+        vault.deposit(SUBJECT, address(token), PRINCIPAL);
+        vm.prank(holder);
+        vm.expectRevert(BondVault.Unauthorized.selector);
+        vault.reserve(SUBJECT, address(token), keccak256("deal-1"), PRINCIPAL);
     }
 
     function _lockBoth(bytes32 dealId) internal {

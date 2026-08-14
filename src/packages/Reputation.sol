@@ -3,11 +3,13 @@ pragma solidity ^0.8.28;
 
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {PackageId} from "./PackageId.sol";
-import {PassportMock} from "./PassportMock.sol";
+import {IPassport} from "./interfaces/IPassport.sol";
+import {BondVault} from "./BondVault.sol";
 
 contract Reputation {
     error CapExceeded();
     error InFlightUnderflow();
+    error InsufficientBond();
 
     enum Close {
         Peaceful,
@@ -23,7 +25,7 @@ contract Reputation {
         uint256 volume;
     }
 
-    PassportMock public immutable passport;
+    IPassport public immutable passport;
     address public immutable feeRecipient;
     uint256 public immutable activationFee;
     uint256 public immutable completionFee;
@@ -32,7 +34,7 @@ contract Reputation {
     mapping(bytes32 subject => mapping(address token => uint256 amount)) public inFlight;
     mapping(bytes32 subject => mapping(address token => Stat)) internal _stat;
 
-    constructor(PassportMock passport_, address feeRecipient_, uint256 activationFee_, uint256 completionFee_) {
+    constructor(IPassport passport_, address feeRecipient_, uint256 activationFee_, uint256 completionFee_) {
         passport = passport_;
         feeRecipient = feeRecipient_;
         activationFee = activationFee_;
@@ -40,9 +42,31 @@ contract Reputation {
         packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_);
     }
 
-    function admit(address wallet, address token, uint256 principal, bool withBond) external returns (bytes32 subject) {
+    function invoiceActivation() external view returns (uint256 amount, address recipient) {
+        return (activationFee, feeRecipient);
+    }
+
+    function invoiceCompletion() external view returns (uint256 amount, address recipient) {
+        return (completionFee, feeRecipient);
+    }
+
+    function stats(bytes32 subject, address token)
+        external
+        view
+        returns (uint32 successCount, uint32 penalty, uint256 volume)
+    {
+        Stat storage s = _stat[subject][token];
+        return (s.successCount, s.penalty, s.volume);
+    }
+
+    function admit(address wallet, address token, uint256 principal, address vault)
+        external
+        returns (bytes32 subject)
+    {
         subject = passport.identify(wallet);
         uint256 next = inFlight[subject][token] + principal;
+        bool withBond = vault != address(0);
+        if (withBond) _requireBondCoverage(BondVault(vault), subject, token, principal, next);
         if (next > cap(subject, token, withBond)) revert CapExceeded();
         inFlight[subject][token] = next;
     }
@@ -66,6 +90,16 @@ contract Reputation {
         else if (sc >= 10) tokens = withBond ? 700 : 500;
         else tokens = withBond ? 400 : 250;
         return tokens * 10 ** uint256(decimals);
+    }
+
+    function _requireBondCoverage(BondVault vault, bytes32 subject, address token, uint256 principal, uint256 next)
+        internal
+        view
+    {
+        uint256 lockAmount = (principal + 9) / 10;
+        if (lockAmount * 10 < principal) revert InsufficientBond();
+        if (vault.available(subject, token) < lockAmount) revert InsufficientBond();
+        if ((vault.locked(subject, token) + lockAmount) * 10 < next) revert InsufficientBond();
     }
 
     function notifyTerminal(address wallet, address token, uint256 principal, Close kind) external {

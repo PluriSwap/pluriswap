@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {PackageId} from "./PackageId.sol";
+import {IPassport} from "./interfaces/IPassport.sol";
 import {Settlement} from "../libraries/Settlement.sol";
 
 contract BondVault {
@@ -18,15 +19,17 @@ contract BondVault {
 
     address public immutable operator;
     address public immutable sink;
+    IPassport public immutable passport;
     bytes32 public immutable packageId;
 
     mapping(bytes32 subject => mapping(address token => uint256 amount)) public deposited;
     mapping(bytes32 subject => mapping(address token => uint256 amount)) public locked;
     mapping(bytes32 subject => mapping(bytes32 dealId => uint256 amount)) public lockOf;
 
-    constructor(address operator_, address sink_) {
+    constructor(address operator_, address sink_, IPassport passport_) {
         operator = operator_;
         sink = sink_;
+        passport = passport_;
         packageId = PackageId.bonds(address(this), sink_);
     }
 
@@ -40,6 +43,7 @@ contract BondVault {
     }
 
     function withdraw(bytes32 subject, address token, uint256 amount) external {
+        if (passport.identify(msg.sender) != subject) revert Unauthorized();
         if (amount > available(subject, token)) revert InsufficientAvailable();
         deposited[subject][token] -= amount;
         IERC20(token).safeTransfer(msg.sender, amount);
@@ -54,6 +58,11 @@ contract BondVault {
         if (lockAmount > available(subject, token)) revert InsufficientAvailable();
         lockOf[subject][dealId] = lockAmount;
         locked[subject][token] += lockAmount;
+    }
+
+    function unlock(bytes32 subject, address token, bytes32 dealId) external {
+        if (msg.sender != operator) revert Unauthorized();
+        _takeLock(subject, token, dealId);
     }
 
     function slash(
