@@ -2,8 +2,10 @@
 pragma solidity ^0.8.28;
 
 import {IArbitrableV2, IArbitratorV2} from "./interfaces/IKlerosV2.sol";
+import {IDisputeTemplateRegistry} from "./interfaces/IDisputeTemplateRegistry.sol";
 import {ICourt} from "./interfaces/ICourt.sol";
 import {PackageId} from "./PackageId.sol";
+import {PluriSwapKlerosTemplate} from "./PluriSwapKlerosTemplate.sol";
 
 /// @dev Isolated Kleros V2 adapter. Does not move escrow principal.
 ///      Sepolia KlerosCore (proxy): 0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479
@@ -44,13 +46,22 @@ contract KlerosAdapter is ICourt {
         bytes memory extraData_,
         uint256 templateId_,
         string memory templateUri_,
-        address kernel_
+        address kernel_,
+        address registry_
     ) {
         arbitrator = IArbitratorV2(arbitrator_);
         extraData = extraData_;
-        templateId = templateId_;
-        templateUri = templateUri_;
         kernel = kernel_;
+        if (registry_ == address(0)) {
+            templateId = templateId_;
+            templateUri = templateUri_;
+        } else {
+            templateId = IDisputeTemplateRegistry(registry_).setDisputeTemplate(
+                PluriSwapKlerosTemplate.tag(),
+                PluriSwapKlerosTemplate.json(),
+                PluriSwapKlerosTemplate.mappings()
+            );
+        }
         packageId = PackageId.kleros(address(this), arbitrator_, extraData_);
     }
 

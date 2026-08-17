@@ -4,7 +4,10 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 import {PackageId} from "../src/packages/PackageId.sol";
+import {PluriSwapKlerosTemplate} from "../src/packages/PluriSwapKlerosTemplate.sol";
+import {IArbitrableV2, IArbitratorV2} from "../src/packages/interfaces/IKlerosV2.sol";
 import {MockArbitratorV2} from "../src/mocks/MockArbitratorV2.sol";
+import {MockTemplateRegistry} from "../src/mocks/MockTemplateRegistry.sol";
 contract KlerosAdapterTest is Test {
     uint256 internal constant COST = 0.01 ether;
     bytes32 internal constant DEAL = keccak256("deal-kleros");
@@ -18,7 +21,7 @@ contract KlerosAdapterTest is Test {
     function setUp() public {
         extraData = abi.encode(uint256(1), uint256(3), uint256(1));
         arbitrator = new MockArbitratorV2(COST);
-        adapter = new KlerosAdapter(address(arbitrator), extraData, 0, "", address(0));
+        adapter = new KlerosAdapter(address(arbitrator), extraData, 0, "", address(0), address(0));
         vm.deal(controller, 1 ether);
         vm.deal(provider, 1 ether);
     }
@@ -79,6 +82,22 @@ contract KlerosAdapterTest is Test {
         _open(DEAL);
         vm.expectRevert(KlerosAdapter.InvalidRuling.selector);
         arbitrator.giveRuling(0, 3);
+    }
+
+    function test_registersTemplateWhenRegistrySet() public {
+        MockTemplateRegistry registry = new MockTemplateRegistry();
+        KlerosAdapter wired =
+            new KlerosAdapter(address(arbitrator), extraData, 99, "ipfs://ignore", address(0), address(registry));
+        assertEq(wired.templateId(), 1);
+        assertEq(wired.templateUri(), "");
+        assertEq(registry.lastTag(), PluriSwapKlerosTemplate.tag());
+        assertEq(registry.lastData(), PluriSwapKlerosTemplate.json());
+        assertEq(registry.lastMappings(), PluriSwapKlerosTemplate.mappings());
+
+        vm.prank(controller);
+        vm.expectEmit(true, true, false, true, address(wired));
+        emit IArbitrableV2.DisputeRequest(IArbitratorV2(address(arbitrator)), 0, uint256(DEAL), 1, "");
+        wired.openCourt{value: COST}(DEAL, controller);
     }
 
     function test_onlyArbitratorRules() public {

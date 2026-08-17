@@ -9,7 +9,8 @@ import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
 import {ZkMock} from "../src/packages/ZkMock.sol";
 import {VerifierMock} from "../src/mocks/VerifierMock.sol";
-import {ArbitrationMock} from "../src/packages/ArbitrationMock.sol";
+import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
+import {MockArbitratorV2} from "../src/mocks/MockArbitratorV2.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {BaseTest} from "./Base.t.sol";
 
@@ -17,7 +18,7 @@ contract PackagesTest is BaseTest {
     uint256 internal constant ACT_FEE = 100_000;
     uint256 internal constant COMP_FEE = 50_000;
     uint256 internal constant ZK_FEE = 10_000;
-    uint256 internal constant COURT_FEE = 1_000_000;
+    uint256 internal constant COURT_ETH = 0.01 ether;
     uint256 internal constant BOND = PRINCIPAL / 10;
     bytes32 internal constant SUB_H = keccak256("human-h");
     bytes32 internal constant SUB_P = keccak256("human-p");
@@ -26,10 +27,11 @@ contract PackagesTest is BaseTest {
     Reputation internal reputation;
     BondVault internal vault;
     ZkMock internal zkMod;
-    ArbitrationMock internal arb;
+    MockArbitratorV2 internal arbitrator;
+    KlerosAdapter internal court;
     address internal feeRecipient = address(0xFEE);
     address internal sink = address(0xdeaD);
-    address internal tribunal = address(0x71B);
+    bytes internal extraData;
 
     function setUp() public override {
         holder = vm.addr(holderPk);
@@ -40,23 +42,24 @@ contract PackagesTest is BaseTest {
         reputation = new Reputation(passport, feeRecipient, ACT_FEE, COMP_FEE);
         VerifierMock verifier = new VerifierMock();
         zkMod = new ZkMock(verifier, feeRecipient, ZK_FEE);
+        extraData = abi.encode(uint256(1), uint256(3), uint256(1));
+        arbitrator = new MockArbitratorV2(COURT_ETH);
         uint64 n = vm.getNonce(address(this));
         address predicted = vm.computeCreateAddress(address(this), n + 2);
         vault = new BondVault(predicted, sink, passport);
-        arb = new ArbitrationMock(tribunal, address(token), COURT_FEE, 1 days, predicted);
-        escrow = new Escrow(address(passport), address(reputation), address(vault), address(zkMod), address(arb));
+        court = new KlerosAdapter(address(arbitrator), extraData, 0, "", predicted, address(0));
+        escrow = new Escrow(address(passport), address(reputation), address(vault), address(zkMod), address(court));
         assertEq(address(escrow), predicted);
 
         passport.setHuman(holder, SUB_H);
         passport.setHuman(provider, SUB_P);
-        token.mint(holder, PRINCIPAL + ACT_FEE + BOND + COURT_FEE);
+        vm.deal(holder, 1 ether);
+        token.mint(holder, PRINCIPAL + ACT_FEE + BOND);
         token.mint(provider, BOND);
         vm.prank(holder);
         token.approve(address(escrow), type(uint256).max);
         vm.prank(holder);
         token.approve(address(vault), type(uint256).max);
-        vm.prank(holder);
-        token.approve(address(arb), type(uint256).max);
         vm.prank(provider);
         token.approve(address(vault), type(uint256).max);
     }
@@ -137,7 +140,7 @@ contract PackagesTest is BaseTest {
         vm.warp(block.timestamp + 3600);
         escrow.timeoutFiat(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.CANCELLED));
-        assertEq(token.balanceOf(holder), PRINCIPAL + COURT_FEE);
+        assertEq(token.balanceOf(holder), PRINCIPAL);
         assertEq(token.balanceOf(feeRecipient), ACT_FEE);
         assertEq(reputation.score(SUB_H, address(token)), 0);
         assertEq(vault.available(SUB_H, address(token)), BOND);
@@ -186,13 +189,12 @@ contract PackagesTest is BaseTest {
         bytes32 id = _activateP2PWith(terms, 1, 1);
         _markFiat(id);
         vm.prank(holder);
-        escrow.openCourt(id);
+        escrow.openCourt{value: COURT_ETH}(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.ARBITRATION_ACTIVE));
-        arb.submitRuling(id, ArbitrationMock.Ruling.HolderWin);
+        arbitrator.giveRuling(court.disputeOf(id), 1);
         escrow.readRuling(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
         assertEq(token.balanceOf(holder), PRINCIPAL + ACT_FEE + BOND);
-        assertEq(token.balanceOf(tribunal), COURT_FEE);
     }
 
     function _fundBonds() internal {
