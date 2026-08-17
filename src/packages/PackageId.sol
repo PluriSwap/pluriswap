@@ -7,6 +7,7 @@ library PackageId {
     bytes32 internal constant PASSPORT_KIND = keccak256("PluriSwap.Package.PASSPORT");
     bytes32 internal constant REPUTATION_KIND = keccak256("PluriSwap.Package.REPUTATION");
     bytes32 internal constant ARBITRATION_KIND = keccak256("PluriSwap.Package.ARBITRATION");
+    bytes32 internal constant ZK_KIND = keccak256("PluriSwap.Package.ZK");
     uint16 public constant BOND_LOCK_BPS = 1000;
 
     function bonds(address vault, address sink) public pure returns (bytes32) {
@@ -33,5 +34,9 @@ library PackageId {
     ///      without baking a stale ETH `arbitrationCost`.
     function kleros(address adapter, address arbitrator, bytes calldata extraData) public pure returns (bytes32) {
         return arbitration(adapter, arbitrator, uint256(keccak256(extraData)));
+    }
+
+    function zk(address verifier, address feeRecipient, uint256 verifyFee) public pure returns (bytes32) {
+        return keccak256(abi.encode(ZK_KIND, verifier, feeRecipient, verifyFee));
     }
 }
