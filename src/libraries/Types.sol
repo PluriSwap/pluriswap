@@ -9,7 +9,9 @@ enum Status {
     RELEASED,
     RESOLVED_SPLIT,
     STALEMATE,
-    CANCELLED
+    CANCELLED,
+    ARBITRATION_ACTIVE,
+    RESOLVED_BY_ARBITRATION
 }
 
 struct DealTerms {

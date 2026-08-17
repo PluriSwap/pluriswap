@@ -19,7 +19,7 @@ contract ArbitrationMockTest is Test {
 
     function setUp() public {
         token = new TestToken();
-        arb = new ArbitrationMock(tribunal, address(token), COURT_FEE, DURATION);
+        arb = new ArbitrationMock(tribunal, address(token), COURT_FEE, DURATION, address(0));
         token.mint(controller, COURT_FEE * 4);
         vm.prank(controller);
         token.approve(address(arb), type(uint256).max);

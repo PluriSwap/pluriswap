@@ -254,7 +254,7 @@ contract Paths is Script {
     function _loadOrDeploy() internal returns (TestToken t, Escrow e) {
         vm.startBroadcast(holderPk);
         t = new TestToken();
-        e = new Escrow();
+        e = new Escrow(address(0), address(0), address(0), address(0), address(0));
         vm.stopBroadcast();
         console.log("TestToken", address(t));
         console.log("Escrow", address(e));

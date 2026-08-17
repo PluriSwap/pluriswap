@@ -18,7 +18,7 @@ contract KlerosAdapterTest is Test {
     function setUp() public {
         extraData = abi.encode(uint256(1), uint256(3), uint256(1));
         arbitrator = new MockArbitratorV2(COST);
-        adapter = new KlerosAdapter(address(arbitrator), extraData, 0, "");
+        adapter = new KlerosAdapter(address(arbitrator), extraData, 0, "", address(0));
         vm.deal(controller, 1 ether);
         vm.deal(provider, 1 ether);
     }

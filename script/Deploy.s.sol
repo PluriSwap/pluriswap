@@ -11,7 +11,7 @@ contract Deploy is Script {
     function run() external {
         vm.startBroadcast();
         TestToken token = new TestToken();
-        Escrow escrow = new Escrow();
+        Escrow escrow = new Escrow(address(0), address(0), address(0), address(0), address(0));
         vm.stopBroadcast();
 
         console.log("chainId", block.chainid);

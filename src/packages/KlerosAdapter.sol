@@ -2,13 +2,14 @@
 pragma solidity ^0.8.28;
 
 import {IArbitrableV2, IArbitratorV2} from "./interfaces/IKlerosV2.sol";
+import {ICourt} from "./interfaces/ICourt.sol";
 import {PackageId} from "./PackageId.sol";
 
 /// @dev Isolated Kleros V2 adapter. Does not move escrow principal.
 ///      Sepolia KlerosCore (proxy): 0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479
 ///      Implements `IArbitrableV2.rule` without inheriting the interface: the `Ruling` event
 ///      name collides with the kernel ternary enum.
-contract KlerosAdapter {
+contract KlerosAdapter is ICourt {
     error Unauthorized();
     error AlreadyOpen();
     error NotOpen();
@@ -26,6 +27,7 @@ contract KlerosAdapter {
     }
 
     IArbitratorV2 public immutable arbitrator;
+    address public immutable kernel;
     uint256 public immutable templateId;
     bytes32 public immutable packageId;
     bytes public extraData;
@@ -37,16 +39,27 @@ contract KlerosAdapter {
     mapping(uint256 disputeId => bool) public known;
     mapping(bytes32 dealId => Ruling) public rulingOf;
 
-    constructor(address arbitrator_, bytes memory extraData_, uint256 templateId_, string memory templateUri_) {
+    constructor(
+        address arbitrator_,
+        bytes memory extraData_,
+        uint256 templateId_,
+        string memory templateUri_,
+        address kernel_
+    ) {
         arbitrator = IArbitratorV2(arbitrator_);
         extraData = extraData_;
         templateId = templateId_;
         templateUri = templateUri_;
+        kernel = kernel_;
         packageId = PackageId.kleros(address(this), arbitrator_, extraData_);
     }
 
     function openCourt(bytes32 dealId, address controller) external payable {
-        if (msg.sender != controller) revert Unauthorized();
+        if (kernel == address(0)) {
+            if (msg.sender != controller) revert Unauthorized();
+        } else if (msg.sender != kernel) {
+            revert Unauthorized();
+        }
         if (opened[dealId]) revert AlreadyOpen();
         uint256 cost = arbitrator.arbitrationCost(extraData);
         if (msg.value != cost) revert InsufficientFee();
@@ -67,8 +80,8 @@ contract KlerosAdapter {
         emit IArbitrableV2.Ruling(arbitrator, disputeId, klerosRuling);
     }
 
-    function readRuling(bytes32 dealId) external view returns (Ruling) {
-        return rulingOf[dealId];
+    function readRuling(bytes32 dealId) external view returns (uint8) {
+        return uint8(rulingOf[dealId]);
     }
 
     function _map(uint256 klerosRuling) internal pure returns (Ruling) {

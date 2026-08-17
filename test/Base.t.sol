@@ -34,7 +34,7 @@ contract BaseTest is Test {
         provider = vm.addr(providerPk);
         controller = vm.addr(controllerPk);
         token = new TestToken();
-        escrow = new Escrow();
+        escrow = new Escrow(address(0), address(0), address(0), address(0), address(0));
         token.mint(holder, PRINCIPAL);
         vm.prank(holder);
         token.approve(address(escrow), type(uint256).max);

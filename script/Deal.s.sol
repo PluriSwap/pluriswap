@@ -76,7 +76,7 @@ contract Deal is Script {
         }
         vm.startBroadcast(deployerPk);
         token = new TestToken();
-        escrow = new Escrow();
+        escrow = new Escrow(address(0), address(0), address(0), address(0), address(0));
         vm.stopBroadcast();
         console.log("TestToken", address(token));
         console.log("Escrow", address(escrow));
