@@ -31,7 +31,7 @@ Un deal “de pool” y uno “de wallet” son el mismo deal. En persona a pers
 
 El único borde es `HolderAuthorization` + pull exacto. El digest bindea token, principal, deal, Controller y expiry. El Controller acepta el rol. Holder-gross vuelve al Holder, nunca a la wallet del Controller. ERC-2612 del token **no** es ese borde: el `permit` clásico no sirve cuando el owner es un contrato.
 
-Nombres: en el kernel, **Controller** es el agente del deal. El dueño del pool no se llama Controller. Aquí es **owner** (owned/custom) o **sponsor** (crowdfunded). Si se mezclan, “controller” vuelve a significar dos cosas.
+Nombres: en el kernel, **Controller** es el agente del deal. El admin del vault es **Sponsor**. Un LP no es Controller por depositar. Si se mezclan, “controller” vuelve a significar dos cosas.
 
 ---
 
@@ -44,7 +44,7 @@ Un pool es un contrato Holder con una interfaz definida por el protocolo de liqu
 - recibe el holder-gross cuando el deal termina Holder-positivo;
 - lleva su tesorería (idle, exposición activa, consumed) sin escribir estado Core.
 
-Cualquiera puede desplegar uno compatible. Un registry puede anunciar implementaciones; no otorga permiso de transacción. Interfaz conforme no es evidencia de solvencia ni de contabilidad honesta. Un pool malicioso puede dañar a su owner y a sus LPs; no puede gastar principal de otro deal ni assets de otro pool.
+Cualquiera puede desplegar uno compatible. Un registry puede anunciar implementaciones; no otorga permiso de transacción. Interfaz conforme no es evidencia de solvencia ni de contabilidad honesta. Un pool malicioso puede dañar a sus LPs y Sponsors; no puede gastar principal de otro deal ni assets de otro pool.
 
 No hay fee, tax ni licencia de protocolo por ser pool. El Controller puede cobrar: eso lo paga el pool, fuera del settlement Core.
 
@@ -52,19 +52,29 @@ No hay fee, tax ni licencia de protocolo por ser pool. El Controller puede cobra
 
 ## 3. Tipos
 
-Tres constituciones típicas. El kernel no las distingue.
+El kernel no distingue tipos. La constitución oficial es **un** vault con shares internas no transferibles. “Pool normal” es el mismo contrato con depósitos cerrados.
 
-| Tipo | Holder económico | Quién nombra al Controller | Producción |
-| --- | --- | --- | --- |
-| Owned | El contrato; el owner aporta y posee los assets | El owner, bajo reglas locales | Servicio; no es Core |
-| Custom | Igual, con constitución propia | Lo que esa constitución diga | Permissionless, untrusted |
-| Crowdfunded | El contrato; varios funders con shares pro-rata | El sponsor, bajo reglas locales | Gated en el charter §16; el kernel no lo implementa |
+| Gate | Quién deposita | Economía |
+| --- | --- | --- |
+| Privado | `depositors[]` fijo en el `create` | Shares sobre NAV |
+| Abierto | Cualquiera | Igual |
 
-Común a los tres:
+Roles del vault (no del kernel):
+
+- **LP** — tiene shares. Depositar no da derecho a operar deals.
+- **Sponsor** — uno o más, escritos en el `create`. El set **no se muta**. Todo Sponsor es agente (puede ser Controller de un deal) sin designarse.
+- **Designado** — wallet extra que un Sponsor pone o saca del roster.
+- **Controller** — rol de **un** deal. El kernel snapshottea `C`. `C` tiene que ser Sponsor o designado.
+
+Un LP que no es Sponsor y no está designado no puede ser Controller. Cualquier Sponsor, solo, suma o saca designados. No puede echar a otro Sponsor. Otro set de Sponsors = otro pool.
+
+**Custom** sigue existiendo: otra constitución, untrusted, otro bytecode. El kernel no la implementa. Oficial = clone de esta impl (`extcodehash`).
+
+Común:
 
 - Un token de settlement por pool. Cambiar token exige identidad nueva.
 - Deals concurrentes acotados por liquidez disponible exacta.
-- Core no implementa shares, NAV, epochs ni wind-down. Crowdfunded se engancha por el mismo `HolderAuthorization` y el mismo record terminal.
+- Core no implementa shares, NAV, runoff ni wind-down. El vault se engancha por el mismo `HolderAuthorization` y el mismo record terminal.
 
 ---
 
@@ -73,7 +83,7 @@ Común a los tres:
 El kernel no tiene un “permit de pool”. Tiene el typed data de `STATE_MACHINE.md` §3. El pool, como Holder-contrato, lo valida con EIP-1271 y se deja hacer pull.
 
 ```
-owner/sponsor configura quién puede ser Controller
+Sponsors (inmutables) + designados = quién puede ser Controller
         →  el Controller recolecta HolderAuthorization
         →  el pool.isValidSignature(digest, bytes) == MAGICVALUE
         →  pull exacto desde el pool (approve, Permit2, o transfer propio)
@@ -110,9 +120,9 @@ El grafo es el de `STATE_MACHINE.md`. El pool no añade aristas.
 | Deal activo | Idle liquidity en el vault. Principal activo es receivable, no liquidez local | Catálogo Core con el Controller snapshotado |
 | Terminal | Consume el record canónico para su tesorería | Holder-gross al Holder; Provider-gross al Provider |
 
-Si el pool está insolvente, en cierre o en default, **no** valida digest nuevos. Los deals ya fondeados siguen hasta terminal. El kernel no tiene estados `DEFICIENT` ni `CLOSING`.
+Si el pool está insolvente, en runoff o en wind-down, **no** valida digest nuevos. Los deals ya fondeados siguen hasta terminal. El kernel no tiene esos estados.
 
-Fee de arbitraje: la paga la wallet del Controller que abre, no el vault del pool. Reembolso offchain entre owner y Controller, si existe, es constitución local.
+Fee de arbitraje: la paga la wallet del Controller que abre, no el vault del pool.
 
 ---
 
@@ -131,46 +141,50 @@ Un crédito del pool cuenta una vez. Vuelve a estar disponible para un deal nuev
 
 Settlement Core commitea el record **antes** de cualquier journal del pool. Un callback del pool no corre en el path de settlement. Si el journal local revierte, el outcome del deal no se toca.
 
-Owned y crowdfunded pueden derivar NAV de ese record en la misma transacción. Un custom untrusted puede consumir el record después, una vez, autenticando el pool exacto. Su fallo es su problema.
+El vault oficial deriva NAV de ese record en `reconcile` (permissionless, lee `settlementOf`). Un custom untrusted puede consumir el record después, una vez. Su fallo es su problema.
 
 ---
 
-## 7. Ciclo de vida del servicio (owned / custom)
+## 7. Ciclo de vida del servicio
 
-Máquina **del pool**, no del deal. Gobierna si valida digest nuevos.
+Máquina **del pool**, no del deal. Gobierna si valida digest nuevos y si se deposita o se redime.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> ACTIVE: deploy + depósito exacto
+    [*] --> ACTIVE: create + depósito
     ACTIVE --> DEFICIENT: deficiencia objetiva
-    DEFICIENT --> ACTIVE: recap exacta que cubre toda liability
-    ACTIVE --> CLOSING: inicio de cierre
-    DEFICIENT --> CLOSING: inicio de cierre
-    CLOSING --> CLOSED: cero deals activos y cero liabilities locales
+    DEFICIENT --> ACTIVE: recap exacta
+    ACTIVE --> RUNOFF: Sponsor
+    DEFICIENT --> RUNOFF: Sponsor
+    ACTIVE --> WINDING_DOWN: Sponsor
+    DEFICIENT --> WINDING_DOWN: Sponsor
+    RUNOFF --> WINDING_DOWN: Sponsor
+    RUNOFF --> ACTIVE: locked == 0 y quedan shares
+    RUNOFF --> CLOSED: locked == 0 y cero shares
+    WINDING_DOWN --> CLOSED: locked == 0 y cero shares
 ```
 
-| Estado | Digest / deals nuevos | Deals ya fondeados |
-| --- | --- | --- |
-| `ACTIVE` | Sí, si hay liquidez exacta | Máquina Core |
-| `DEFICIENT` | No | Siguen hasta terminal |
-| `CLOSING` | No | Siguen hasta terminal |
-| `CLOSED` | No | N/A; la identidad no reabre |
+| Estado | Digest / deals nuevos | `deposit` | `redeem` |
+| --- | --- | --- | --- |
+| `ACTIVE` | Sí, si hay idle exacto | Según gate | Sí, si el payout ≤ idle |
+| `DEFICIENT` | No | Sí (recap) | No |
+| `RUNOFF` | No | No | Sí, si el payout ≤ idle |
+| `WINDING_DOWN` | No | No | Igual |
+| `CLOSED` | No | No | No |
 
-Deficiencia: idle + créditos reutilizables menores que las liabilities locales. El principal en escrow es receivable, no liquidez. `CLOSING` y `CLOSED` son monotónicos. Otra actividad exige identidad nueva.
+`nav = idle + credits + locked`. Redeem paga `shares * nav / totalShares` y revierte si eso supera idle. El locked es receivable: salir a NAV completo con deals vivos exige esperar (`RUNOFF`).
 
-Depósito y withdrawal son reglas del owner. Un withdrawal no puede invadir principal de un deal activo.
+Deficiencia: `onHand < idle + credits`. Un `deposit` tapa primero el agujero (sin mint de shares) y después invierte el resto. El principal en escrow es receivable, no liquidez. `WINDING_DOWN` y `CLOSED` no vuelven a `ACTIVE`. `RUNOFF` sí, si `locked == 0` y quedan shares. Otra identidad si cambian los Sponsors.
 
 ---
 
-## 8. Crowdfunded
+## 8. Sponsors y agentes
 
-Constitución aparte, gated en el charter. El kernel no la implementa. Mismo borde: `HolderAuthorization` + record terminal.
+`sponsors[]` se escribe en el `create` y no hay setter. Uno o más. Todo Sponsor es agente.
 
-Shares internas no transferibles, claim sobre NAV, no un amount de token garantizado. El sponsor pone capital mínimo y nombra Controllers. Otro sponsor u owner exige wind-down e identidad nueva.
+Cualquier Sponsor designa o saca wallets extra (`setController`). No se designa ni se destituye un Sponsor. Kick de designado es futuro-only: el deal ya snapshotado sigue.
 
-Estados locales: `ACTIVE`, `WITHDRAWAL_RUNOFF`, `DEFAULTED`, `WINDING_DOWN`, `CLOSED`. Los tres últimos no vuelven a `ACTIVE`. Deals ya fondeados no se congelan.
-
-El roce con el escrow es práctico, no de máquina: un epoch de withdrawal no debería finalizar mientras haya principal activo, porque el NAV todavía se mueve. Eso lo enforza el pool al no snapshotear la generación; el kernel no tiene un estado de epoch.
+`authorize` acepta `C` solo si `C` es Sponsor o designado. Caller = ese `C` o un Sponsor. El kernel solo ve `Holder = pool` y `ControllerAcceptance` de `C`.
 
 ---
 
@@ -178,7 +192,7 @@ El roce con el escrow es práctico, no de máquina: un epoch de withdrawal no de
 
 Validar un quote contra un oracle o una banda es política del pool al decidir si `isValidSignature` dice sí. Un deal persona a persona ya bindea principal y fiat exactos y no lo necesita.
 
-Fee del Controller, fee de aceptación, kick, reputación de quien opera: constitución del pool. El settlement Core parte principal entre Holder y Provider. Si el pool quiere pagar al Controller, lo hace de idle o de su propio consumed, después de leer el record.
+Fee del Controller: bps del principal, constitución del vault. Se reserva de idle en `authorize` (el escrow no hace pull del fee). En `reconcile`, si el deal consumió algo (`holderAmt < principal`), se paga a `C`; si el retorno es entero o el authorize expiró, la reserva vuelve a idle. El settlement Core parte Holder / Provider. El fee no es un canal Core.
 
 `RATE_POLICY`, mandato con bits, y operator acceptance fee como canal Core son el leak que este recorte saca del kernel.
 

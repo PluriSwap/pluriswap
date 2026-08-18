@@ -1,6 +1,8 @@
-# Plan de implementación: Pools
+# Plan de implementación: Pools (owned v1 — hecho)
 
-Acordado. El kernel no se toca. Spec: `POOLS.md`.
+Reemplazado por `POOL_SHARES_IMPL.md` (vault con shares; privado = depósitos cerrados). Este archivo es el recorte que ya se desplegó.
+
+Acordado en su momento. El kernel no se tocó. Spec: `POOLS.md`.
 
 ## Producto
 

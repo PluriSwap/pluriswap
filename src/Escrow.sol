@@ -71,6 +71,8 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         bytes32 subjectH;
         bytes32 subjectP;
         uint8 pkgs;
+        uint256 holderAmt;
+        uint256 providerAmt;
     }
 
     IPassport public immutable passport;
@@ -109,6 +111,15 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
 
     function status(bytes32 dealId) external view returns (Status) {
         return deals[dealId].status;
+    }
+
+    function settlementOf(bytes32 dealId)
+        external
+        view
+        returns (Status status_, uint256 holderAmt, uint256 providerAmt)
+    {
+        Deal storage d = deals[dealId];
+        return (d.status, d.holderAmt, d.providerAmt);
     }
 
     function subjects(bytes32 dealId) external view returns (bytes32, bytes32) {
@@ -514,6 +525,8 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         BondAction bond
     ) internal {
         d.status = next;
+        d.holderAmt = holderAmt;
+        d.providerAmt = providerAmt;
         if (holderAmt != 0) {
             Settlement.creditThenTryPush(settlement, d.terms.token, d.terms.holder, holderAmt);
         }

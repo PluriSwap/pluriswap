@@ -471,7 +471,7 @@ Upgrade de proxy, pause de admin, delisting de registry, o drift de código **no
 
 ### 9.3 EP-POST — consumidores post-terminal (EXT-12)
 
-Tras el commit, el kernel emite exactamente un terminal record inmutable y reconstruible (EXT-06). En el mismo settlement atómico, reasigna la posición deal-owned a créditos de beneficiario (EXT-08). El record se commitea **antes** de cualquier consumidor opcional y **antes** de un `transfer` que pueda revertir.
+Tras el commit, el kernel emite exactamente un terminal record inmutable y reconstruible (EXT-06). `settlementOf(dealId)` expone `status`, `holderAmt` y `providerAmt` — lo que `_finish` pagó. En el mismo settlement atómico, reasigna la posición deal-owned a créditos de beneficiario (EXT-08). El record se commitea **antes** de cualquier consumidor opcional y **antes** de un `transfer` que pueda revertir.
 
 Consumidores permitidos, permissionless, idempotentes, a lo sumo una vez:
 

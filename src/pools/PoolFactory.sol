@@ -5,7 +5,7 @@ import {Clones} from "@openzeppelin/contracts/proxy/Clones.sol";
 import {Pool} from "./Pool.sol";
 
 contract PoolFactory {
-    event PoolCreated(address indexed pool, address indexed owner, address token, address escrow);
+    event PoolCreated(address indexed pool, address token, address escrow, bool openDeposits);
 
     address public immutable implementation;
     bytes32 public immutable officialCodehash;
@@ -17,13 +17,18 @@ contract PoolFactory {
         );
     }
 
-    function createPool(address owner, address token, address escrow, address[] calldata controllers)
-        external
-        returns (address pool)
-    {
+    function createPool(
+        address[] calldata sponsors,
+        address token,
+        address escrow,
+        address[] calldata controllers,
+        bool openDeposits,
+        address[] calldata depositors,
+        uint16 controllerFeeBps
+    ) external returns (address pool) {
         pool = Clones.clone(implementation);
-        Pool(pool).initialize(owner, token, escrow, controllers);
-        emit PoolCreated(pool, owner, token, escrow);
+        Pool(pool).initialize(sponsors, token, escrow, controllers, openDeposits, depositors, controllerFeeBps);
+        emit PoolCreated(pool, token, escrow, openDeposits);
     }
 
     function isOfficial(address pool) external view returns (bool) {

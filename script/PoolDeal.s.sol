@@ -17,7 +17,7 @@ import {TestToken} from "../src/TestToken.sol";
 import {Pool} from "../src/pools/Pool.sol";
 import {PoolFactory} from "../src/pools/PoolFactory.sol";
 
-/// @dev Deploy factory + owned pool, then authorize → activate → markFiat → release → reconcile.
+/// @dev Deploy factory + private share pool, then authorize → activate → markFiat → release → reconcile.
 contract PoolDeal is Script {
     using stdJson for string;
 
@@ -44,15 +44,19 @@ contract PoolDeal is Script {
             vm.stopBroadcast();
         }
 
+        address[] memory sponsors = new address[](1);
+        sponsors[0] = owner;
         address[] memory cs = new address[](1);
         cs[0] = controller;
+        address[] memory depositors = new address[](1);
+        depositors[0] = owner;
 
         vm.startBroadcast(holderPk);
         PoolFactory factory = new PoolFactory();
         vm.stopBroadcast();
 
         vm.startBroadcast(holderPk);
-        Pool pool = Pool(factory.createPool(owner, address(token), address(escrow), cs));
+        Pool pool = Pool(factory.createPool(sponsors, address(token), address(escrow), cs, false, depositors, 0));
         token.mint(owner, PRINCIPAL);
         token.approve(address(pool), PRINCIPAL);
         pool.deposit(PRINCIPAL);
@@ -85,7 +89,7 @@ contract PoolDeal is Script {
 
         vm.startBroadcast(holderPk);
         escrow.release(id);
-        pool.reconcile(HOLDER_NONCE, PROVIDER_NONCE, CONTROLLER_NONCE, 0);
+        pool.reconcile(HOLDER_NONCE, PROVIDER_NONCE, CONTROLLER_NONCE);
         vm.stopBroadcast();
 
         require(escrow.status(id) == Status.RELEASED, "released");
