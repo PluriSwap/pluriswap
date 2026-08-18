@@ -6,8 +6,10 @@ import {
     DealTerms,
     HolderAuthorization,
     ProviderAgreement,
-    ControllerAcceptance
+    ControllerAcceptance,
+    MutualSplit
 } from "../src/libraries/Types.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Pool} from "../src/pools/Pool.sol";
 import {PoolFactory} from "../src/pools/PoolFactory.sol";
@@ -141,6 +143,7 @@ contract PoolTest is BaseTest {
         assertEq(token.balanceOf(address(escrow)), PRINCIPAL);
         assertEq(pool.idle(), 0);
         assertEq(pool.locked(), PRINCIPAL);
+        assertEq(pool.nav(), PRINCIPAL);
         assertTrue(escrow.used(address(pool), 1));
     }
 
@@ -400,8 +403,366 @@ contract PoolTest is BaseTest {
         assertEq(pool.locked(), PRINCIPAL);
     }
 
+    function test_donate_doesNotInflateSharePrice() public {
+        Pool p = _openPool(0);
+        address attacker = address(0xA77);
+        address victim = address(0xB0B1);
+        _fundLp(attacker, p, PRINCIPAL);
+        token.mint(attacker, PRINCIPAL * 10);
+        vm.prank(attacker);
+        token.transfer(address(p), PRINCIPAL * 10);
+        assertEq(p.nav(), PRINCIPAL);
+        assertEq(p.idle(), PRINCIPAL);
+
+        _fundLp(victim, p, PRINCIPAL);
+        assertEq(p.sharesOf(victim), PRINCIPAL);
+        assertEq(p.sharesOf(attacker), PRINCIPAL);
+        assertEq(p.nav(), PRINCIPAL * 2);
+
+        uint256 before = token.balanceOf(victim);
+        vm.prank(victim);
+        p.redeem(PRINCIPAL);
+        assertEq(token.balanceOf(victim), before + PRINCIPAL);
+        assertEq(p.nav(), PRINCIPAL);
+    }
+
+    function test_deposit_revertsWhenNavZeroAfterTotalConsume() public {
+        bytes32 id = _activatePool(1, 1, 1);
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+        pool.reconcile(1, 1, 1);
+        assertEq(pool.nav(), 0);
+        assertTrue(pool.totalShares() > 0);
+        token.mint(holder, PRINCIPAL);
+        vm.prank(holder);
+        vm.expectRevert(Pool.ZeroNav.selector);
+        pool.deposit(PRINCIPAL);
+    }
+
+    function test_fee_maxBps_controllerTakesPrincipal() public {
+        Pool p = _privatePool(10_000);
+        token.mint(holder, PRINCIPAL * 2);
+        vm.startPrank(holder);
+        token.approve(address(p), type(uint256).max);
+        p.deposit(PRINCIPAL * 2);
+        vm.stopPrank();
+
+        (bytes32 id,) = _activateOn(p, 1, 1, 1);
+        assertEq(p.locked(), PRINCIPAL * 2);
+        assertEq(p.idle(), 0);
+        assertEq(token.balanceOf(address(p)), PRINCIPAL);
+
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+        p.reconcile(1, 1, 1);
+        assertEq(token.balanceOf(controller), PRINCIPAL);
+        assertEq(token.balanceOf(provider), PRINCIPAL);
+        assertEq(p.consumed(), PRINCIPAL * 2);
+        assertEq(p.nav(), 0);
+    }
+
+    function test_fee_bpsAboveMaxReverts() public {
+        address[] memory sps = new address[](1);
+        sps[0] = holder;
+        address[] memory none = new address[](0);
+        address[] memory deps = new address[](1);
+        deps[0] = holder;
+        vm.expectRevert(Pool.BadFee.selector);
+        factory.createPool(sps, address(token), address(escrow), none, false, deps, 10_001);
+
+        vm.prank(holder);
+        vm.expectRevert(Pool.BadFee.selector);
+        pool.setControllerFeeBps(10_001);
+    }
+
+    function test_twoSponsors_eitherActs_neitherCanBeKicked() public {
+        uint256 extraPk = 0x51;
+        address extra = vm.addr(extraPk);
+        address[] memory sps = new address[](2);
+        sps[0] = holder;
+        sps[1] = extra;
+        address[] memory none = new address[](0);
+        address[] memory deps = new address[](1);
+        deps[0] = holder;
+        Pool p = Pool(factory.createPool(sps, address(token), address(escrow), none, false, deps, 0));
+        assertTrue(p.isAgent(holder));
+        assertTrue(p.isAgent(extra));
+
+        address desk = address(0xDE5);
+        vm.prank(extra);
+        p.setController(desk, true);
+        assertTrue(p.isAgent(desk));
+
+        vm.prank(extra);
+        vm.expectRevert(Pool.IsSponsor.selector);
+        p.setController(holder, false);
+        vm.prank(address(0xBEEF));
+        vm.expectRevert(Pool.Unauthorized.selector);
+        p.setController(desk, false);
+
+        token.mint(holder, PRINCIPAL);
+        vm.startPrank(holder);
+        token.approve(address(p), PRINCIPAL);
+        p.deposit(PRINCIPAL);
+        vm.stopPrank();
+
+        DealTerms memory terms = _p2pTerms();
+        terms.holder = address(p);
+        terms.controller = extra;
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca = _controllerAuth(terms, 1);
+        vm.prank(extra);
+        p.authorize(ha);
+        bytes32 id = escrow.activate(
+            ha, "", pa, _signProvider(pa), ca, _sign(_typed(Consent.hashControllerAcceptance(ca)), extraPk)
+        );
+        assertEq(uint8(escrow.status(id)), uint8(Status.FUNDED));
+    }
+
+    function test_create_duplicateSponsorsReverts() public {
+        address[] memory sps = new address[](2);
+        sps[0] = holder;
+        sps[1] = holder;
+        address[] memory none = new address[](0);
+        vm.expectRevert(Pool.Duplicate.selector);
+        factory.createPool(sps, address(token), address(escrow), none, true, none, 0);
+    }
+
+    function test_fee_pushRevert_keepsControllerCredit() public {
+        uint16 bps = 100;
+        uint256 fee = PRINCIPAL * bps / 10_000;
+        Pool p = _privatePool(bps);
+        token.mint(holder, PRINCIPAL + fee);
+        vm.startPrank(holder);
+        token.approve(address(p), type(uint256).max);
+        p.deposit(PRINCIPAL + fee);
+        vm.stopPrank();
+
+        (bytes32 id,) = _activateOn(p, 1, 1, 1);
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+
+        vm.mockCallRevert(address(token), abi.encodeCall(IERC20.transfer, (controller, fee)), "blocked");
+        p.reconcile(1, 1, 1);
+        assertEq(p.consumed(), PRINCIPAL + fee);
+        assertEq(p.nav(), 0);
+        assertEq(token.balanceOf(controller), 0);
+        assertEq(p.controllerCredit(controller), fee);
+        assertEq(token.balanceOf(address(p)), fee);
+
+        vm.clearMockedCalls();
+        vm.prank(controller);
+        p.withdrawCredit();
+        assertEq(token.balanceOf(controller), fee);
+        assertEq(p.controllerCredit(controller), 0);
+    }
+
+    function test_reconcile_twiceAndBeforeTerminalRevert() public {
+        bytes32 id = _activatePool(1, 1, 1);
+        vm.expectRevert(Pool.StillLive.selector);
+        pool.reconcile(1, 1, 1);
+
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+        pool.reconcile(1, 1, 1);
+        vm.expectRevert(Pool.NoAuth.selector);
+        pool.reconcile(1, 1, 1);
+    }
+
+    function test_authorize_expiredDeadlineReverts() public {
+        HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
+        vm.warp(ha.deadline + 1);
+        vm.prank(controller);
+        vm.expectRevert(Pool.DeadlineActive.selector);
+        pool.authorize(ha);
+    }
+
+    function test_runoff_blocksDeposit_endRunoffWhileLockedReverts() public {
+        _activatePool(1, 1, 1);
+        vm.prank(holder);
+        pool.startRunoff();
+        token.mint(holder, PRINCIPAL);
+        vm.prank(holder);
+        vm.expectRevert(Pool.WrongLife.selector);
+        pool.deposit(PRINCIPAL);
+        vm.prank(holder);
+        vm.expectRevert(Pool.StillLive.selector);
+        pool.endRunoff();
+    }
+
     function test_1271_rejectsUnknownDigest() public view {
         assertEq(pool.isValidSignature(bytes32(uint256(1)), ""), bytes4(0));
+    }
+
+    function test_fee_revertsIfIdleShortOfPrincipalPlusFee() public {
+        uint16 bps = 100;
+        Pool p = _privatePool(bps);
+        token.mint(holder, PRINCIPAL);
+        vm.startPrank(holder);
+        token.approve(address(p), PRINCIPAL);
+        p.deposit(PRINCIPAL);
+        vm.stopPrank();
+        DealTerms memory terms = _p2pTerms();
+        terms.holder = address(p);
+        terms.controller = controller;
+        vm.prank(controller);
+        vm.expectRevert(Pool.InsufficientIdle.selector);
+        p.authorize(_holderAuth(terms, 1));
+    }
+
+    function test_fee_zeroBps_controllerUnpaid() public {
+        bytes32 id = _activatePool(1, 1, 1);
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+        pool.reconcile(1, 1, 1);
+        assertEq(pool.controllerFeeBps(), 0);
+        assertEq(token.balanceOf(controller), 0);
+        assertEq(pool.consumed(), PRINCIPAL);
+        assertEq(pool.nav(), 0);
+    }
+
+    function test_fee_paidOnSplit() public {
+        uint16 bps = 100;
+        uint256 fee = PRINCIPAL * bps / 10_000;
+        Pool p = _privatePool(bps);
+        token.mint(holder, PRINCIPAL + fee);
+        vm.startPrank(holder);
+        token.approve(address(p), type(uint256).max);
+        p.deposit(PRINCIPAL + fee);
+        vm.stopPrank();
+
+        (bytes32 id,) = _activateOn(p, 1, 1, 1);
+        vm.prank(provider);
+        escrow.markFiat(id);
+
+        uint256 deadline = block.timestamp + 1 days;
+        MutualSplit memory prov = MutualSplit({dealId: id, providerBps: 5000, nonce: 2, deadline: deadline});
+        MutualSplit memory ctrl = MutualSplit({dealId: id, providerBps: 5000, nonce: 2, deadline: deadline});
+        escrow.mutualSplit(
+            prov,
+            _sign(_typed(Consent.hashMutualSplit(prov)), providerPk),
+            ctrl,
+            _sign(_typed(Consent.hashMutualSplit(ctrl)), controllerPk)
+        );
+
+        (Status st, uint256 returned,) = escrow.settlementOf(id);
+        assertEq(uint8(st), uint8(Status.RESOLVED_SPLIT));
+        assertEq(returned, PRINCIPAL / 2);
+        assertTrue(returned < PRINCIPAL);
+
+        p.reconcile(1, 1, 1);
+        assertEq(p.consumed(), PRINCIPAL - returned + fee);
+        assertEq(p.idle(), returned);
+        assertEq(p.nav(), returned);
+        assertEq(token.balanceOf(controller), fee);
+        assertEq(token.balanceOf(provider), PRINCIPAL - returned);
+    }
+
+    function test_nav_twoLpsAfterConsume() public {
+        Pool p = _openPool(0);
+        address lpA = address(0xA1);
+        address lpB = address(0xB1);
+        _fundLp(lpA, p, PRINCIPAL * 2);
+        assertEq(p.nav(), PRINCIPAL * 2);
+        assertEq(p.sharesOf(lpA), PRINCIPAL * 2);
+        assertEq(p.idle(), PRINCIPAL * 2);
+
+        (bytes32 id,) = _activateOn(p, 1, 1, 1);
+        assertEq(p.nav(), PRINCIPAL * 2);
+        assertEq(p.idle(), PRINCIPAL);
+        assertEq(p.locked(), PRINCIPAL);
+
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+        p.reconcile(1, 1, 1);
+
+        assertEq(p.idle(), PRINCIPAL);
+        assertEq(p.locked(), 0);
+        assertEq(p.consumed(), PRINCIPAL);
+        assertEq(p.nav(), PRINCIPAL);
+        assertEq(p.totalShares(), PRINCIPAL * 2);
+
+        _fundLp(lpB, p, PRINCIPAL);
+        assertEq(p.sharesOf(lpB), PRINCIPAL * 2);
+        assertEq(p.totalShares(), PRINCIPAL * 4);
+        assertEq(p.nav(), PRINCIPAL * 2);
+
+        uint256 before = token.balanceOf(lpA);
+        vm.prank(lpA);
+        p.redeem(PRINCIPAL);
+        assertEq(token.balanceOf(lpA), before + PRINCIPAL / 2);
+        assertEq(p.sharesOf(lpA), PRINCIPAL);
+        assertEq(p.nav(), PRINCIPAL * 2 - PRINCIPAL / 2);
+        assertEq(p.idle(), PRINCIPAL * 2 - PRINCIPAL / 2);
+    }
+
+    function test_open_fee_twoLps() public {
+        uint16 bps = 100;
+        uint256 fee = PRINCIPAL * bps / 10_000;
+        Pool p = _openPool(bps);
+        address lpA = address(0xA2);
+        address lpB = address(0xB2);
+        _fundLp(lpA, p, PRINCIPAL * 2);
+        _fundLp(lpB, p, PRINCIPAL);
+        assertEq(p.nav(), PRINCIPAL * 3);
+        assertEq(p.sharesOf(lpA), PRINCIPAL * 2);
+        assertEq(p.sharesOf(lpB), PRINCIPAL);
+
+        (bytes32 id,) = _activateOn(p, 1, 1, 1);
+        assertEq(p.locked(), PRINCIPAL + fee);
+        assertEq(p.idle(), PRINCIPAL * 3 - PRINCIPAL - fee);
+        assertEq(p.nav(), PRINCIPAL * 3);
+
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+        p.reconcile(1, 1, 1);
+
+        assertEq(token.balanceOf(controller), fee);
+        assertEq(p.consumed(), PRINCIPAL + fee);
+        assertEq(p.locked(), 0);
+        assertEq(p.nav(), PRINCIPAL * 3 - PRINCIPAL - fee);
+        assertEq(p.idle(), p.nav());
+        assertEq(p.totalShares(), PRINCIPAL * 3);
+    }
+
+    function test_redeem_partialWhileLocked() public {
+        token.mint(holder, PRINCIPAL);
+        vm.prank(holder);
+        pool.deposit(PRINCIPAL);
+        assertEq(pool.nav(), PRINCIPAL * 2);
+
+        _activatePool(1, 1, 1);
+        assertEq(pool.idle(), PRINCIPAL);
+        assertEq(pool.locked(), PRINCIPAL);
+        assertEq(pool.nav(), PRINCIPAL * 2);
+
+        uint256 before = token.balanceOf(holder);
+        vm.prank(holder);
+        pool.redeem(PRINCIPAL / 2);
+        assertEq(token.balanceOf(holder), before + PRINCIPAL / 2);
+        assertEq(pool.sharesOf(holder), PRINCIPAL * 2 - PRINCIPAL / 2);
+        assertEq(pool.idle(), PRINCIPAL / 2);
+        assertEq(pool.locked(), PRINCIPAL);
+        assertEq(pool.nav(), PRINCIPAL * 2 - PRINCIPAL / 2);
+
+        vm.prank(holder);
+        vm.expectRevert(Pool.RedeemExceedsIdle.selector);
+        pool.redeem(PRINCIPAL);
     }
 
     function test_deficient_blocksAuthorize() public {
@@ -422,6 +783,38 @@ contract PoolTest is BaseTest {
         address[] memory deps = new address[](1);
         deps[0] = holder;
         return Pool(factory.createPool(sps, address(token), address(escrow), cs, false, deps, feeBps));
+    }
+
+    function _openPool(uint16 feeBps) internal returns (Pool) {
+        address[] memory sps = new address[](1);
+        sps[0] = holder;
+        address[] memory cs = new address[](1);
+        cs[0] = controller;
+        address[] memory none = new address[](0);
+        return Pool(factory.createPool(sps, address(token), address(escrow), cs, true, none, feeBps));
+    }
+
+    function _fundLp(address lp, Pool p, uint256 amount) internal {
+        token.mint(lp, amount);
+        vm.startPrank(lp);
+        token.approve(address(p), amount);
+        p.deposit(amount);
+        vm.stopPrank();
+    }
+
+    function _activateOn(Pool p, uint256 holderNonce, uint256 providerNonce, uint256 controllerNonce)
+        internal
+        returns (bytes32 id, DealTerms memory terms)
+    {
+        terms = _p2pTerms();
+        terms.holder = address(p);
+        terms.controller = controller;
+        HolderAuthorization memory ha = _holderAuth(terms, holderNonce);
+        ProviderAgreement memory pa = _providerAuth(terms, providerNonce);
+        ControllerAcceptance memory ca = _controllerAuth(terms, controllerNonce);
+        vm.prank(controller);
+        p.authorize(ha);
+        id = escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
     }
 
     function _poolHolderTerms() internal view returns (DealTerms memory t) {
