@@ -1,4 +1,5 @@
 {
+  "adapterRuling": 0,
   "arbDealId": "0xec09a0dbc2e55cec855666e35d793692721ea07750e7b33898400d3ed459cea7",
   "arbId": "0x80565511ebd8de83e1a9827fe4c72d0be9b52312b55c916552c426f99df31335",
   "arbitration": "0xf04Ab505d948f33FBDe46E90c4a91C9660C4a11b",
@@ -7,8 +8,11 @@
   "chainId": 421614,
   "disputeId": 49,
   "escrow": "0x99c190FAA6c71eCa7cbcAf426bCaB5C70888bE00",
+  "escrowStatus": 8,
   "feeRecipient": "0x0000000000000000000000000000000000000FEE",
   "klerosCore": "0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479",
+  "klerosPeriod": 1,
+  "klerosRuled": false,
   "passport": "0xE7E3a50D69e7A09d0C5822314A996BD683ce88C8",
   "passportId": "0x41341fc6e565efd147176b15b853012bff9d60783be92a6247dde2e69d2a331e",
   "reputation": "0x1629b0CC376475DDFddeFCB1Bf0e43d9b8a4A248",
