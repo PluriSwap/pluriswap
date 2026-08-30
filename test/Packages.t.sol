@@ -1,7 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Status, DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance} from "../src/libraries/Types.sol";
+import {
+    Status,
+    DealTerms,
+    HolderAuthorization,
+    ProviderAgreement,
+    ControllerAcceptance,
+    PackageMods
+} from "../src/libraries/Types.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {TestToken} from "../src/TestToken.sol";
 import {PassportMock} from "../src/packages/PassportMock.sol";
@@ -48,7 +55,7 @@ contract PackagesTest is BaseTest {
         address predicted = vm.computeCreateAddress(address(this), n + 2);
         vault = new BondVault(predicted, sink, passport);
         court = new KlerosAdapter(address(arbitrator), extraData, 0, "", predicted, address(0));
-        escrow = new Escrow(address(passport), address(reputation), address(vault), address(zkMod), address(court));
+        escrow = new Escrow();
         assertEq(address(escrow), predicted);
 
         passport.setHuman(holder, SUB_H);
@@ -80,14 +87,17 @@ contract PackagesTest is BaseTest {
 
     function test_zkAndArbIncompatible() public {
         DealTerms memory terms = _p2pTerms();
-        terms.packageIds = _sorted2(escrow.zkId(), escrow.arbId());
+        terms.packageIds = _sorted2(zkMod.packageId(), court.packageId());
         HolderAuthorization memory ha = _holderAuth(terms, 1);
         ProviderAgreement memory pa = _providerAuth(terms, 1);
         ControllerAcceptance memory ca;
+        PackageMods memory mods;
+        mods.zk = address(zkMod);
+        mods.court = address(court);
         bytes memory hs = _signHolder(ha);
         bytes memory ps = _signProvider(pa);
         vm.expectRevert(Escrow.IncompatiblePackages.selector);
-        escrow.activate(ha, hs, pa, ps, ca, "");
+        escrow.activate(ha, hs, pa, ps, ca, "", mods);
     }
 
     function test_noPassport_noAdmit() public {
@@ -100,7 +110,7 @@ contract PackagesTest is BaseTest {
         bytes memory hs = _signHolder(ha);
         bytes memory ps = _signProvider(pa);
         vm.expectRevert(IPassport.NoPassport.selector);
-        escrow.activate(ha, hs, pa, ps, ca, "");
+        escrow.activate(ha, hs, pa, ps, ca, "", _trioMods());
         assertFalse(escrow.used(holder, 1));
         assertEq(token.balanceOf(feeRecipient), 0);
     }
@@ -172,8 +182,8 @@ contract PackagesTest is BaseTest {
 
     function test_verifyProof_fromFunded() public {
         DealTerms memory terms = _p2pTerms();
-        terms.packageIds = _one(escrow.zkId());
-        bytes32 id = _activateP2PWith(terms, 1, 1);
+        terms.packageIds = _one(zkMod.packageId());
+        bytes32 id = _activateWith(terms, _zkMods(), 1, 1);
         vm.expectRevert(Escrow.EdgeOff.selector);
         _markFiat(id);
         escrow.verifyProof(id, abi.encode(id, keccak256("receipt")));
@@ -184,9 +194,9 @@ contract PackagesTest is BaseTest {
 
     function test_openCourt_readRuling_holderWin() public {
         DealTerms memory terms = _p2pTerms();
-        terms.packageIds = _one(escrow.arbId());
+        terms.packageIds = _one(court.packageId());
         terms.arbitrationDuration = 1 days;
-        bytes32 id = _activateP2PWith(terms, 1, 1);
+        bytes32 id = _activateWith(terms, _courtMods(), 1, 1);
         _markFiat(id);
         vm.prank(holder);
         escrow.openCourt{value: COURT_ETH}(id);
@@ -206,11 +216,56 @@ contract PackagesTest is BaseTest {
 
     function _trioTerms() internal view returns (DealTerms memory terms) {
         terms = _p2pTerms();
-        terms.packageIds = _sorted3(escrow.passportId(), escrow.reputationId(), escrow.bondsId());
+        terms.packageIds = _sorted3(passport.packageId(), reputation.packageId(), vault.packageId());
     }
 
     function _activateTrio(uint256 hNonce, uint256 pNonce) internal returns (bytes32) {
-        return _activateP2PWith(_trioTerms(), hNonce, pNonce);
+        return _activateWith(_trioTerms(), _trioMods(), hNonce, pNonce);
+    }
+
+    function _activateWith(DealTerms memory terms, PackageMods memory mods, uint256 hNonce, uint256 pNonce)
+        internal
+        returns (bytes32)
+    {
+        HolderAuthorization memory ha = _holderAuth(terms, hNonce);
+        ProviderAgreement memory pa = _providerAuth(terms, pNonce);
+        ControllerAcceptance memory ca;
+        return escrow.activate(ha, _signHolder(ha), pa, _signProvider(pa), ca, "", mods);
+    }
+
+    function _trioMods() internal view returns (PackageMods memory m) {
+        m.passport = address(passport);
+        m.reputation = address(reputation);
+        m.bonds = address(vault);
+    }
+
+    function _zkMods() internal view returns (PackageMods memory m) {
+        m.zk = address(zkMod);
+    }
+
+    function _courtMods() internal view returns (PackageMods memory m) {
+        m.court = address(court);
+    }
+
+    function test_communityReputation_sameEscrow() public {
+        Reputation free = new Reputation(passport, address(0xBEEF), 0, 0);
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted2(passport.packageId(), free.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(free);
+        bytes32 id = _activateWith(terms, mods, 9, 9);
+        assertEq(uint8(escrow.status(id)), uint8(Status.FUNDED));
+        assertEq(escrow.modules(id).reputation, address(free));
+        assertEq(token.balanceOf(address(0xBEEF)), 0);
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.release(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(token.balanceOf(provider), PRINCIPAL + BOND);
+        token.mint(holder, PRINCIPAL);
+        bytes32 core = _activateP2P(10, 10);
+        assertEq(uint8(escrow.status(core)), uint8(Status.FUNDED));
     }
 
     function _one(bytes32 a) internal pure returns (bytes32[] memory ids) {

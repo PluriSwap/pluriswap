@@ -43,6 +43,10 @@ contract ArbitrationMock is ICourt {
         packageId = PackageId.arbitration(address(this), tribunal_, courtFee_);
     }
 
+    function packageBinding() external view returns (address partner, uint256 key) {
+        return (tribunal, courtFee);
+    }
+
     function open(bytes32 dealId, address controller) external {
         if (msg.sender != controller) revert Unauthorized();
         _open(dealId, controller);

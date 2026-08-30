@@ -12,10 +12,11 @@ RED (un test) → ver que falla bien → GREEN (mínimo) → REFACTOR (sigue ver
 
 No implementar el catálogo entero y “después los tests”. Cada `CASE-CORE` es un ciclo. Si se escribió producción antes del test, se borra y se empieza por el test.
 
-Encoding, economía y grafo **no se reabren**:
+Encoding, economía, grafo y **capas** no se reabren:
 
 | Tema | Fuente |
 | --- | --- |
+| Capas, binding, resolución, observabilidad | `ARCHITECTURE.md` |
 | Estados, transiciones, outcomes | `STATE_MACHINE.md` |
 | EIP-712, nonces, dual-sign, `dealId` | `ENCODING.md` |
 | Libraries, OZ, custodia | `IMPLEMENTATION.md` |
@@ -41,10 +42,11 @@ No Hardhat. No `Pausable` / `Ownable` sobre settlement. No proxy.
 src/
   Escrow.sol
   TestToken.sol
-  libraries/{Types,Consent,Terms,Clocks,Settlement,Machine}.sol
+  libraries/{Types,Consent,Terms,Clocks,Settlement}.sol
+  packages/interfaces/{IPassport,IReputation,IBondVault,IPaymentProof,ICourt,IVerifier}.sol
   mocks/{FeeOnTransferToken,RevertingReceiver,Mock1271}.sol
 test/
-  Base.t.sol                    // mint, approve, sign* helpers — nace con el primer test que lo necesite
+  Base.t.sol
   Consent.t.sol
   Terms.t.sol
   Settlement.t.sol
@@ -55,15 +57,13 @@ test/
   Claim.t.sol
   Dispute.t.sol
   DualSign.t.sol
-  Nonce.t.sol
   CreditFirst.t.sol
-  Roles.t.sol
 script/
   Deploy.s.sol
   Deal.s.sol
 ```
 
-`Escrow.sol` fino. Libraries `external`. `packageIds = []` en todo Core.
+`Escrow.sol` fino. Constructor sin paquetes. El catálogo no vive en `Machine.sol` (`ARCHITECTURE.md` §3.3). `packageIds = []` en todo Core. Las impls de la fase 10 entran por `PackageMods` en `activate`.
 
 ---
 

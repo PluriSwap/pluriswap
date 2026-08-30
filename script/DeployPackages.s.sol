@@ -40,7 +40,7 @@ contract DeployPackages is Script {
         ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE);
         BondVault vault = new BondVault(predicted, SINK, passport);
         ArbitrationMock arb = new ArbitrationMock(TRIBUNAL, address(token), COURT_FEE, 1 days, predicted);
-        Escrow escrow = new Escrow(address(passport), address(reputation), address(vault), address(zk), address(arb));
+        Escrow escrow = new Escrow();
         vm.stopBroadcast();
 
         require(address(escrow) == predicted, "escrow prediction");
@@ -67,11 +67,11 @@ contract DeployPackages is Script {
         vm.serializeAddress(obj, "arbitration", address(arb));
         vm.serializeAddress(obj, "feeRecipient", FEE_RECIPIENT);
         vm.serializeAddress(obj, "sink", SINK);
-        vm.serializeBytes32(obj, "passportId", escrow.passportId());
-        vm.serializeBytes32(obj, "reputationId", escrow.reputationId());
-        vm.serializeBytes32(obj, "bondsId", escrow.bondsId());
-        vm.serializeBytes32(obj, "zkId", escrow.zkId());
-        vm.serializeBytes32(obj, "arbId", escrow.arbId());
+        vm.serializeBytes32(obj, "passportId", passport.packageId());
+        vm.serializeBytes32(obj, "reputationId", reputation.packageId());
+        vm.serializeBytes32(obj, "bondsId", vault.packageId());
+        vm.serializeBytes32(obj, "zkId", zk.packageId());
+        vm.serializeBytes32(obj, "arbId", arb.packageId());
         string memory json = vm.serializeAddress(obj, "escrow", address(escrow));
         vm.writeJson(json, _out());
         console.log("wrote", _out());

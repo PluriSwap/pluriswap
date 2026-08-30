@@ -1,66 +1,51 @@
-## Foundry
+# PluriSwap
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Escrow de principal cripto contra fiat offchain. El kernel es una máquina de estados cerrada con tres roles (Holder, Provider, Controller). Paquetes, pools y rampas son opt-in y viven fuera de esa máquina.
 
-Foundry consists of:
+## Architecture
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+Read `ARCHITECTURE.md` first. It is the map of layers, package binding, and what a given escrow instance can resolve.
 
-## Documentation
+| Doc | What it freezes |
+| --- | --- |
+| `ARCHITECTURE.md` | Layers, interfaces, `packageId` resolution, observability |
+| `STATE_MACHINE.md` | States, transitions, outcomes, clocks |
+| `ENCODING.md` | EIP-712 typed data, nonces, `dealId` |
+| `PACKAGES.md` | Reputation, bonds, ZK, arbitration formulas |
+| `PROTECTION.md` | Kernel → package verbs, fees, DAO as recipient |
+| `POOLS.md` | Vault as Holder (EIP-1271), shares, sponsors |
+| `RAMPS.md` | Bridge composers, zero protocol bps |
+| `IMPLEMENTATION.md` | Libraries, OpenZeppelin, bytecode split |
+| `PLAN.md` | TDD order (historical) |
 
-https://book.getfoundry.sh/
+Conflict: states/economy → `STATE_MACHINE.md` / `PACKAGES.md`. Layering/binding → `ARCHITECTURE.md`.
 
-## Usage
+## Stack
 
-### Build
+Foundry, Solidity `0.8.28`, Cancun, `via_ir`. OpenZeppelin v5. Target chain: Arbitrum (Sepolia `421614` today). No proxy, no `Pausable` / `Ownable` on settlement.
 
-```shell
-$ forge build
-```
-
-### Test
-
-```shell
-$ forge test
-```
-
-### Format
+## Build and test
 
 ```shell
-$ forge fmt
+forge build
+forge test
 ```
 
-### Gas Snapshots
+Core-only deals use `packageIds = []`. A packaged deal names `packageId`s and the relayer passes module addresses at `activate`. The same escrow resolves any compatible impl (`ARCHITECTURE.md` §5).
 
-```shell
-$ forge snapshot
+## Layout
+
+```
+src/Escrow.sol              kernel
+src/libraries/              Consent, Terms, Settlement, Clocks, Types
+src/packages/               optional modules (behind interfaces)
+src/pools/                  Holder-contract vault + factory
+src/ramps/                  Stargate (and other) composers
+script/                     deploy and deal scripts
+deployments/                addresses, no secrets
+test/                       one catalog area per file
 ```
 
-### Anvil
+## Deployments
 
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+JSON under `deployments/`. More than one escrow may exist on Sepolia (core-only vs packaged; old vs new pool factory). Point pools at the escrow whose domain you signed. Do not mix ABIs.

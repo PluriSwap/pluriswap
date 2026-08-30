@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Script, console} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {Status, DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance} from "../src/libraries/Types.sol";
+import {Status, DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance, PackageMods} from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {TestToken} from "../src/TestToken.sol";
@@ -28,6 +28,7 @@ contract CatalogDeals is Script {
         string memory catalog = vm.readFile(_path());
         TestToken token = TestToken(catalog.readAddress(".testToken"));
         Escrow escrow = Escrow(catalog.readAddress(".escrow"));
+        address zkMod = catalog.readAddress(".zk");
         ArbitrationMock arb = ArbitrationMock(catalog.readAddress(".arbitration"));
         address feeRecipient = catalog.readAddress(".feeRecipient");
         address tribunal = arb.tribunal();
@@ -48,7 +49,9 @@ contract CatalogDeals is Script {
         token.approve(address(arb), type(uint256).max);
         vm.stopBroadcast();
 
-        bytes32 zkId = _activate(escrow, token, holder, provider, holderPk, providerPk, 2, 2, _one(escrow.zkId()), 0);
+        bytes32 zkId = _activate(
+            escrow, token, holder, provider, holderPk, providerPk, 2, 2, _one(catalog.readBytes32(".zkId")), 0, _zkMods(zkMod)
+        );
         require(escrow.status(zkId) == Status.FUNDED, "zk funded");
         vm.startBroadcast(holderPk);
         escrow.verifyProof(zkId, abi.encode(zkId, keccak256("sepolia-zk-receipt")));
@@ -56,7 +59,19 @@ contract CatalogDeals is Script {
         require(escrow.status(zkId) == Status.RELEASED, "zk released");
         require(token.balanceOf(feeRecipient) >= feesBefore + ZK_FEE, "zk fee");
 
-        bytes32 arbDeal = _activate(escrow, token, holder, provider, holderPk, providerPk, 3, 3, _one(escrow.arbId()), 1 days);
+        bytes32 arbDeal = _activate(
+            escrow,
+            token,
+            holder,
+            provider,
+            holderPk,
+            providerPk,
+            3,
+            3,
+            _one(catalog.readBytes32(".arbId")),
+            1 days,
+            _courtMods(address(arb))
+        );
         vm.startBroadcast(providerPk);
         escrow.markFiat(arbDeal);
         vm.stopBroadcast();
@@ -91,7 +106,8 @@ contract CatalogDeals is Script {
         uint256 holderNonce,
         uint256 providerNonce,
         bytes32[] memory packageIds,
-        uint256 arbitrationDuration
+        uint256 arbitrationDuration,
+        PackageMods memory mods
     ) internal returns (bytes32 id) {
         DealTerms memory terms;
         terms.holder = holder;
@@ -115,8 +131,16 @@ contract CatalogDeals is Script {
         bytes memory providerSig = _sign(escrow, Consent.hashProviderAgreement(pa), providerPk);
 
         vm.startBroadcast(holderPk);
-        id = escrow.activate(ha, holderSig, pa, providerSig, ca, "");
+        id = escrow.activate(ha, holderSig, pa, providerSig, ca, "", mods);
         vm.stopBroadcast();
+    }
+
+    function _zkMods(address zk) internal pure returns (PackageMods memory m) {
+        m.zk = zk;
+    }
+
+    function _courtMods(address court) internal pure returns (PackageMods memory m) {
+        m.court = court;
     }
 
     function _write(string memory catalog, bytes32 zkDealId, bytes32 arbDealId) internal {

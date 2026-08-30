@@ -4,20 +4,13 @@ pragma solidity ^0.8.28;
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {PackageId} from "./PackageId.sol";
 import {IPassport} from "./interfaces/IPassport.sol";
-import {BondVault} from "./BondVault.sol";
+import {IReputation} from "./interfaces/IReputation.sol";
+import {IBondVault} from "./interfaces/IBondVault.sol";
 
-contract Reputation {
+contract Reputation is IReputation {
     error CapExceeded();
     error InFlightUnderflow();
     error InsufficientBond();
-
-    enum Close {
-        Peaceful,
-        Silent,
-        Stalemate,
-        ArbWin,
-        ArbLoss
-    }
 
     struct Stat {
         uint32 successCount;
@@ -66,7 +59,7 @@ contract Reputation {
         subject = passport.identify(wallet);
         uint256 next = inFlight[subject][token] + principal;
         bool withBond = vault != address(0);
-        if (withBond) _requireBondCoverage(BondVault(vault), subject, token, principal, next);
+        if (withBond) _requireBondCoverage(IBondVault(vault), subject, token, principal, next);
         if (next > cap(subject, token, withBond)) revert CapExceeded();
         inFlight[subject][token] = next;
     }
@@ -92,7 +85,7 @@ contract Reputation {
         return tokens * 10 ** uint256(decimals);
     }
 
-    function _requireBondCoverage(BondVault vault, bytes32 subject, address token, uint256 principal, uint256 next)
+    function _requireBondCoverage(IBondVault vault, bytes32 subject, address token, uint256 principal, uint256 next)
         internal
         view
     {
@@ -102,18 +95,18 @@ contract Reputation {
         if ((vault.locked(subject, token) + lockAmount) * 10 < next) revert InsufficientBond();
     }
 
-    function notifyTerminal(address wallet, address token, uint256 principal, Close kind) external {
+    function notifyTerminal(address wallet, address token, uint256 principal, IReputation.Close kind) external {
         bytes32 subject = passport.identify(wallet);
         uint256 inf = inFlight[subject][token];
         if (principal > inf) revert InFlightUnderflow();
         inFlight[subject][token] = inf - principal;
         Stat storage s = _stat[subject][token];
-        if (kind == Close.Peaceful) {
+        if (kind == IReputation.Close.Peaceful) {
             s.successCount += 1;
             s.volume += principal;
-        } else if (kind == Close.Stalemate) {
+        } else if (kind == IReputation.Close.Stalemate) {
             s.penalty += 5;
-        } else if (kind == Close.ArbLoss) {
+        } else if (kind == IReputation.Close.ArbLoss) {
             s.penalty += 15;
         }
     }
