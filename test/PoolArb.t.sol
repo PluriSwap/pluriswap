@@ -6,7 +6,8 @@ import {
     DealTerms,
     HolderAuthorization,
     ProviderAgreement,
-    ControllerAcceptance
+    ControllerAcceptance,
+    PackageMods
 } from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
@@ -37,7 +38,7 @@ contract PoolArbTest is BaseTest {
         uint64 n = vm.getNonce(address(this));
         address predicted = vm.computeCreateAddress(address(this), n + 1);
         court = new KlerosAdapter(address(arbitrator), extraData, 0, "", predicted, address(0));
-        escrow = new Escrow(address(0), address(0), address(0), address(0), address(court));
+        escrow = new Escrow();
         assertEq(address(escrow), predicted);
 
         factory = new PoolFactory();
@@ -109,12 +110,14 @@ contract PoolArbTest is BaseTest {
         terms.controller = controller;
         terms.arbitrationDuration = 1 days;
         terms.packageIds = new bytes32[](1);
-        terms.packageIds[0] = escrow.arbId();
+        terms.packageIds[0] = court.packageId();
         HolderAuthorization memory ha = _holderAuth(terms, holderNonce);
         ProviderAgreement memory pa = _providerAuth(terms, providerNonce);
         ControllerAcceptance memory ca = _controllerAuth(terms, controllerNonce);
+        PackageMods memory mods;
+        mods.court = address(court);
         vm.prank(controller);
         pool.authorize(ha);
-        return escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
+        return escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca), mods);
     }
 }

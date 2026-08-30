@@ -1,6 +1,6 @@
 # Encoding EIP-712
 
-Este archivo congela el typed data. Economía y grafo: `STATE_MACHINE.md`. Paquetes: `PACKAGES.md` / `PROTECTION.md`. Si un campo no está aquí, no se firma.
+Este archivo congela el typed data. Capas y resolución: `ARCHITECTURE.md`. Economía y grafo: `STATE_MACHINE.md`. Paquetes: `PACKAGES.md` / `PROTECTION.md`. Si un campo no está aquí, no se firma. Addresses de módulo y fees no se firman: viven en el `packageId` y en la resolución del deployment.
 
 Principio: **el envelope es estable; la extensión es un array de `packageId`**. Un paquete nuevo no cambia el typehash de Core. Un campo nuevo de Core es versión nueva de dominio (deployment nuevo, deals viejos intactos).
 
@@ -104,9 +104,9 @@ Sin nonce del Provider, el mismo `ProviderAgreement` llenaría N deals idéntico
 
 No es secuencial. Cada address elige el número. `used[Alice][7]` no choca con `used[Bob][7]`. Dos deals concurrentes del mismo Holder: dos nonces del Holder y dos del Provider.
 
-Si la activación revierte, no se marca ninguno. Un nonce usado no se reusa. Más adelante: `cancelNonce(nonce)` invalida el del `msg.sender` sin activar.
+Si la activación revierte, no se marca ninguno. Un nonce usado no se reusa. `cancelNonce(nonce)` invalida el del `msg.sender` sin activar.
 
-Dual-sign **no** lleva nonce: el `dealId` ya es único y el estado del deal impide replay.
+Dual-sign **sí** lleva nonce por party (sección 5). El `dealId` bindea el deal; el nonce impide reusar el mismo payload (mismo type, mismo `dealId`, mismo deadline) en un segundo relay. El estado terminal también corta el replay. Las dos cosas: nonce y estado.
 
 ### 4.2 `HolderAuthorization`
 

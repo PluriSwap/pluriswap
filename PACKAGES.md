@@ -1,10 +1,10 @@
 # Paquetes opcionales
 
-Fuente de la máquina: `STATE_MACHINE.md`. Acoplamiento kernel ↔ paquetes ↔ DAO: `PROTECTION.md`. Este archivo asienta fórmulas y reglas de cada paquete. No redefinen el grafo.
+Fuente de la máquina: `STATE_MACHINE.md`. Capas y resolución de `packageId`: `ARCHITECTURE.md`. Acoplamiento kernel ↔ paquetes ↔ DAO: `PROTECTION.md`. Este archivo asienta fórmulas y reglas de cada paquete. No redefinen el grafo ni el binding.
 
 Todos son opt-in. Core-only no los necesita. El deal nombra **identidades de paquete** (hash inmutable). Amount, recipient y momento de cada fee viven en ese hash, no en un campo libre del deal. Si el fee fuera un parámetro del deal, se pondría a cero y se usaría el módulo gratis.
 
-La DAO no es un paquete que factura. Es un recipient que los paquetes oficiales ponen en su preimage. Un clon con fee cero es otro hash, otro producto.
+La DAO no es un paquete que factura. Es un recipient que *un* paquete pone en su preimage. Un clon con fee cero es otro hash, otro producto. Las partes lo firman y el mismo escrow lo resuelve (`ARCHITECTURE.md` §5). “Oficial” es un producto (frontend, JSON), no un gate del kernel.
 
 Las rampas de bridge (`RAMPS.md`) no son un paquete de esta lista: no hay `invoice`, no hay bps para la DAO. El usuario paga solo Stargate (o la otra rampa) y el gas.
 

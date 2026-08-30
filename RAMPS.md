@@ -1,6 +1,6 @@
 # Rampas (entrada y salida de Arbitrum)
 
-Una rampa **no** es parte del kernel. Es un composer opt-in que mueve stables hacia el Holder en Arbitrum y, si el usuario quiere, saca el crédito terminal a otra chain. El kernel solo ve lo que está en `STATE_MACHINE.md`: un ERC-20 local, pull exacto, deal en Arbitrum.
+Una rampa **no** es parte del kernel (`ARCHITECTURE.md` §2, §7). Es un composer opt-in que mueve stables hacia el Holder en Arbitrum y, si el usuario quiere, saca el crédito terminal a otra chain. El kernel solo ve lo que está en `STATE_MACHINE.md`: un ERC-20 local, pull exacto, deal en Arbitrum.
 
 Si hay conflicto sobre meter un bridge en el escrow, manda este archivo. Si hay conflicto sobre estados o transiciones, manda `STATE_MACHINE.md`.
 

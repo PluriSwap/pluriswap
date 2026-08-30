@@ -2,7 +2,7 @@
 
 Este archivo define **cómo** el kernel habla con los paquetes opcionales y con la DAO. No redefine la máquina (`STATE_MACHINE.md`), ni las fórmulas de reputación/bonds (`PACKAGES.md`), ni los pools (`POOLS.md`).
 
-El kernel no “tiene” humanidad, reputación, bonds, ZK, arbitraje ni DAO. Tiene **puntos de llamada nombrados**. Un deal nombra identidades de paquete en `termsHash`. Si no nombra ninguna, Core-only: mismo grafo, cero fees de paquete, cero caps.
+El kernel no “tiene” humanidad, reputación, bonds, ZK, arbitraje ni DAO. Tiene **puntos de llamada nombrados**. Un deal nombra identidades de paquete en `termsHash`. Si no nombra ninguna, Core-only: mismo grafo, cero fees de paquete, cero caps. Capas y resolución de esos IDs: `ARCHITECTURE.md`.
 
 ```
 deal.terms  →  packageId[]     (opt-in)
@@ -61,7 +61,9 @@ Reglas duras:
 
 No incluye `daoFee`, `daoRecipient`, ni un amount editable. Eso vive en el paquete.
 
-Activación: el kernel carga esas identidades, las snapshottea, y no las vuelve a leer de un registry. Upgrade, pause o delisting posteriores no mutan el deal vivo.
+Activación: el relayer trae las addresses (`PackageMods`). El kernel **recomputa** cada `packageId` (`ARCHITECTURE.md` §5), exige que esté en los términos, snapshottea las addresses de *ese* deal, y no las vuelve a leer de un registry. Upgrade, pause o delisting posteriores no mutan el deal vivo.
+
+El kernel habla las interfaces de `ARCHITECTURE.md` §4. No hay allowlist en el constructor. Un ID que ningún slot reclama, o un módulo cuyo ID no está firmado, rechaza. Core-only no trae módulos.
 
 ---
 
@@ -183,7 +185,8 @@ Rampa tampoco. Es un composer delante o detrás del escrow (`RAMPS.md`). No tien
 ## 9. Invariantes
 
 - El kernel es el único escritor del deal y el único que mueve principal Core.
-- Los paquetes se enganchan en verbos de las secciones 2 y 4. Un verbo nuevo es versión nueva de protocolo.
+- Los paquetes se enganchan en verbos de las secciones 2 y 4, vía las interfaces de `ARCHITECTURE.md` §4. Un verbo nuevo es versión nueva de protocolo.
+- El deal nombra IDs; el relayer trae addresses; el kernel recomputa y snapshottea (`ARCHITECTURE.md` §5). Core-only no resuelve.
 - Opt-in por identidad de paquete. Core-only no paga a la DAO.
 - Fees: el paquete declara; el kernel cobra en un momento de la lista cerrada.
 - La DAO es address de crédito, no autoridad.

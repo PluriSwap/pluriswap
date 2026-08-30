@@ -63,3 +63,12 @@ struct MutualSplit {
     uint256 nonce;
     uint256 deadline;
 }
+
+/// @dev Calldata of `activate`, not in the EIP-712 digest. One slot per kind.
+struct PackageMods {
+    address passport;
+    address reputation;
+    address bonds;
+    address zk;
+    address court;
+}

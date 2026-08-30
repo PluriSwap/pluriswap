@@ -1,6 +1,6 @@
 # Pools
 
-Un pool **no** es parte del kernel. Es un servicio de liquidez que cualquiera puede desplegar y gobernar a su gusto. El kernel solo ve lo que está en `STATE_MACHINE.md`: Holder, Provider, Controller, y `HolderAuthorization` (EIP-712, ECDSA o EIP-1271).
+Un pool **no** es parte del kernel (`ARCHITECTURE.md` §2, §7). Es un servicio de liquidez que cualquiera puede desplegar y gobernar a su gusto. El kernel solo ve lo que está en `STATE_MACHINE.md`: Holder, Provider, Controller, y `HolderAuthorization` (EIP-712, ECDSA o EIP-1271).
 
 Este archivo destila, desde `pluriswap/PROTOCOL.md` §§15–16, lo que sigue siendo útil como constitución de un servicio de pool. No redefine la máquina del deal. Si hay conflicto sobre estados o transiciones del escrow, manda `STATE_MACHINE.md`. Si hay conflicto sobre meter pools en el kernel, manda este archivo.
 
@@ -135,7 +135,7 @@ El pool lleva, para sí, categorías que el kernel no conoce:
 | Idle | Assets no reservados a un deal |
 | Locked | Principal (y lo que el pool reserve de su bolsillo para fees propias) de deals activos |
 | Consumed | Lo que salió para siempre: provider-positive, fees locales pagadas |
-| Credits | Holder-gross ya terminal, aún no reasignado a idle |
+| Credits | Holder-gross ya terminal, aún no reasignado a idle. Puede ser un campo o quedarse en `locked` hasta `reconcile` — es tesorería del vault, no del kernel (`ARCHITECTURE.md` §7) |
 
 Un crédito del pool cuenta una vez. Vuelve a estar disponible para un deal nuevo solo cuando el mismo vault puede reasignarlo sin preservar el crédito viejo.
 

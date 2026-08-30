@@ -5,7 +5,7 @@ import {Script, console} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {Status, DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance} from "../src/libraries/Types.sol";
+import {Status, DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance, PackageMods} from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {TestToken} from "../src/TestToken.sol";
@@ -44,7 +44,7 @@ contract KlerosDeal is Script {
         token.approve(address(escrow), PRINCIPAL);
         vm.stopBroadcast();
 
-        bytes32 id = _activate(escrow, address(token), holder, provider, holderPk, providerPk);
+        bytes32 id = _activate(escrow, address(token), holder, provider, holderPk, providerPk, court);
         vm.startBroadcast(providerPk);
         escrow.markFiat(id);
         vm.stopBroadcast();
@@ -91,7 +91,8 @@ contract KlerosDeal is Script {
         address holder,
         address provider,
         uint256 holderPk,
-        uint256 providerPk
+        uint256 providerPk,
+        KlerosAdapter court
     ) internal returns (bytes32 id) {
         DealTerms memory terms;
         terms.holder = holder;
@@ -103,17 +104,19 @@ contract KlerosDeal is Script {
         terms.releaseDuration = 1800;
         terms.disputeDuration = 7200;
         terms.arbitrationDuration = 7 days;
-        terms.packageIds = _one(escrow.arbId());
+        terms.packageIds = _one(court.packageId());
 
         HolderAuthorization memory ha =
             HolderAuthorization({terms: terms, nonce: 1, deadline: block.timestamp + 1 days});
         ProviderAgreement memory pa =
             ProviderAgreement({terms: terms, nonce: 1, deadline: block.timestamp + 1 days});
         ControllerAcceptance memory ca;
+        PackageMods memory mods;
+        mods.court = address(court);
         bytes memory hs = _sign(escrow, Consent.hashHolderAuthorization(ha), holderPk);
         bytes memory ps = _sign(escrow, Consent.hashProviderAgreement(pa), providerPk);
         vm.startBroadcast(holderPk);
-        id = escrow.activate(ha, hs, pa, ps, ca, "");
+        id = escrow.activate(ha, hs, pa, ps, ca, "", mods);
         vm.stopBroadcast();
     }
 

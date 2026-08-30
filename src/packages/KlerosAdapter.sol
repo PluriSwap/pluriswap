@@ -65,6 +65,10 @@ contract KlerosAdapter is ICourt {
         packageId = PackageId.kleros(address(this), arbitrator_, extraData_);
     }
 
+    function packageBinding() external view returns (address partner, uint256 key) {
+        return (address(arbitrator), uint256(keccak256(extraData)));
+    }
+
     function openCourt(bytes32 dealId, address controller) external payable {
         if (kernel == address(0)) {
             if (msg.sender != controller) revert Unauthorized();

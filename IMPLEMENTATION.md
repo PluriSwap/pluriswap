@@ -1,6 +1,6 @@
 # Implementación: libraries y dependencias
 
-El recorte de protocolo no cambia: un escrow (máquina + caja), BondVault aparte, paquetes y rampas en otros contratos. Este archivo fija **cómo** se parte el bytecode y **qué** se reutiliza. Si hay conflicto sobre estados o economía, mandan `STATE_MACHINE.md` y `PACKAGES.md`.
+El recorte de protocolo no cambia: un escrow (máquina + caja), BondVault aparte, paquetes y rampas en otros contratos. Este archivo fija **cómo** se parte el bytecode y **qué** se reutiliza. Si hay conflicto sobre capas o binding, manda `ARCHITECTURE.md`. Si hay conflicto sobre estados o economía, mandan `STATE_MACHINE.md` y `PACKAGES.md`.
 
 ---
 
@@ -15,8 +15,8 @@ Desde el día uno:
 | Capa | Visibilidad | Para qué |
 | --- | --- | --- |
 | OpenZeppelin | `internal` (la de ellos) | Crypto, ERC-20, reentrancy |
-| Libraries de protocolo | `external` | Consentimiento, términos, catálogo, settlement, relojes |
-| `Escrow.sol` | fino | Storage, entrypoints, `nonReentrant`, orquesta |
+| Libraries de protocolo | `external` o `public` linkeada | Consentimiento, términos, settlement, relojes |
+| `Escrow.sol` | fino | Storage, entrypoints, `nonReentrant`, orquesta. El catálogo es el spec, no una library obligatoria |
 
 No se espera a que el compilador grite. El storage y quién mueve el token siguen en el escrow.
 
@@ -25,19 +25,21 @@ No se espera a que el compilador grite. El storage y quién mueve el token sigue
 ## 2. Mapa
 
 ```
-Escrow.sol                 storage + entrypoints
+Escrow.sol                 storage + entrypoints; orquesta el catálogo
   libraries/Consent.sol    HolderAuthorization, Provider, ControllerAcceptance
   libraries/Terms.sol      termsHash, snapshot
-  libraries/Machine.sol    catálogo CASE-CORE / EP-EDGE, carreras
   libraries/Settlement.sol pull exacto, créditos, try-push, withdraw
   libraries/Clocks.sol     origin + duration (>= 0)
 
-BondVault.sol              otro contrato (PACKAGES.md §5)
-packages/*                 Passport, reputación, ZK, arb — contratos, no libraries del escrow
+packages/interfaces/*      IPassport, IReputation, IBondVault, IPaymentProof, ICourt, IVerifier
+packages/*                 impls detrás de esas interfaces — no tipos del escrow
+pools/*                    Holder-contrato; no Core
 ramps/*                    composers; no Core
 ```
 
-`Escrow` hereda el dominio EIP-712 y el guard de reentrancy. Llama a las libraries. No duplica math de settlement ni `ecrecover` a mano.
+No hay `Machine.sol`. El catálogo es `STATE_MACHINE.md`. Partir transiciones a una library es opt-in de tamaño, no una capa (`ARCHITECTURE.md` §3.3).
+
+`Escrow` hereda el dominio EIP-712 y el guard de reentrancy. Constructor sin paquetes. Llama a las libraries y a los paquetes **por interfaz**, con addresses snapshotadas en activación. No duplica math de settlement ni `ecrecover` a mano. No nombra impls concretas como tipo.
 
 ---
 
@@ -87,3 +89,5 @@ Withdraw de crédito: `safeTransfer` al beneficiario; si falla, el crédito sigu
 - OZ no define economía. No hay `Pausable` ni owner sobre un deal vivo.
 - `SignatureChecker` es la verificación de `HolderAuthorization`. No un `ecrecover` suelto que deje afuera a los pools.
 - BondVault, paquetes y rampas no se meten en estas libraries para “ahorrar tamaño”. Ya son otros contratos.
+- El escrow depende de las interfaces de `ARCHITECTURE.md` §4. Recomputa `packageId` con `PackageId.*`; no confía en un getter mentiroso.
+- El constructor no bindea paquetes. `PackageMods` entra en `activate`, no en el digest.

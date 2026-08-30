@@ -41,7 +41,7 @@ contract DeployKlerosPackages is Script {
         ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE);
         BondVault vault = new BondVault(predicted, SINK, passport);
         KlerosAdapter court = new KlerosAdapter(KLEROS_CORE, extraData, 0, "", predicted, TEMPLATE_REGISTRY);
-        Escrow escrow = new Escrow(address(passport), address(reputation), address(vault), address(zk), address(court));
+        Escrow escrow = new Escrow();
         vm.stopBroadcast();
 
         require(address(escrow) == predicted, "escrow prediction");
@@ -52,7 +52,7 @@ contract DeployKlerosPackages is Script {
         console.log("Escrow", address(escrow));
         console.log("KlerosAdapter", address(court));
         console.log("templateId", court.templateId());
-        console.log("arbId", vm.toString(escrow.arbId()));
+        console.log("arbId", vm.toString(court.packageId()));
 
         string memory obj = "kleros";
         vm.serializeUint(obj, "chainId", block.chainid);
@@ -68,11 +68,11 @@ contract DeployKlerosPackages is Script {
         vm.serializeAddress(obj, "arbitration", address(court));
         vm.serializeAddress(obj, "feeRecipient", FEE_RECIPIENT);
         vm.serializeAddress(obj, "sink", SINK);
-        vm.serializeBytes32(obj, "passportId", escrow.passportId());
-        vm.serializeBytes32(obj, "reputationId", escrow.reputationId());
-        vm.serializeBytes32(obj, "bondsId", escrow.bondsId());
-        vm.serializeBytes32(obj, "zkId", escrow.zkId());
-        vm.serializeBytes32(obj, "arbId", escrow.arbId());
+        vm.serializeBytes32(obj, "passportId", passport.packageId());
+        vm.serializeBytes32(obj, "reputationId", reputation.packageId());
+        vm.serializeBytes32(obj, "bondsId", vault.packageId());
+        vm.serializeBytes32(obj, "zkId", zk.packageId());
+        vm.serializeBytes32(obj, "arbId", court.packageId());
         string memory json = vm.serializeAddress(obj, "escrow", address(escrow));
         vm.writeJson(json, _out());
         console.log("wrote", _out());

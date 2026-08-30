@@ -16,7 +16,7 @@ contract PoolFactoryTest is Test {
     function setUp() public {
         factory = new PoolFactory();
         token = new TestToken();
-        escrow = new Escrow(address(0), address(0), address(0), address(0), address(0));
+        escrow = new Escrow();
     }
 
     function test_createPool_sameCodehashDifferentParams() public {

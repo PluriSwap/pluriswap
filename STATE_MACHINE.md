@@ -2,11 +2,13 @@
 
 Fuente del grafo y de las transiciones: `pluriswap/PROTOCOL.md` (PluriSwap Protocol Charter, versión 3). Este archivo extrae lo que gobierna la custodia de principal cripto y las transiciones del deal.
 
+Capas, binding de paquetes y qué es kernel: `ARCHITECTURE.md`. Si hay conflicto sobre *partición* (quién es contrato, quién es verbo, cómo se resuelve un `packageId`), manda ese archivo. Este manda sobre estados y economía.
+
 Los **roles del kernel** — Holder, Provider, Controller — son la lectura acordada de esa máquina. Divergen del charter en un punto: la gestión de pools no es kernel. Un pool es un Holder con constitución propia; ver `POOLS.md`. Rampas de bridge (Stargate u otras) tampoco son kernel; ver `RAMPS.md`. Paquetes opcionales y fees: `PACKAGES.md`. Cómo el kernel los llama, y el lugar de la DAO: `PROTECTION.md`.
 
 El recinto del escrow es **Arbitrum**. El EIP-712 bindea esa chain y ese deployment. La superficie oficial de arranque son stables que Stargate lista ahí; ETH después. Un Holder que ya tiene el token en Arbitrum no necesita rampa.
 
-El escrow es una máquina **cerrada** con **puntos de extensión nombrados**. Esa forma es lo que permite un protocolo permissionless y descentralizado: cualquiera puede abrir y cerrar un escrow Core sin paquetes, y cualquiera puede publicar un paquete compatible sin mutar el kernel ni bloquear las salidas Core.
+El escrow es una máquina **cerrada** con **puntos de extensión nombrados**. Esa forma es lo que permite un protocolo permissionless y descentralizado: cualquiera puede abrir y cerrar un escrow Core sin paquetes, y cualquiera puede *publicar* un paquete compatible sin mutar el kernel ni bloquear las salidas Core. Publicar no es lo mismo que *resolver* el `packageId` en una instancia dada: ver `ARCHITECTURE.md` §5.
 
 ---
 
@@ -625,7 +627,7 @@ Checklist para un paquete que pretende ser permissionless:
 3. Identidad content-addressed; meaning inmutable (TRUST-03).
 4. Binding snapshotado en activación; admission posterior irrelevante para el deal vivo (EXT-10).
 5. Cualquiera puede ejecutar los timeouts y relays ya autorizados (PERM-04).
-6. Publicar un componente compatible no requiere endorsement (PERM-03, PERM-05).
+6. Publicar un componente compatible no requiere endorsement (PERM-03, PERM-05). Usarlo en *esta* instancia exige que el kernel resuelva el `packageId` (`ARCHITECTURE.md` §5).
 7. No escribe estado, no custodia principal, no callback post-commit.
 
 Eso es el contrato. Core permanece un escrow de tres roles. Los paquetes son confianza elegida, no puertas del recinto. Un pool es un Holder, no un paquete de la máquina. Una rampa es un composer, no un verbo del kernel.

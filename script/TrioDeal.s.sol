@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Script, console} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {Status, DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance} from "../src/libraries/Types.sol";
+import {Status, DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance, PackageMods} from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {TestToken} from "../src/TestToken.sol";
@@ -55,7 +55,7 @@ contract TrioDeal is Script {
         vault.deposit(SUB_P, address(token), BOND);
         vm.stopBroadcast();
 
-        bytes32 id = _activate(escrow, token, holder, provider, holderPk, providerPk, 1, 1);
+        bytes32 id = _activate(escrow, token, holder, provider, holderPk, providerPk, 1, 1, passport, reputation, vault);
 
         vm.startBroadcast(providerPk);
         escrow.markFiat(id);
@@ -130,7 +130,10 @@ contract TrioDeal is Script {
         uint256 holderPk,
         uint256 providerPk,
         uint256 holderNonce,
-        uint256 providerNonce
+        uint256 providerNonce,
+        PassportMock passport,
+        Reputation reputation,
+        BondVault vault
     ) internal returns (bytes32 id) {
         DealTerms memory terms;
         terms.holder = holder;
@@ -141,19 +144,23 @@ contract TrioDeal is Script {
         terms.fiatDuration = 3600;
         terms.releaseDuration = 1800;
         terms.disputeDuration = 7200;
-        terms.packageIds = _sorted3(escrow.passportId(), escrow.reputationId(), escrow.bondsId());
+        terms.packageIds = _sorted3(passport.packageId(), reputation.packageId(), vault.packageId());
 
         HolderAuthorization memory ha =
             HolderAuthorization({terms: terms, nonce: holderNonce, deadline: block.timestamp + 1 days});
         ProviderAgreement memory pa =
             ProviderAgreement({terms: terms, nonce: providerNonce, deadline: block.timestamp + 1 days});
         ControllerAcceptance memory ca;
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(reputation);
+        mods.bonds = address(vault);
 
         bytes memory holderSig = _sign(escrow, Consent.hashHolderAuthorization(ha), holderPk);
         bytes memory providerSig = _sign(escrow, Consent.hashProviderAgreement(pa), providerPk);
 
         vm.startBroadcast(holderPk);
-        id = escrow.activate(ha, holderSig, pa, providerSig, ca, "");
+        id = escrow.activate(ha, holderSig, pa, providerSig, ca, "", mods);
         vm.stopBroadcast();
     }
 
