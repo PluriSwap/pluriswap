@@ -13,6 +13,8 @@ import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
 
 /// @dev One P2P trio deal: activate → markFiat → release.
+/// @dev Kept in small functions: a single large `run()` plus a wide tuple return
+///      trips a solc 0.8.28 via-ir codegen crash ("1 too deep in the stack").
 contract TrioDeal is Script {
     using stdJson for string;
 
@@ -24,15 +26,34 @@ contract TrioDeal is Script {
     bytes32 internal constant SUB_H = keccak256("sepolia-holder");
     bytes32 internal constant SUB_P = keccak256("sepolia-provider");
 
+    TestToken internal token;
+    Escrow internal escrow;
+    PassportMock internal passport;
+    Reputation internal reputation;
+    BondVault internal vault;
+    address internal feeRecipient;
+
     function run() external {
+        _load();
         uint256 holderPk = _holderKey();
         uint256 providerPk = _providerKey();
         address holder = vm.addr(holderPk);
         address provider = vm.addr(providerPk);
 
-        (TestToken token, Escrow escrow, PassportMock passport, Reputation reputation, BondVault vault, address feeRecipient)
-        = _load();
+        _fund(holderPk, providerPk, holder, provider);
+        bytes32 id = _activate(holder, provider, holderPk, providerPk);
+        _close(id, providerPk, holderPk);
+        _assertOutcomes(id);
+        console.log("dealId", vm.toString(id));
+        console.log("status", uint256(escrow.status(id)));
+        console.log("provider", token.balanceOf(provider));
+        console.log("feeRecipient", token.balanceOf(feeRecipient));
+        console.log("scoreH", reputation.score(SUB_H, address(token)));
+        _writeJson(id);
+        console.log("wrote", _path());
+    }
 
+    function _fund(uint256 holderPk, uint256 providerPk, address holder, address provider) internal {
         if (provider.balance < 0.001 ether) {
             vm.startBroadcast(holderPk);
             (bool ok,) = provider.call{value: 0.005 ether}("");
@@ -54,27 +75,58 @@ contract TrioDeal is Script {
         token.approve(address(vault), type(uint256).max);
         vault.deposit(SUB_P, address(token), BOND);
         vm.stopBroadcast();
+    }
 
-        bytes32 id = _activate(escrow, token, holder, provider, holderPk, providerPk, 1, 1, passport, reputation, vault);
+    function _activate(address holder, address provider, uint256 holderPk, uint256 providerPk)
+        internal
+        returns (bytes32 id)
+    {
+        DealTerms memory terms;
+        terms.holder = holder;
+        terms.controller = holder;
+        terms.provider = provider;
+        terms.token = address(token);
+        terms.principal = PRINCIPAL;
+        terms.fiatDuration = 3600;
+        terms.releaseDuration = 1800;
+        terms.disputeDuration = 7200;
+        terms.packageIds = _sorted3(passport.packageId(), reputation.packageId(), vault.packageId());
 
+        HolderAuthorization memory ha =
+            HolderAuthorization({terms: terms, nonce: 1, deadline: block.timestamp + 1 days});
+        ProviderAgreement memory pa =
+            ProviderAgreement({terms: terms, nonce: 1, deadline: block.timestamp + 1 days});
+        ControllerAcceptance memory ca;
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(reputation);
+        mods.bonds = address(vault);
+
+        bytes memory holderSig = _sign(Consent.hashHolderAuthorization(ha), holderPk);
+        bytes memory providerSig = _sign(Consent.hashProviderAgreement(pa), providerPk);
+
+        vm.startBroadcast(holderPk);
+        id = escrow.activate(ha, holderSig, pa, providerSig, ca, "", mods);
+        vm.stopBroadcast();
+    }
+
+    function _close(bytes32 id, uint256 providerPk, uint256 holderPk) internal {
         vm.startBroadcast(providerPk);
         escrow.markFiat(id);
         vm.stopBroadcast();
         vm.startBroadcast(holderPk);
         escrow.release(id);
         vm.stopBroadcast();
+    }
 
+    function _assertOutcomes(bytes32 id) internal view {
         require(escrow.status(id) == Status.RELEASED, "released");
         require(token.balanceOf(feeRecipient) >= ACT_FEE + COMP_FEE, "fees");
         require(vault.lockOf(SUB_H, id) == 0 && vault.lockOf(SUB_P, id) == 0, "unlocked");
         require(reputation.inFlight(SUB_H, address(token)) == 0, "inFlight");
+    }
 
-        console.log("dealId", vm.toString(id));
-        console.log("status", uint256(escrow.status(id)));
-        console.log("provider", token.balanceOf(provider));
-        console.log("feeRecipient", token.balanceOf(feeRecipient));
-        console.log("scoreH", reputation.score(SUB_H, address(token)));
-
+    function _writeJson(bytes32 id) internal {
         string memory catalog = vm.readFile(_path());
         string memory obj = "packages";
         vm.serializeUint(obj, "chainId", catalog.readUint(".chainId"));
@@ -95,21 +147,9 @@ contract TrioDeal is Script {
         vm.serializeBytes32(obj, "arbId", catalog.readBytes32(".arbId"));
         string memory json = vm.serializeBytes32(obj, "releasedDealId", id);
         vm.writeJson(json, _path());
-        console.log("wrote", _path());
     }
 
-    function _load()
-        internal
-        view
-        returns (
-            TestToken token,
-            Escrow escrow,
-            PassportMock passport,
-            Reputation reputation,
-            BondVault vault,
-            address feeRecipient
-        )
-    {
+    function _load() internal {
         string memory path = _path();
         require(vm.exists(path), path);
         string memory json = vm.readFile(path);
@@ -120,48 +160,6 @@ contract TrioDeal is Script {
         vault = BondVault(json.readAddress(".bondVault"));
         feeRecipient = json.readAddress(".feeRecipient");
         require(address(escrow).code.length > 0, "escrow");
-    }
-
-    function _activate(
-        Escrow escrow,
-        TestToken token,
-        address holder,
-        address provider,
-        uint256 holderPk,
-        uint256 providerPk,
-        uint256 holderNonce,
-        uint256 providerNonce,
-        PassportMock passport,
-        Reputation reputation,
-        BondVault vault
-    ) internal returns (bytes32 id) {
-        DealTerms memory terms;
-        terms.holder = holder;
-        terms.controller = holder;
-        terms.provider = provider;
-        terms.token = address(token);
-        terms.principal = PRINCIPAL;
-        terms.fiatDuration = 3600;
-        terms.releaseDuration = 1800;
-        terms.disputeDuration = 7200;
-        terms.packageIds = _sorted3(passport.packageId(), reputation.packageId(), vault.packageId());
-
-        HolderAuthorization memory ha =
-            HolderAuthorization({terms: terms, nonce: holderNonce, deadline: block.timestamp + 1 days});
-        ProviderAgreement memory pa =
-            ProviderAgreement({terms: terms, nonce: providerNonce, deadline: block.timestamp + 1 days});
-        ControllerAcceptance memory ca;
-        PackageMods memory mods;
-        mods.passport = address(passport);
-        mods.reputation = address(reputation);
-        mods.bonds = address(vault);
-
-        bytes memory holderSig = _sign(escrow, Consent.hashHolderAuthorization(ha), holderPk);
-        bytes memory providerSig = _sign(escrow, Consent.hashProviderAgreement(pa), providerPk);
-
-        vm.startBroadcast(holderPk);
-        id = escrow.activate(ha, holderSig, pa, providerSig, ca, "", mods);
-        vm.stopBroadcast();
     }
 
     function _sorted3(bytes32 a, bytes32 b, bytes32 c) internal pure returns (bytes32[] memory ids) {
@@ -177,7 +175,7 @@ contract TrioDeal is Script {
         ids[2] = xs[2];
     }
 
-    function _sign(Escrow escrow, bytes32 structHash, uint256 pk) internal view returns (bytes memory) {
+    function _sign(bytes32 structHash, uint256 pk) internal view returns (bytes memory) {
         bytes32 digest = MessageHashUtils.toTypedDataHash(escrow.domainSeparator(), structHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
         return abi.encodePacked(r, s, v);
