@@ -25,7 +25,7 @@ contract ReputationTest is Test {
     function setUp() public {
         token = new TestToken();
         passport = new PassportMock();
-        reputation = new Reputation(passport, feeRecipient, 1_000_000, 2_000_000);
+        reputation = new Reputation(passport, feeRecipient, 1_000_000, 2_000_000, address(this));
         vault = new BondVault(address(this), address(0xdeaD), passport);
         passport.setHuman(holder, SUBJECT_H);
         token.mint(holder, 10_000_000);
@@ -58,6 +58,20 @@ contract ReputationTest is Test {
         assertEq(reputation.inFlight(SUBJECT_H, address(token)), UNIT);
         vm.expectRevert(Reputation.CapExceeded.selector);
         reputation.admit(holder2, address(token), 1, address(0));
+    }
+
+    function test_admit_onlyOperator() public {
+        vm.prank(holder);
+        vm.expectRevert(Reputation.Unauthorized.selector);
+        reputation.admit(holder, address(token), 1, address(0));
+    }
+
+    function test_notifyTerminal_onlyOperator() public {
+        reputation.admit(holder, address(token), UNIT, address(0));
+        vm.prank(holder);
+        vm.expectRevert(Reputation.Unauthorized.selector);
+        reputation.notifyTerminal(holder, address(token), UNIT, IReputation.Close.Peaceful);
+        assertEq(reputation.inFlight(SUBJECT_H, address(token)), UNIT);
     }
 
     function test_noPassport_noAdmit() public {

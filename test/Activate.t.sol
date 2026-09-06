@@ -13,6 +13,7 @@ import {Terms} from "../src/libraries/Terms.sol";
 import {Settlement} from "../src/libraries/Settlement.sol";
 import {FeeOnTransferToken} from "../src/mocks/FeeOnTransferToken.sol";
 import {Escrow} from "../src/Escrow.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {BaseTest} from "./Base.t.sol";
 
 contract ActivateTest is BaseTest {
@@ -30,6 +31,30 @@ contract ActivateTest is BaseTest {
         assertEq(token.balanceOf(address(escrow)), PRINCIPAL);
         assertTrue(escrow.used(holder, ha.nonce));
         assertTrue(escrow.used(provider, pa.nonce));
+    }
+
+    function test_activate_emitsActivated() public {
+        DealTerms memory terms = _p2pTerms();
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca;
+        bytes memory hs = _signHolder(ha);
+        bytes memory ps = _signProvider(pa);
+        bytes32 id = Consent.dealId(escrow.domainSeparator(), terms, ha.nonce, pa.nonce, 0);
+
+        vm.recordLogs();
+        escrow.activate(ha, hs, pa, ps, ca, "");
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        bytes32 topic0 = keccak256("Activated(bytes32,address,address,address,address,uint256)");
+        bytes memory data = abi.encode(id, holder, provider, holder, address(token), PRINCIPAL);
+        bool found;
+        for (uint256 i; i < logs.length; i++) {
+            if (logs[i].emitter == address(escrow) && logs[i].topics[0] == topic0) {
+                assertEq(logs[i].data, data);
+                found = true;
+            }
+        }
+        assertTrue(found);
     }
 
     function test_activate_revertsIfHolderSigBad() public {

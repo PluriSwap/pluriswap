@@ -11,6 +11,7 @@ contract Reputation is IReputation {
     error CapExceeded();
     error InFlightUnderflow();
     error InsufficientBond();
+    error Unauthorized();
 
     struct Stat {
         uint32 successCount;
@@ -19,6 +20,7 @@ contract Reputation is IReputation {
     }
 
     IPassport public immutable passport;
+    address public immutable operator;
     address public immutable feeRecipient;
     uint256 public immutable activationFee;
     uint256 public immutable completionFee;
@@ -27,11 +29,18 @@ contract Reputation is IReputation {
     mapping(bytes32 subject => mapping(address token => uint256 amount)) public inFlight;
     mapping(bytes32 subject => mapping(address token => Stat)) internal _stat;
 
-    constructor(IPassport passport_, address feeRecipient_, uint256 activationFee_, uint256 completionFee_) {
+    constructor(
+        IPassport passport_,
+        address feeRecipient_,
+        uint256 activationFee_,
+        uint256 completionFee_,
+        address operator_
+    ) {
         passport = passport_;
         feeRecipient = feeRecipient_;
         activationFee = activationFee_;
         completionFee = completionFee_;
+        operator = operator_;
         packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_);
     }
 
@@ -56,6 +65,7 @@ contract Reputation is IReputation {
         external
         returns (bytes32 subject)
     {
+        if (msg.sender != operator) revert Unauthorized();
         subject = passport.identify(wallet);
         uint256 next = inFlight[subject][token] + principal;
         bool withBond = vault != address(0);
@@ -96,6 +106,7 @@ contract Reputation is IReputation {
     }
 
     function notifyTerminal(address wallet, address token, uint256 principal, IReputation.Close kind) external {
+        if (msg.sender != operator) revert Unauthorized();
         bytes32 subject = passport.identify(wallet);
         uint256 inf = inFlight[subject][token];
         if (principal > inf) revert InFlightUnderflow();

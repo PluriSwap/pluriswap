@@ -35,15 +35,17 @@ contract DeployPackages is Script {
 
         vm.startBroadcast(pk);
         PassportMock passport = new PassportMock();
-        Reputation reputation = new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE);
+        Reputation reputation = new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE, predicted);
         VerifierMock verifier = new VerifierMock();
-        ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE);
+        ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE, predicted);
         BondVault vault = new BondVault(predicted, SINK, passport);
         ArbitrationMock arb = new ArbitrationMock(TRIBUNAL, address(token), COURT_FEE, 1 days, predicted);
         Escrow escrow = new Escrow();
         vm.stopBroadcast();
 
         require(address(escrow) == predicted, "escrow prediction");
+        require(reputation.operator() == address(escrow), "rep operator");
+        require(zk.operator() == address(escrow), "zk operator");
         require(vault.operator() == address(escrow), "vault operator");
         require(arb.operator() == address(escrow), "arb operator");
 

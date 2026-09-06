@@ -18,11 +18,18 @@ contract ZkMockTest is Test {
 
     function setUp() public {
         verifier = new VerifierMock();
-        zk = new ZkMock(verifier, feeRecipient, VERIFY_FEE);
+        zk = new ZkMock(verifier, feeRecipient, VERIFY_FEE, address(this));
     }
 
     function test_packageId_zkStable() public view {
         assertEq(zk.packageId(), PackageId.zk(address(verifier), feeRecipient, VERIFY_FEE));
+    }
+
+    function test_verifyProof_onlyOperator() public {
+        vm.prank(address(0xB0B));
+        vm.expectRevert(ZkMock.Unauthorized.selector);
+        zk.verifyProof(DEAL_A, abi.encode(DEAL_A, NULLIFIER));
+        assertFalse(zk.used(NULLIFIER));
     }
 
     function test_wrongDealIdReverts() public {

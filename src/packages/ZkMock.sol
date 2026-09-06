@@ -10,18 +10,21 @@ import {IPaymentProof} from "./interfaces/IPaymentProof.sol";
 contract ZkMock is IPaymentProof {
     error WrongDealId();
     error NullifierUsed();
+    error Unauthorized();
 
     IVerifier public immutable verifier;
+    address public immutable operator;
     address public immutable feeRecipient;
     uint256 public immutable verifyFee;
     bytes32 public immutable packageId;
 
     mapping(bytes32 paymentNullifier => bool) public used;
 
-    constructor(IVerifier verifier_, address feeRecipient_, uint256 verifyFee_) {
+    constructor(IVerifier verifier_, address feeRecipient_, uint256 verifyFee_, address operator_) {
         verifier = verifier_;
         feeRecipient = feeRecipient_;
         verifyFee = verifyFee_;
+        operator = operator_;
         packageId = PackageId.zk(address(verifier_), feeRecipient_, verifyFee_);
     }
 
@@ -30,6 +33,7 @@ contract ZkMock is IPaymentProof {
     }
 
     function verifyProof(bytes32 dealId, bytes calldata proof) external returns (bytes32 paymentNullifier) {
+        if (msg.sender != operator) revert Unauthorized();
         bytes32 proofDealId;
         (proofDealId, paymentNullifier) = verifier.verify(proof);
         if (proofDealId != dealId) revert WrongDealId();

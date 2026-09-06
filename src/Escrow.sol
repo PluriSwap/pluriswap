@@ -50,6 +50,10 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
     error EdgeOff();
     error NotRuled();
 
+    event Activated(
+        bytes32 dealId, address holder, address provider, address controller, address token, uint256 principal
+    );
+
     uint8 internal constant PKG_PASSPORT = 1;
     uint8 internal constant PKG_REP = 2;
     uint8 internal constant PKG_BONDS = 4;
@@ -189,6 +193,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         d.subjectP = subjectP;
         d.pkgs = pkgs;
         d.mods = mods;
+        emit Activated(id, terms.holder, terms.provider, terms.controller, terms.token, terms.principal);
     }
 
     function markFiat(bytes32 dealId) external nonReentrant {
@@ -389,6 +394,11 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         _requireNotZk(d);
         if (d.status != Status.FIAT_SENT && d.status != Status.DISPUTED) revert WrongStatus();
         if (msg.sender != d.terms.controller) revert Unauthorized();
+        if (d.status == Status.FIAT_SENT) {
+            Clocks.requireStrictlyBefore(d.fiatSentAt, d.terms.releaseDuration);
+        } else {
+            Clocks.requireStrictlyBefore(d.disputedAt, d.terms.disputeDuration);
+        }
         ICourt(d.mods.court).openCourt{value: msg.value}(dealId, msg.sender);
         d.status = Status.ARBITRATION_ACTIVE;
         d.arbitrationOpenedAt = block.timestamp;
@@ -581,14 +591,15 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         if ((d.pkgs & PKG_BONDS) == 0) return;
         IBondVault vault = IBondVault(d.mods.bonds);
         if (bond == BondAction.Unlock) {
-            vault.unlock(d.subjectH, d.terms.token, dealId);
-            vault.unlock(d.subjectP, d.terms.token, dealId);
+            try vault.unlock(d.subjectH, d.terms.token, dealId) {} catch {}
+            try vault.unlock(d.subjectP, d.terms.token, dealId) {} catch {}
         } else if (bond == BondAction.Burn) {
-            vault.burn(d.subjectH, d.subjectP, d.terms.token, dealId);
+            try vault.burn(d.subjectH, d.subjectP, d.terms.token, dealId) {} catch {}
         } else if (bond == BondAction.SlashHolder) {
-            vault.slash(d.subjectP, d.subjectH, d.terms.token, dealId, d.terms.holder, d.terms.controller);
+            address controller = d.terms.controller == d.terms.holder ? address(0) : d.terms.controller;
+            try vault.slash(d.subjectP, d.subjectH, d.terms.token, dealId, d.terms.holder, controller) {} catch {}
         } else {
-            vault.slash(d.subjectH, d.subjectP, d.terms.token, dealId, d.terms.provider, d.terms.controller);
+            try vault.slash(d.subjectH, d.subjectP, d.terms.token, dealId, d.terms.provider, d.terms.controller) {} catch {}
         }
     }
 
