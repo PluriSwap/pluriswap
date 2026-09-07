@@ -141,7 +141,7 @@ Slash:
 
 | Terminal | Bonds |
 | --- | --- |
-| Adapter declara culpable (holder win / provider win) | Lock del perdedor a la address de firma del **ganador** (Holder o Provider de ese deal). El lock del ganador vuelve a su `available`. Nunca al Controller. Nunca a la DAO. |
+| Adapter declara culpable (holder win / provider win) | Lock del perdedor a la address de firma del **ganador** (Holder o Provider de ese deal). El lock del ganador vuelve a su `available`. Nunca al Controller; si el ganador es el Controller, quema al sink. Nunca a la DAO. |
 | Stalemate — timeout de `DISPUTED` sin tribunal, ruling rehusado, o arbitration timeout | **Quema** de ambos bonds a un sink inmutable. No a la DAO. No a una parte. |
 
 El timeout de `DISPUTED` **es** stalemate. Cualquiera lo ejecuta. Si el slash en empate fuera al counterparty, conviene forzar el reloj para cazar el bond ajeno. La quema cierra eso.

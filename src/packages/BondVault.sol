@@ -15,7 +15,6 @@ contract BondVault is IBondVault {
     error Unauthorized();
     error LockExists();
     error LockTooSmall();
-    error ControllerIsNotWinner();
     error NoLock();
 
     address public immutable operator;
@@ -75,11 +74,13 @@ contract BondVault is IBondVault {
         address controller
     ) external {
         if (msg.sender != operator) revert Unauthorized();
-        if (winnerSigning == controller) revert ControllerIsNotWinner();
         uint256 loserLock = _takeLock(loser, token, dealId);
         _takeLock(winner, token, dealId);
         deposited[loser][token] -= loserLock;
-        IERC20(token).safeTransfer(winnerSigning, loserLock);
+        // The Controller never receives a slash. If the winner's signing address is the
+        // Controller, the loser's lock burns to the sink instead.
+        address to = winnerSigning == controller ? sink : winnerSigning;
+        IERC20(token).safeTransfer(to, loserLock);
     }
 
     function burn(bytes32 subjectA, bytes32 subjectB, address token, bytes32 dealId) external {

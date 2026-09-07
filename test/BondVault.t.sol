@@ -153,13 +153,17 @@ contract BondVaultTest is Test {
         assertEq(token.balanceOf(holder), lockAmount + PRINCIPAL);
     }
 
-    function test_neverToController() public {
+    function test_winnerIsController_burnsLoserLockToSink() public {
         bytes32 dealId = keccak256("deal-ctrl");
         _lockBoth(dealId);
-        vm.expectRevert(BondVault.ControllerIsNotWinner.selector);
+        uint256 lockAmount = PRINCIPAL / 10;
         vault.slash(SUBJECT_P, SUBJECT, address(token), dealId, controller, controller);
+        assertEq(token.balanceOf(sink), lockAmount);
         assertEq(token.balanceOf(controller), 0);
-        assertEq(vault.lockOf(SUBJECT, dealId), PRINCIPAL / 10);
+        assertEq(vault.lockOf(SUBJECT_P, dealId), 0);
+        assertEq(vault.lockOf(SUBJECT, dealId), 0);
+        assertEq(vault.available(SUBJECT, address(token)), PRINCIPAL);
+        assertEq(vault.available(SUBJECT_P, address(token)), PRINCIPAL - lockAmount);
     }
 
     function test_stalemateBurnsBoth() public {

@@ -49,10 +49,14 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
     error PackageNotSelected();
     error EdgeOff();
     error NotRuled();
+    error PackageDrift();
 
     event Activated(
         bytes32 dealId, address holder, address provider, address controller, address token, uint256 principal
     );
+
+    event Transitioned(bytes32 dealId, Status from, Status to);
+    event Settled(bytes32 dealId, Status status, uint256 holderAmt, uint256 providerAmt);
 
     uint8 internal constant PKG_PASSPORT = 1;
     uint8 internal constant PKG_REP = 2;
@@ -193,6 +197,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         d.subjectP = subjectP;
         d.pkgs = pkgs;
         d.mods = mods;
+        emit Transitioned(id, Status.NONE, Status.FUNDED);
         emit Activated(id, terms.holder, terms.provider, terms.controller, terms.token, terms.principal);
     }
 
@@ -201,6 +206,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         if (d.status != Status.FUNDED) revert WrongStatus();
         _requireNotZk(d);
         if (msg.sender != d.terms.provider) revert Unauthorized();
+        emit Transitioned(dealId, d.status, Status.FIAT_SENT);
         d.status = Status.FIAT_SENT;
         d.fiatSentAt = block.timestamp;
     }
@@ -261,6 +267,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         _requireNotZk(d);
         if (msg.sender != d.terms.controller) revert Unauthorized();
         Clocks.requireStrictlyBefore(d.fiatSentAt, d.terms.releaseDuration);
+        emit Transitioned(dealId, d.status, Status.DISPUTED);
         d.status = Status.DISPUTED;
         d.disputedAt = block.timestamp;
     }
@@ -377,6 +384,9 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         if (d.status != Status.FUNDED) revert WrongStatus();
         if ((d.pkgs & PKG_ZK) == 0) revert PackageNotSelected();
         IPaymentProof zk = IPaymentProof(d.mods.zk);
+        if (!_named(d, PackageId.zk(address(zk.verifier()), zk.feeRecipient(), zk.verifyFee()))) {
+            revert PackageDrift();
+        }
         zk.verifyProof(dealId, proof);
         uint256 left = d.terms.principal;
         (uint256 fee, address to) = zk.invoiceVerify();
@@ -399,7 +409,11 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         } else {
             Clocks.requireStrictlyBefore(d.disputedAt, d.terms.disputeDuration);
         }
-        ICourt(d.mods.court).openCourt{value: msg.value}(dealId, msg.sender);
+        ICourt court = ICourt(d.mods.court);
+        (address partner, uint256 key) = court.packageBinding();
+        if (!_named(d, PackageId.arbitration(address(court), partner, key))) revert PackageDrift();
+        court.openCourt{value: msg.value}(dealId, msg.sender);
+        emit Transitioned(dealId, d.status, Status.ARBITRATION_ACTIVE);
         d.status = Status.ARBITRATION_ACTIVE;
         d.arbitrationOpenedAt = block.timestamp;
     }
@@ -525,6 +539,15 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         revert UnknownPackage();
     }
 
+    /// @dev TRUST-03: the signed id must still match the module's live policy.
+    function _named(Deal storage d, bytes32 id) internal view returns (bool) {
+        bytes32[] storage ids = d.terms.packageIds;
+        for (uint256 i; i < ids.length; i++) {
+            if (ids[i] == id) return true;
+        }
+        return false;
+    }
+
     function _engage(DealTerms calldata terms, uint8 pkgs, bytes32 dealId, PackageMods memory mods)
         internal
         returns (bytes32 subjectH, bytes32 subjectP)
@@ -557,7 +580,14 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
 
     function _takeCompletionFrom(Deal storage d, uint256 left) internal returns (uint256) {
         if ((d.pkgs & PKG_REP) == 0) return left;
-        (uint256 fee, address to) = IReputation(d.mods.reputation).invoiceCompletion();
+        IReputation r = IReputation(d.mods.reputation);
+        // TRUST-03: a module that drifts its policy loses the invoice; Core exits keep running.
+        if (
+            !_named(d, PackageId.reputation(address(r), r.feeRecipient(), r.activationFee(), r.completionFee()))
+        ) {
+            return left;
+        }
+        (uint256 fee, address to) = r.invoiceCompletion();
         if (fee == 0) return left;
         left -= fee;
         Settlement.creditThenTryPush(settlement, d.terms.token, to, fee);
@@ -574,9 +604,11 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
         IReputation.Close closeP,
         BondAction bond
     ) internal {
+        emit Transitioned(dealId, d.status, next);
         d.status = next;
         d.holderAmt = holderAmt;
         d.providerAmt = providerAmt;
+        emit Settled(dealId, next, holderAmt, providerAmt);
         if (holderAmt != 0) {
             Settlement.creditThenTryPush(settlement, d.terms.token, d.terms.holder, holderAmt);
         }
@@ -590,6 +622,8 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
     function _disposeBond(bytes32 dealId, Deal storage d, BondAction bond) internal {
         if ((d.pkgs & PKG_BONDS) == 0) return;
         IBondVault vault = IBondVault(d.mods.bonds);
+        // TRUST-03: drift → fail-open, the lock stays in the vault.
+        if (!_named(d, PackageId.bonds(address(vault), vault.sink()))) return;
         if (bond == BondAction.Unlock) {
             try vault.unlock(d.subjectH, d.terms.token, dealId) {} catch {}
             try vault.unlock(d.subjectP, d.terms.token, dealId) {} catch {}

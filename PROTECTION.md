@@ -177,6 +177,7 @@ Rampa tampoco. Es un composer delante o detrás del escrow (`RAMPS.md`). No tien
 | ZK no produce proof | Fiat-timeout / cancel; no `DISPUTED` |
 | Adapter de arbitraje mudo | Arbitration timeout → `STALEMATE`; cualquiera lo ejecuta |
 | `notifyTerminal` (reputación) revierte | Escrow intacto; retry permissionless |
+| Paquete deriva su policy post-activación (el `packageId` firmado deja de matchear) | `verifyProof` / `openCourt`: reject (`PackageDrift`). Completion fee: el paquete pierde el cobro (fee 0) y el terminal Core sigue. `disposeBond`: fail-open, el lock queda en el vault (TRUST-03) |
 | Paquete no seleccionado | Su arista o hook rechaza o está ausente; Core sigue |
 | Usuario pone fee 0 en los términos | Irrelevante: el fee no vive ahí |
 

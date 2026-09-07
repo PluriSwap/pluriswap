@@ -170,6 +170,8 @@ En `FUNDED` quedan las addresses resueltas y el bitmap de kinds. Los verbos post
 
 Incompatibles al resolver: ZK + ARBITRATION. Reputación sin Passport. Bonds sin Passport + Reputación.
 
+El kernel **re-verifica** el ID contra los getters en vivo en cada momento de invoice y dispose: un módulo que deriva su policy (proxy, fee mutable) pierde el cobro — fee 0 en completion, fail-open en `disposeBond` — y `verifyProof` / `openCourt` lo rechazan (`PackageDrift`). Las salidas Core del deal siguen (KERNEL-04).
+
 ---
 
 ## 6. Observabilidad

@@ -21,7 +21,11 @@ import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 import {MockArbitratorV2} from "../src/mocks/MockArbitratorV2.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {IBondVault} from "../src/packages/interfaces/IBondVault.sol";
+import {IReputation} from "../src/packages/interfaces/IReputation.sol";
+import {IPaymentProof} from "../src/packages/interfaces/IPaymentProof.sol";
+import {IVerifier} from "../src/packages/interfaces/IVerifier.sol";
 import {PackageId} from "../src/packages/PackageId.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BaseTest} from "./Base.t.sol";
 
 contract PackagesTest is BaseTest {
@@ -287,6 +291,60 @@ contract PackagesTest is BaseTest {
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
     }
 
+    function test_completionFeeDrift_packageLosesInvoice() public {
+        DriftReputation drift = new DriftReputation(passport, feeRecipient, 0, COMP_FEE, address(escrow));
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted2(passport.packageId(), drift.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(drift);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        drift.setCompletionFee(COMP_FEE + 1);
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.release(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(token.balanceOf(provider), PRINCIPAL + BOND);
+        assertEq(token.balanceOf(feeRecipient), 0);
+        token.mint(holder, PRINCIPAL);
+        vm.prank(holder);
+        token.approve(address(escrow), type(uint256).max);
+        bytes32 core = _activateP2P(2, 2);
+        assertEq(uint8(escrow.status(core)), uint8(Status.FUNDED));
+    }
+
+    function test_zkVerifierDrift_verifyProofReverts() public {
+        DriftZk drift = new DriftZk(new VerifierMock(), feeRecipient, ZK_FEE, address(escrow));
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _one(drift.packageId());
+        PackageMods memory mods;
+        mods.zk = address(drift);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        drift.setVerifier(new VerifierMock());
+        vm.expectRevert(Escrow.PackageDrift.selector);
+        escrow.verifyProof(id, abi.encode(id, keccak256("receipt")));
+        assertEq(uint8(escrow.status(id)), uint8(Status.FUNDED));
+    }
+
+    function test_bondSinkDrift_disposeFailOpen() public {
+        DriftSinkVault driftVault = new DriftSinkVault(address(escrow), sink);
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted3(passport.packageId(), reputation.packageId(), driftVault.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(reputation);
+        mods.bonds = address(driftVault);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        driftVault.setSink(address(0xBADD1));
+        _markFiat(id);
+        _openDisputed(id);
+        vm.warp(block.timestamp + 7200);
+        escrow.forceStalemate(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        assertEq(token.balanceOf(sink), 0);
+        assertTrue(driftVault.lockOf(SUB_H, id) != 0);
+    }
+
     function _fundBonds() internal {
         vm.prank(holder);
         vault.deposit(SUB_H, address(token), BOND);
@@ -389,6 +447,146 @@ contract PackagesTest is BaseTest {
         ids[1] = xs[1];
         ids[2] = xs[2];
         ids[3] = xs[3];
+    }
+}
+
+contract DriftReputation is IReputation {
+    /// @dev Mutable completionFee: simulates a proxy that changes policy mid-deal.
+    error Unauthorized();
+
+    IPassport public immutable passport;
+    address public immutable operator;
+    address public immutable feeRecipient;
+    uint256 public immutable activationFee;
+    uint256 public completionFee;
+    bytes32 public packageId;
+
+    constructor(
+        IPassport passport_,
+        address feeRecipient_,
+        uint256 activationFee_,
+        uint256 completionFee_,
+        address operator_
+    ) {
+        passport = passport_;
+        feeRecipient = feeRecipient_;
+        activationFee = activationFee_;
+        completionFee = completionFee_;
+        operator = operator_;
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_);
+    }
+
+    function setCompletionFee(uint256 fee) external {
+        completionFee = fee;
+        packageId = PackageId.reputation(address(this), feeRecipient, activationFee, fee);
+    }
+
+    function invoiceActivation() external view returns (uint256 amount, address recipient) {
+        return (activationFee, feeRecipient);
+    }
+
+    function invoiceCompletion() external view returns (uint256 amount, address recipient) {
+        return (completionFee, feeRecipient);
+    }
+
+    function admit(address wallet, address, uint256, address) external returns (bytes32 subject) {
+        if (msg.sender != operator) revert Unauthorized();
+        subject = passport.identify(wallet);
+    }
+
+    function notifyTerminal(address, address, uint256, IReputation.Close) external {
+        if (msg.sender != operator) revert Unauthorized();
+    }
+}
+
+contract DriftZk is IPaymentProof {
+    /// @dev Mutable verifier: simulates a proxy that swaps circuit V mid-deal.
+    error Unauthorized();
+    error WrongDealId();
+    error NullifierUsed();
+
+    IVerifier public verifier;
+    address public immutable operator;
+    address public immutable feeRecipient;
+    uint256 public immutable verifyFee;
+    bytes32 public packageId;
+
+    mapping(bytes32 paymentNullifier => bool) public used;
+
+    constructor(IVerifier verifier_, address feeRecipient_, uint256 verifyFee_, address operator_) {
+        verifier = verifier_;
+        feeRecipient = feeRecipient_;
+        verifyFee = verifyFee_;
+        operator = operator_;
+        packageId = PackageId.zk(address(verifier_), feeRecipient_, verifyFee_);
+    }
+
+    function setVerifier(IVerifier v) external {
+        verifier = v;
+        packageId = PackageId.zk(address(v), feeRecipient, verifyFee);
+    }
+
+    function invoiceVerify() external view returns (uint256 amount, address recipient) {
+        return (verifyFee, feeRecipient);
+    }
+
+    function verifyProof(bytes32 dealId, bytes calldata proof) external returns (bytes32 paymentNullifier) {
+        if (msg.sender != operator) revert Unauthorized();
+        bytes32 proofDealId;
+        (proofDealId, paymentNullifier) = verifier.verify(proof);
+        if (proofDealId != dealId) revert WrongDealId();
+        if (used[paymentNullifier]) revert NullifierUsed();
+        used[paymentNullifier] = true;
+    }
+}
+
+contract DriftSinkVault is IBondVault {
+    /// @dev Mutable sink: simulates a proxy that changes the burn sink mid-deal.
+    error Hostile();
+
+    address public immutable operator;
+    address public sink;
+    bytes32 public packageId;
+
+    mapping(bytes32 subject => mapping(bytes32 dealId => uint256)) public lockOf;
+
+    constructor(address operator_, address sink_) {
+        operator = operator_;
+        sink = sink_;
+        packageId = PackageId.bonds(address(this), sink_);
+    }
+
+    function setSink(address s) external {
+        sink = s;
+        packageId = PackageId.bonds(address(this), s);
+    }
+
+    function available(bytes32, address) external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    function locked(bytes32, address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function reserve(bytes32 subject, address, bytes32 dealId, uint256 principal) external {
+        if (msg.sender != operator) revert Hostile();
+        lockOf[subject][dealId] = (principal + 9) / 10;
+    }
+
+    function unlock(bytes32 subject, address, bytes32 dealId) external {
+        if (msg.sender != operator) revert Hostile();
+        delete lockOf[subject][dealId];
+    }
+
+    function slash(bytes32, bytes32, address, bytes32, address, address) external pure {}
+
+    function burn(bytes32 subjectA, bytes32 subjectB, address token, bytes32 dealId) external {
+        if (msg.sender != operator) revert Hostile();
+        uint256 amount = lockOf[subjectA][dealId] + lockOf[subjectB][dealId];
+        delete lockOf[subjectA][dealId];
+        delete lockOf[subjectB][dealId];
+        IERC20(token).transfer(sink, amount);
     }
 }
 
