@@ -90,6 +90,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     }
 
     mapping(address signer => mapping(uint256 nonce => bool consumed)) public used;
+    mapping(address signer => mapping(uint256 nonce => bytes32 dealId)) public dealOf;
     mapping(bytes32 dealId => Deal) internal deals;
     Settlement.Store internal settlement;
 
@@ -208,7 +209,12 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
 
         used[terms.holder][ha.nonce] = true;
         used[terms.provider][pa.nonce] = true;
-        if (terms.holder != terms.controller) used[terms.controller][ca.nonce] = true;
+        dealOf[terms.holder][ha.nonce] = id;
+        dealOf[terms.provider][pa.nonce] = id;
+        if (terms.holder != terms.controller) {
+            used[terms.controller][ca.nonce] = true;
+            dealOf[terms.controller][ca.nonce] = id;
+        }
 
         Deal storage d = deals[id];
         d.status = Status.FUNDED;

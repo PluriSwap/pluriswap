@@ -54,7 +54,7 @@ Dependencia: `@openzeppelin/contracts` v5. No `upgradeable` para Core: el kernel
 | `EIP712` + `MessageHashUtils` | Consent / dominio | Domain separator: chain, deployment, versión. Sin esto hay replay |
 | `SafeERC20` | Settlement | `safeTransferFrom` en el pull. `trySafeTransfer` / `trySafeTransferFrom` en el push opcional (credit-first) |
 | `IERC20` | Settlement | Balances para el delta exacto |
-| `ReentrancyGuardTransient` | Escrow | Arbitrum. El `ReentrancyGuard` clásico queda para L1 sin transient; OZ lo depreca hacia v6 |
+| `ReentrancyGuardTransient` | Escrow, Pool | Arbitrum. El `ReentrancyGuard` clásico queda para L1 sin transient; OZ lo depreca hacia v6 |
 
 **No usar en Core** (rompen el recinto o no aplican):
 

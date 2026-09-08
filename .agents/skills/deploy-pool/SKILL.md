@@ -64,7 +64,7 @@ Do not POST to a backend. Listing/registry is a later factory deploy, when that 
 
 To fund: an allowed depositor (or anyone, if open) `approve`s the pool, then `deposit(amount)`. First deposit ≥ `1e6`.
 
-To open a deal: an agent `authorize(holderAuthorization)` then `escrow.activate` with empty holder signature (EIP-1271). Idle must cover `principal + fee`.
+To open a deal: an agent `authorize(holderAuthorization)` then `escrow.activate` with empty holder signature (EIP-1271). Idle must cover `principal + controllerFee`. If the deal includes reputation, call `authorize(ha, reputation)` so idle also covers `activationFee`.
 
 `reconcile` is permissionless and does not take `returned`. It reads `settlementOf`.
 

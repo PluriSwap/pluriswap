@@ -10,6 +10,8 @@ interface IEscrow {
 
     function used(address signer, uint256 nonce) external view returns (bool);
 
+    function dealOf(address signer, uint256 nonce) external view returns (bytes32);
+
     function status(bytes32 dealId) external view returns (Status);
 
     function terms(bytes32 dealId) external view returns (DealTerms memory);

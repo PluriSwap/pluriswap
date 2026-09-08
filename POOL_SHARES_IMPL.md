@@ -209,7 +209,7 @@ No es un estado ni un verb. Encaja en EP-POST / EXT-06.
 | `.cursor/skills/deploy-pool/SKILL.md` | Params nuevos. |
 | `test/PoolHolder.t.sol` | No tocar (Mock1271). |
 
-`IEscrow` en el pool: `domainSeparator`, `used`, `status`, `creditOf`, `settlementOf` (y el resto de la lectura del recinto).
+`IEscrow` en el pool: `domainSeparator`, `used`, `dealOf`, `status`, `creditOf`, `settlementOf` (y el resto de la lectura del recinto).
 
 ---
 
@@ -244,7 +244,7 @@ Tests, en este orden:
 
 Reusar los casos de `test/Pool.t.sol` que ya existen, adaptados:
 
-1. `authorize` lockea `principal + fee` y `forceApprove` solo del principal (el escrow no ve el fee).
+1. `authorize` lockea `principal + controllerFee + invoiceActivation` y `forceApprove` la suma exacta de pulls pendientes (el escrow no ve el controller fee).
 2. Rechaza `C` que no es agente. `idle < principal + fee` revierte.
 3. Sponsor no designado **sí** puede ser `terms.controller`.
 4. Kick de designado: deal vivo sigue; `authorize` nuevo de ese `C` falla.
@@ -277,9 +277,11 @@ redeem(uint256 shares)            // assetsOut <= idle
 setController(address, bool)      // solo Sponsor; no sobre Sponsors
 setControllerFeeBps(uint16)       // solo Sponsor; deals futuros
 authorize(HolderAuthorization)
+authorize(HolderAuthorization, address reputation)  // reserva invoiceActivation
 isValidSignature(bytes32, bytes) view
 unlock(uint256 nonce)
 reconcile(uint256 nonce, uint256 providerNonce, uint256 controllerNonce)
+withdrawCredit()
 sync()
 startRunoff()                     // Sponsor
 endRunoff()                       // Sponsor, locked == 0

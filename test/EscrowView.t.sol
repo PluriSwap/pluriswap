@@ -39,6 +39,23 @@ contract EscrowViewTest is BaseTest {
         assertEq(view_.modules(id).reputation, address(0));
     }
 
+    function test_activate_setsDealOf() public {
+        bytes32 id = _activateP2P(1, 1);
+        IEscrow view_ = IEscrow(address(escrow));
+        assertEq(view_.dealOf(holder, 1), id);
+        assertEq(view_.dealOf(provider, 1), id);
+        assertEq(view_.dealOf(holder, 2), bytes32(0));
+        assertEq(view_.dealOf(controller, 1), bytes32(0));
+    }
+
+    function test_activate_setsDealOfControllerWhenDistinct() public {
+        bytes32 id = _activateDistinctController(1, 1, 1);
+        IEscrow view_ = IEscrow(address(escrow));
+        assertEq(view_.dealOf(holder, 1), id);
+        assertEq(view_.dealOf(provider, 1), id);
+        assertEq(view_.dealOf(controller, 1), id);
+    }
+
     function test_markFiat_setsFiatSentClock() public {
         bytes32 id = _activateP2P(1, 1);
         vm.prank(provider);

@@ -113,7 +113,7 @@ Cualquier contrato (paquete, pool, rampa, indexer) lee el recinto por `src/inter
 | `clocks(dealId)` | orígenes (`activatedAt`, `fiatSentAt`, `disputedAt`, `arbitrationOpenedAt`) |
 | `subjects` / `modules` / `kinds` | sujetos Passport, `PackageMods`, bitmap |
 | `settlementOf` / `status` / `creditOf` | terminal y créditos |
-| `domainSeparator` / `used` | consentimiento |
+| `domainSeparator` / `used` / `dealOf` | consentimiento; `dealOf` es el `dealId` de un nonce consumido en `activate` |
 
 `notifyTerminal` recibe el sujeto de `subjects`, no re-identifica. Un remap de Passport no muda `inFlight` ni el score de *ese* deal.
 

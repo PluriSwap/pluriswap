@@ -135,7 +135,7 @@ El pool lleva, para sí, categorías que el kernel no conoce:
 | Idle | Assets no reservados a un deal |
 | Locked | Principal (y lo que el pool reserve de su bolsillo para fees propias) de deals activos |
 | Consumed | Lo que salió para siempre: provider-positive, fees locales pagadas |
-| Credits | Holder-gross ya terminal, aún no reasignado a idle. Puede ser un campo o quedarse en `locked` hasta `reconcile` — es tesorería del vault, no del kernel (`ARCHITECTURE.md` §7) |
+| Credits | Holder-gross ya terminal, aún no reasignado a idle. El vault lo escribe al reconocer el record (`dealOf` + `settlementOf`); `reconcile` lo pasa a idle. `nav()` previewa un terminal no flusheado |
 
 Un crédito del pool cuenta una vez. Vuelve a estar disponible para un deal nuevo solo cuando el mismo vault puede reasignarlo sin preservar el crédito viejo.
 
@@ -184,7 +184,7 @@ Deficiencia: `onHand < idle + credits`. Un `deposit` tapa primero el agujero (si
 
 Cualquier Sponsor designa o saca wallets extra (`setController`). No se designa ni se destituye un Sponsor. Kick de designado es futuro-only: el deal ya snapshotado sigue.
 
-`authorize` acepta `C` solo si `C` es Sponsor o designado. Caller = ese `C` o un Sponsor. El kernel solo ve `Holder = pool` y `ControllerAcceptance` de `C`.
+`authorize` acepta `C` solo si `C` es Sponsor o designado. Caller = ese `C` o un Sponsor. El kernel solo ve `Holder = pool` y `ControllerAcceptance` de `C`. Si el deal incluye REPUTATION, `authorize(ha, reputation)` recomputa el `packageId` y reserva `activationFee` de idle: el kernel hace un segundo pull al Holder. Sin esa reserva el activate deja un agujero o revierte.
 
 ---
 
@@ -193,6 +193,8 @@ Cualquier Sponsor designa o saca wallets extra (`setController`). No se designa 
 Validar un quote contra un oracle o una banda es política del pool al decidir si `isValidSignature` dice sí. Un deal persona a persona ya bindea principal y fiat exactos y no lo necesita.
 
 Fee del Controller: bps del principal, constitución del vault. Se reserva de idle en `authorize` (el escrow no hace pull del fee). En `reconcile`, si el deal consumió algo (`holderAmt < principal`), se paga a `C`; si el retorno es entero o el authorize expiró, la reserva vuelve a idle. El settlement Core parte Holder / Provider. El fee no es un canal Core.
+
+Invoice de activación (reputación): también se reserva en `authorize`. En cuanto `dealOf` existe, ese fee ya salió hacia el recipient del paquete: sale de `locked` y entra a `consumed`. Un `unlock` (nonce libre) lo devuelve a idle. El approve al escrow es la suma exacta de `principal + activationFee` de auths aún no activados; no es `max`.
 
 `RATE_POLICY`, mandato con bits, y operator acceptance fee como canal Core son el leak que este recorte saca del kernel.
 

@@ -7,12 +7,15 @@ import {
     HolderAuthorization,
     ProviderAgreement,
     ControllerAcceptance,
-    MutualSplit
+    MutualSplit,
+    PackageMods
 } from "../src/libraries/Types.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Pool} from "../src/pools/Pool.sol";
 import {PoolFactory} from "../src/pools/PoolFactory.sol";
+import {PassportMock} from "../src/packages/PassportMock.sol";
+import {Reputation} from "../src/packages/Reputation.sol";
 import {BaseTest} from "./Base.t.sol";
 
 contract PoolTest is BaseTest {
@@ -834,6 +837,167 @@ contract PoolTest is BaseTest {
         vm.prank(controller);
         pool.authorize(ha);
         return escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
+    }
+
+    function test_nav_dropsOnReleaseBeforeReconcile() public {
+        token.mint(holder, PRINCIPAL);
+        vm.prank(holder);
+        pool.deposit(PRINCIPAL);
+        bytes32 id = _activatePool(1, 1, 1);
+        assertEq(pool.nav(), PRINCIPAL * 2);
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+        assertEq(pool.nav(), PRINCIPAL);
+        assertEq(pool.locked(), PRINCIPAL);
+        assertEq(pool.credits(), 0);
+        pool.sync();
+        assertEq(pool.locked(), 0);
+        assertEq(pool.credits(), 0);
+        assertEq(pool.nav(), PRINCIPAL);
+    }
+
+    function test_deposit_afterReleaseDoesNotDilute() public {
+        Pool p = _openPool(0);
+        address lpA = address(0xA0A2);
+        address lpB = address(0xB0B2);
+        _fundLp(lpA, p, PRINCIPAL * 2);
+        (bytes32 id,) = _activateOn(p, 1, 1, 1);
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+
+        _fundLp(lpB, p, PRINCIPAL);
+        assertEq(p.sharesOf(lpB), PRINCIPAL * 2);
+        assertEq(p.totalShares(), PRINCIPAL * 4);
+        assertEq(p.nav(), PRINCIPAL * 2);
+        assertEq(p.credits(), 0);
+        assertEq(p.locked(), 0);
+    }
+
+    function test_redeem_afterReleaseCannotDrainAgainstPhantom() public {
+        token.mint(holder, PRINCIPAL);
+        vm.prank(holder);
+        pool.deposit(PRINCIPAL);
+        bytes32 id = _activatePool(1, 1, 1);
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+
+        uint256 before = token.balanceOf(holder);
+        vm.prank(holder);
+        pool.redeem(PRINCIPAL);
+        assertEq(token.balanceOf(holder), before + PRINCIPAL / 2);
+        assertEq(pool.idle(), PRINCIPAL / 2);
+        assertEq(pool.nav(), PRINCIPAL / 2);
+    }
+
+    function test_authorize_approvesExactOutstanding() public {
+        HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
+        vm.prank(controller);
+        pool.authorize(ha);
+        assertEq(token.allowance(address(pool), address(escrow)), PRINCIPAL);
+
+        token.mint(holder, PRINCIPAL);
+        vm.prank(holder);
+        pool.deposit(PRINCIPAL);
+        HolderAuthorization memory ha2 = _holderAuth(_poolHolderTerms(), 2);
+        vm.prank(controller);
+        pool.authorize(ha2);
+        assertEq(token.allowance(address(pool), address(escrow)), PRINCIPAL * 2);
+
+        DealTerms memory terms = _poolHolderTerms();
+        escrow.activate(ha, "", _providerAuth(terms, 1), _signProvider(_providerAuth(terms, 1)), _controllerAuth(terms, 1), _signController(_controllerAuth(terms, 1)));
+        pool.sync();
+        assertEq(token.allowance(address(pool), address(escrow)), PRINCIPAL);
+    }
+
+    function test_reputation_reservesActivationFee() public {
+        uint256 actFee = 100_000;
+        PassportMock passport = new PassportMock();
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, address(escrow));
+        passport.setHuman(address(pool), keccak256("pool"));
+        passport.setHuman(provider, keccak256("prov"));
+
+        token.mint(holder, actFee);
+        vm.prank(holder);
+        pool.deposit(actFee);
+
+        DealTerms memory terms = _poolHolderTerms();
+        terms.packageIds = _sorted2(passport.packageId(), rep.packageId());
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        vm.prank(controller);
+        pool.authorize(ha, address(rep));
+        assertEq(pool.locked(), PRINCIPAL + actFee);
+        assertEq(pool.idle(), 0);
+        assertEq(token.allowance(address(pool), address(escrow)), PRINCIPAL + actFee);
+
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca = _controllerAuth(terms, 1);
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(rep);
+        bytes32 id = escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca), mods);
+        assertEq(token.balanceOf(address(0xFEE)), actFee);
+        assertEq(token.balanceOf(address(escrow)), PRINCIPAL);
+        pool.sync();
+        assertEq(pool.consumed(), actFee);
+        assertEq(pool.locked(), PRINCIPAL);
+        assertEq(pool.nav(), PRINCIPAL);
+        assertEq(uint8(pool.life()), uint8(Pool.Life.ACTIVE));
+        assertEq(uint8(escrow.status(id)), uint8(Status.FUNDED));
+    }
+
+    function test_reputation_shortIdleReverts() public {
+        uint256 actFee = 100_000;
+        PassportMock passport = new PassportMock();
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, address(escrow));
+        DealTerms memory terms = _poolHolderTerms();
+        terms.packageIds = _sorted2(passport.packageId(), rep.packageId());
+        vm.prank(controller);
+        vm.expectRevert(Pool.InsufficientIdle.selector);
+        pool.authorize(_holderAuth(terms, 1), address(rep));
+    }
+
+    function test_reputation_unknownModuleReverts() public {
+        PassportMock passport = new PassportMock();
+        Reputation rep = new Reputation(passport, address(0xFEE), 1, 0, address(escrow));
+        vm.prank(controller);
+        vm.expectRevert(Pool.BadTerms.selector);
+        pool.authorize(_holderAuth(_poolHolderTerms(), 1), address(rep));
+    }
+
+    function test_unlock_returnsActivationFee() public {
+        uint256 actFee = 100_000;
+        PassportMock passport = new PassportMock();
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, address(escrow));
+        token.mint(holder, actFee);
+        vm.prank(holder);
+        pool.deposit(actFee);
+        DealTerms memory terms = _poolHolderTerms();
+        terms.packageIds = _sorted2(passport.packageId(), rep.packageId());
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        vm.prank(controller);
+        pool.authorize(ha, address(rep));
+        vm.warp(ha.deadline + 1);
+        pool.unlock(1);
+        assertEq(pool.idle(), PRINCIPAL + actFee);
+        assertEq(pool.locked(), 0);
+        assertEq(token.allowance(address(pool), address(escrow)), 0);
+    }
+
+    function _sorted2(bytes32 a, bytes32 b) internal pure returns (bytes32[] memory ids) {
+        ids = new bytes32[](2);
+        if (uint256(a) < uint256(b)) {
+            ids[0] = a;
+            ids[1] = b;
+        } else {
+            ids[0] = b;
+            ids[1] = a;
+        }
     }
 
     function _signHolderAsController(ControllerAcceptance memory a) internal view returns (bytes memory) {
