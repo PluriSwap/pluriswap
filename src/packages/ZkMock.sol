@@ -25,7 +25,7 @@ contract ZkMock is IPaymentProof {
         feeRecipient = feeRecipient_;
         verifyFee = verifyFee_;
         operator = operator_;
-        packageId = PackageId.zk(address(verifier_), feeRecipient_, verifyFee_);
+        packageId = PackageId.zk(address(this), address(verifier_), feeRecipient_, verifyFee_);
     }
 
     function invoiceVerify() external view returns (uint256 amount, address recipient) {

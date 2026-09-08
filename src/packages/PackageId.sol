@@ -36,7 +36,7 @@ library PackageId {
         return arbitration(adapter, arbitrator, uint256(keccak256(extraData)));
     }
 
-    function zk(address verifier, address feeRecipient, uint256 verifyFee) public pure returns (bytes32) {
-        return keccak256(abi.encode(ZK_KIND, verifier, feeRecipient, verifyFee));
+    function zk(address module, address verifier, address feeRecipient, uint256 verifyFee) public pure returns (bytes32) {
+        return keccak256(abi.encode(ZK_KIND, module, verifier, feeRecipient, verifyFee));
     }
 }

@@ -128,7 +128,7 @@ Los *kinds* son la superficie cerrada de extensión (EXT-01). Cinco. Un kind nue
 | `IPassport` | PASSPORT | `identify` | address del adapter |
 | `IReputation` | REPUTATION | `admit`, `invoiceActivation`, `invoiceCompletion`, `notifyTerminal` | module, feeRecipient, activationFee, completionFee |
 | `IBondVault` | BONDS | `reserve`, `unlock`, `slash`, `burn` | vault, sink, lock bps |
-| `IPaymentProof` | ZK | `verifyProof`, `invoiceVerify` | verifier V, feeRecipient, verifyFee |
+| `IPaymentProof` | ZK | `verifyProof`, `invoiceVerify` | module, verifier V, feeRecipient, verifyFee |
 | `IVerifier` | (no es paquete) | `verify → (dealId, nullifier)` | — |
 | `ICourt` | ARBITRATION | `openCourt`, `readRuling`, `packageBinding` | adapter, partner, key |
 
@@ -159,6 +159,9 @@ El kernel, por cada slot no nulo:
 1. Lee la policy pública del módulo.
 2. Recomputa `id = PackageId.kind(address, policy)`.
 3. Exige que `id` esté en `terms.packageIds`.
+4. Si hay Reputation o Bonds, exige `module.passport() == mods.passport`.
+
+El kernel cobra con los getters que entran al hash (`activationFee`, `completionFee`, `verifyFee`, `feeRecipient`). `invoice*` es lectura; no es la fuente del cobro.
 
 Exige además que **cada** `packageIds[i]` haya sido reclamado por exactamente un slot. Si sobra un ID o sobra un módulo, reject. Core-only: array vacío, slots nulos.
 

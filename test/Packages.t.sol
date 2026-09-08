@@ -192,7 +192,7 @@ contract PackagesTest is BaseTest {
     }
 
     function test_disposeBondRevert_stillReleased() public {
-        UnlockRevertingVault hostile = new UnlockRevertingVault(address(escrow), sink);
+        UnlockRevertingVault hostile = new UnlockRevertingVault(address(escrow), sink, passport);
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted3(passport.packageId(), reputation.packageId(), hostile.packageId());
         PackageMods memory mods;
@@ -329,7 +329,7 @@ contract PackagesTest is BaseTest {
     }
 
     function test_bondSinkDrift_disposeFailOpen() public {
-        DriftSinkVault driftVault = new DriftSinkVault(address(escrow), sink);
+        DriftSinkVault driftVault = new DriftSinkVault(address(escrow), sink, passport);
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted3(passport.packageId(), reputation.packageId(), driftVault.packageId());
         PackageMods memory mods;
@@ -406,6 +406,76 @@ contract PackagesTest is BaseTest {
         token.mint(holder, PRINCIPAL);
         bytes32 core = _activateP2P(10, 10);
         assertEq(uint8(escrow.status(core)), uint8(Status.FUNDED));
+    }
+
+    function test_reputationPassportMismatch_reverts() public {
+        PassportMock other = new PassportMock();
+        other.setHuman(holder, SUB_H);
+        other.setHuman(provider, SUB_P);
+        Reputation alien = new Reputation(other, feeRecipient, 0, 0, address(escrow));
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted2(passport.packageId(), alien.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(alien);
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca;
+        bytes memory hs = _signHolder(ha);
+        bytes memory ps = _signProvider(pa);
+        vm.expectRevert(Escrow.PeerMismatch.selector);
+        escrow.activate(ha, hs, pa, ps, ca, "", mods);
+    }
+
+    function test_bondsPassportMismatch_reverts() public {
+        PassportMock other = new PassportMock();
+        BondVault alien = new BondVault(address(escrow), sink, other);
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted3(passport.packageId(), reputation.packageId(), alien.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(reputation);
+        mods.bonds = address(alien);
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca;
+        bytes memory hs = _signHolder(ha);
+        bytes memory ps = _signProvider(pa);
+        vm.expectRevert(Escrow.PeerMismatch.selector);
+        escrow.activate(ha, hs, pa, ps, ca, "", mods);
+    }
+
+    function test_zkWrapperSwap_unknownPackage() public {
+        VerifierMock v = new VerifierMock();
+        ZkMock official = new ZkMock(v, feeRecipient, ZK_FEE, address(escrow));
+        ZkMock decoy = new ZkMock(v, feeRecipient, ZK_FEE, address(escrow));
+        assertTrue(official.packageId() != decoy.packageId());
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _one(official.packageId());
+        PackageMods memory mods;
+        mods.zk = address(decoy);
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca;
+        bytes memory hs = _signHolder(ha);
+        bytes memory ps = _signProvider(pa);
+        vm.expectRevert(Escrow.UnknownPackage.selector);
+        escrow.activate(ha, hs, pa, ps, ca, "", mods);
+    }
+
+    function test_invoiceLie_kernelChargesHashedFee() public {
+        LyingReputation liar = new LyingReputation(passport, feeRecipient, 0, COMP_FEE, address(escrow));
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted2(passport.packageId(), liar.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(liar);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.release(id);
+        assertEq(token.balanceOf(feeRecipient), COMP_FEE);
+        assertEq(token.balanceOf(provider), BOND + PRINCIPAL - COMP_FEE);
     }
 
     function _one(bytes32 a) internal pure returns (bytes32[] memory ids) {
@@ -520,12 +590,12 @@ contract DriftZk is IPaymentProof {
         feeRecipient = feeRecipient_;
         verifyFee = verifyFee_;
         operator = operator_;
-        packageId = PackageId.zk(address(verifier_), feeRecipient_, verifyFee_);
+        packageId = PackageId.zk(address(this), address(verifier_), feeRecipient_, verifyFee_);
     }
 
     function setVerifier(IVerifier v) external {
         verifier = v;
-        packageId = PackageId.zk(address(v), feeRecipient, verifyFee);
+        packageId = PackageId.zk(address(this), address(v), feeRecipient, verifyFee);
     }
 
     function invoiceVerify() external view returns (uint256 amount, address recipient) {
@@ -547,14 +617,16 @@ contract DriftSinkVault is IBondVault {
     error Hostile();
 
     address public immutable operator;
+    IPassport public immutable passport;
     address public sink;
     bytes32 public packageId;
 
     mapping(bytes32 subject => mapping(bytes32 dealId => uint256)) public lockOf;
 
-    constructor(address operator_, address sink_) {
+    constructor(address operator_, address sink_, IPassport passport_) {
         operator = operator_;
         sink = sink_;
+        passport = passport_;
         packageId = PackageId.bonds(address(this), sink_);
     }
 
@@ -597,11 +669,13 @@ contract UnlockRevertingVault is IBondVault {
 
     address public immutable operator;
     address public immutable sink;
+    IPassport public immutable passport;
     bytes32 public immutable packageId;
 
-    constructor(address operator_, address sink_) {
+    constructor(address operator_, address sink_, IPassport passport_) {
         operator = operator_;
         sink = sink_;
+        passport = passport_;
         packageId = PackageId.bonds(address(this), sink_);
     }
 
@@ -627,5 +701,49 @@ contract UnlockRevertingVault is IBondVault {
 
     function burn(bytes32, bytes32, address, bytes32) external pure {
         revert Hostile();
+    }
+}
+
+/// @dev invoiceCompletion lies; hashed completionFee is the honest amount.
+contract LyingReputation is IReputation {
+    error Unauthorized();
+
+    IPassport public immutable passport;
+    address public immutable operator;
+    address public immutable feeRecipient;
+    uint256 public immutable activationFee;
+    uint256 public immutable completionFee;
+    bytes32 public immutable packageId;
+
+    constructor(
+        IPassport passport_,
+        address feeRecipient_,
+        uint256 activationFee_,
+        uint256 completionFee_,
+        address operator_
+    ) {
+        passport = passport_;
+        feeRecipient = feeRecipient_;
+        activationFee = activationFee_;
+        completionFee = completionFee_;
+        operator = operator_;
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_);
+    }
+
+    function invoiceActivation() external view returns (uint256 amount, address recipient) {
+        return (activationFee, feeRecipient);
+    }
+
+    function invoiceCompletion() external pure returns (uint256 amount, address recipient) {
+        return (type(uint256).max, address(0xBAD));
+    }
+
+    function admit(address wallet, address, uint256, address) external returns (bytes32 subject) {
+        if (msg.sender != operator) revert Unauthorized();
+        subject = passport.identify(wallet);
+    }
+
+    function notifyTerminal(bytes32, address, uint256, IReputation.Close) external {
+        if (msg.sender != operator) revert Unauthorized();
     }
 }

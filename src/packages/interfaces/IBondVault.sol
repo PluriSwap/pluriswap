@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {IPassport} from "./IPassport.sol";
+
 /// @dev Kernel verbs `reserve` / `unlock` / `slash` / `burn`. Deposit/withdraw are the subject's.
 interface IBondVault {
     function packageId() external view returns (bytes32);
+    function passport() external view returns (IPassport);
     function sink() external view returns (address);
     function available(bytes32 subject, address token) external view returns (uint256);
     function locked(bytes32 subject, address token) external view returns (uint256);

@@ -52,6 +52,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     error EdgeOff();
     error NotRuled();
     error PackageDrift();
+    error PeerMismatch();
 
     event Activated(
         bytes32 dealId, address holder, address provider, address controller, address token, uint256 principal
@@ -404,15 +405,15 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         if (d.status != Status.FUNDED) revert WrongStatus();
         if ((d.pkgs & PKG_ZK) == 0) revert PackageNotSelected();
         IPaymentProof zk = IPaymentProof(d.mods.zk);
-        if (!_named(d, PackageId.zk(address(zk.verifier()), zk.feeRecipient(), zk.verifyFee()))) {
+        if (!_named(d, PackageId.zk(address(zk), address(zk.verifier()), zk.feeRecipient(), zk.verifyFee()))) {
             revert PackageDrift();
         }
         zk.verifyProof(dealId, proof);
         uint256 left = d.terms.principal;
-        (uint256 fee, address to) = zk.invoiceVerify();
+        uint256 fee = zk.verifyFee();
         if (fee != 0) {
             left -= fee;
-            Settlement.creditThenTryPush(settlement, d.terms.token, to, fee);
+            Settlement.creditThenTryPush(settlement, d.terms.token, zk.feeRecipient(), fee);
         }
         left = _takeCompletionFrom(d, left);
         _finish(dealId, d, Status.RELEASED, 0, left, IReputation.Close.Peaceful, IReputation.Close.Peaceful, BondAction.Unlock);
@@ -523,18 +524,21 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         }
         if (mods.reputation != address(0)) {
             IReputation r = IReputation(mods.reputation);
+            if (address(r.passport()) != mods.passport) revert PeerMismatch();
             _requireNamed(ids, PackageId.reputation(mods.reputation, r.feeRecipient(), r.activationFee(), r.completionFee()));
             pkgs |= PKG_REP;
             matched++;
         }
         if (mods.bonds != address(0)) {
-            _requireNamed(ids, PackageId.bonds(mods.bonds, IBondVault(mods.bonds).sink()));
+            IBondVault vault = IBondVault(mods.bonds);
+            if (address(vault.passport()) != mods.passport) revert PeerMismatch();
+            _requireNamed(ids, PackageId.bonds(mods.bonds, vault.sink()));
             pkgs |= PKG_BONDS;
             matched++;
         }
         if (mods.zk != address(0)) {
             IPaymentProof z = IPaymentProof(mods.zk);
-            _requireNamed(ids, PackageId.zk(address(z.verifier()), z.feeRecipient(), z.verifyFee()));
+            _requireNamed(ids, PackageId.zk(address(z), address(z.verifier()), z.feeRecipient(), z.verifyFee()));
             pkgs |= PKG_ZK;
             matched++;
         }
@@ -581,10 +585,10 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
             address v = (pkgs & PKG_BONDS) != 0 ? mods.bonds : address(0);
             r.admit(terms.holder, terms.token, terms.principal, v);
             r.admit(terms.provider, terms.token, terms.principal, v);
-            (uint256 fee, address to) = r.invoiceActivation();
+            uint256 fee = r.activationFee();
             if (fee != 0) {
                 Settlement.pullExact(terms.token, terms.holder, fee);
-                IERC20(terms.token).safeTransfer(to, fee);
+                IERC20(terms.token).safeTransfer(r.feeRecipient(), fee);
             }
         }
         if ((pkgs & PKG_BONDS) != 0) {
@@ -607,10 +611,10 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         ) {
             return left;
         }
-        (uint256 fee, address to) = r.invoiceCompletion();
+        uint256 fee = r.completionFee();
         if (fee == 0) return left;
         left -= fee;
-        Settlement.creditThenTryPush(settlement, d.terms.token, to, fee);
+        Settlement.creditThenTryPush(settlement, d.terms.token, r.feeRecipient(), fee);
         return left;
     }
 

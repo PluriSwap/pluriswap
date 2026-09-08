@@ -22,7 +22,13 @@ contract ZkMockTest is Test {
     }
 
     function test_packageId_zkStable() public view {
-        assertEq(zk.packageId(), PackageId.zk(address(verifier), feeRecipient, VERIFY_FEE));
+        assertEq(zk.packageId(), PackageId.zk(address(zk), address(verifier), feeRecipient, VERIFY_FEE));
+    }
+
+    function test_packageId_bindsModule() public {
+        ZkMock other = new ZkMock(verifier, feeRecipient, VERIFY_FEE, address(this));
+        assertTrue(zk.packageId() != other.packageId());
+        assertEq(other.packageId(), PackageId.zk(address(other), address(verifier), feeRecipient, VERIFY_FEE));
     }
 
     function test_verifyProof_onlyOperator() public {
