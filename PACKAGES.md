@@ -190,7 +190,7 @@ Van **juntos**. Sin Passport no hay sujeto, no hay score, no hay cap que suba. C
 
 No cobra. Identifica al **sujeto**. El score, el `inFlight` y el bond se keyean por el nullifier del Passport, no por la wallet. Varias wallets del mismo humano comparten cap y reputación.
 
-Sin Passport vigente: este paquete rechaza la activación **y** no hay `notifyTerminal` de score. Una address nueva no fabrica un humano nuevo ni un historial. Eso es el anti-Sybil y el freno del cap: sin humanidad el máximo de los deals no sube.
+Sin Passport vigente: este paquete rechaza la activación. En el terminal, `notifyTerminal` usa el sujeto que el kernel snapshotteó en `IEscrow.subjects` — no vuelve a `identify`. Un remap o revoke de Passport no deja `inFlight` huérfano ni fabrica otro humano. Una address nueva no fabrica un historial. Eso es el anti-Sybil y el freno del cap: sin humanidad el máximo de los deals no sube.
 
 Humanidad no mueve principal, no suelta escrow, no cambia un deal vivo (ADM-05). El Holder snapshotado no se reemplaza porque el Passport apunte a otra wallet.
 

@@ -105,9 +105,8 @@ contract Reputation is IReputation {
         if ((vault.locked(subject, token) + lockAmount) * 10 < next) revert InsufficientBond();
     }
 
-    function notifyTerminal(address wallet, address token, uint256 principal, IReputation.Close kind) external {
+    function notifyTerminal(bytes32 subject, address token, uint256 principal, IReputation.Close kind) external {
         if (msg.sender != operator) revert Unauthorized();
-        bytes32 subject = passport.identify(wallet);
         uint256 inf = inFlight[subject][token];
         if (principal > inf) revert InFlightUnderflow();
         inFlight[subject][token] = inf - principal;

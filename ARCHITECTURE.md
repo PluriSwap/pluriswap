@@ -103,6 +103,20 @@ El kernel **no importa implementaciones**. Habla las interfaces de la sección 4
 
 El constructor del escrow **no** recibe paquetes. Un escrow vacío es un recinto Core completo.
 
+### 3.4 Lectura — `IEscrow`
+
+Cualquier contrato (paquete, pool, rampa, indexer) lee el recinto por `src/interfaces/IEscrow.sol`. No hay un view ad-hoc por consumidor. El kernel no escribe deal ni mueve principal por esta interfaz.
+
+| Getter | Qué |
+| --- | --- |
+| `terms(dealId)` | `DealTerms` snapshotados |
+| `clocks(dealId)` | orígenes (`activatedAt`, `fiatSentAt`, `disputedAt`, `arbitrationOpenedAt`) |
+| `subjects` / `modules` / `kinds` | sujetos Passport, `PackageMods`, bitmap |
+| `settlementOf` / `status` / `creditOf` | terminal y créditos |
+| `domainSeparator` / `used` | consentimiento |
+
+`notifyTerminal` recibe el sujeto de `subjects`, no re-identifica. Un remap de Passport no muda `inFlight` ni el score de *ese* deal.
+
 ---
 
 ## 4. Contrato de paquete (interfaces)

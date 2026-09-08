@@ -8,6 +8,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {
     Status,
     DealTerms,
+    DealClocks,
     HolderAuthorization,
     ProviderAgreement,
     ControllerAcceptance,
@@ -16,6 +17,7 @@ import {
     MutualSplit,
     PackageMods
 } from "./libraries/Types.sol";
+import {IEscrow} from "./interfaces/IEscrow.sol";
 import {Terms} from "./libraries/Terms.sol";
 import {Consent} from "./libraries/Consent.sol";
 import {Settlement} from "./libraries/Settlement.sol";
@@ -27,7 +29,7 @@ import {IBondVault} from "./packages/interfaces/IBondVault.sol";
 import {IPaymentProof} from "./packages/interfaces/IPaymentProof.sol";
 import {ICourt} from "./packages/interfaces/ICourt.sol";
 
-contract Escrow is EIP712, ReentrancyGuardTransient {
+contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     using SafeERC20 for IERC20;
 
     error TermsMismatch();
@@ -115,6 +117,24 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
 
     function modules(bytes32 dealId) external view returns (PackageMods memory) {
         return deals[dealId].mods;
+    }
+
+    function terms(bytes32 dealId) external view returns (DealTerms memory) {
+        return deals[dealId].terms;
+    }
+
+    function clocks(bytes32 dealId) external view returns (DealClocks memory) {
+        Deal storage d = deals[dealId];
+        return DealClocks({
+            activatedAt: d.activatedAt,
+            fiatSentAt: d.fiatSentAt,
+            disputedAt: d.disputedAt,
+            arbitrationOpenedAt: d.arbitrationOpenedAt
+        });
+    }
+
+    function kinds(bytes32 dealId) external view returns (uint8) {
+        return deals[dealId].pkgs;
     }
 
     function activate(
@@ -640,8 +660,8 @@ contract Escrow is EIP712, ReentrancyGuardTransient {
     function _notify(Deal storage d, IReputation.Close closeH, IReputation.Close closeP) internal {
         if ((d.pkgs & PKG_REP) == 0) return;
         IReputation r = IReputation(d.mods.reputation);
-        try r.notifyTerminal(d.terms.holder, d.terms.token, d.terms.principal, closeH) {} catch {}
-        try r.notifyTerminal(d.terms.provider, d.terms.token, d.terms.principal, closeP) {} catch {}
+        try r.notifyTerminal(d.subjectH, d.terms.token, d.terms.principal, closeH) {} catch {}
+        try r.notifyTerminal(d.subjectP, d.terms.token, d.terms.principal, closeP) {} catch {}
     }
 
     function _requireNotZk(Deal storage d) internal view {

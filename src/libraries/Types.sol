@@ -72,3 +72,11 @@ struct PackageMods {
     address zk;
     address court;
 }
+
+/// @dev Clock origins snapshotted by the kernel. Deadlines are origin + duration on `DealTerms`.
+struct DealClocks {
+    uint256 activatedAt;
+    uint256 fiatSentAt;
+    uint256 disputedAt;
+    uint256 arbitrationOpenedAt;
+}

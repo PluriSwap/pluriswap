@@ -44,7 +44,7 @@ El kernel, en un punto nombrado, hace una de estas cosas. Nada más.
 | `openCourt` | `FIAT_SENT` o `DISPUTED` | Disputa creada bajo adapter snapshotado | Reject; estado igual |
 | `readRuling` | `ARBITRATION_ACTIVE` | `holder_win` / `provider_win` / `stalemate` | Ignore si no es de esa terna |
 | `disposeBond` | Terminal | Nada: unlock del lock, slash al ganador, o quema | El terminal Core ya commitió |
-| `notifyTerminal` | Después del commit | Nada requerido | Fallo **no** revierte el escrow |
+| `notifyTerminal` | Después del commit | Sujeto snapshotado (`IEscrow.subjects`), no un `identify` en vivo | Fallo **no** revierte el escrow |
 
 Reglas duras:
 

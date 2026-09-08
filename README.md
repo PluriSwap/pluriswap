@@ -37,6 +37,7 @@ Core-only deals use `packageIds = []`. A packaged deal names `packageId`s and th
 
 ```
 src/Escrow.sol              kernel
+src/interfaces/IEscrow.sol  read surface for packages, pools, ramps
 src/libraries/              Consent, Terms, Settlement, Clocks, Types
 src/packages/               optional modules (behind interfaces)
 src/pools/                  Holder-contract vault + factory

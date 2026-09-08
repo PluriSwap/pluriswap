@@ -209,7 +209,7 @@ No es un estado ni un verb. Encaja en EP-POST / EXT-06.
 | `.cursor/skills/deploy-pool/SKILL.md` | Params nuevos. |
 | `test/PoolHolder.t.sol` | No tocar (Mock1271). |
 
-`IEscrowView` en el pool: `domainSeparator`, `used`, `status`, `creditOf`, `settlementOf`.
+`IEscrow` en el pool: `domainSeparator`, `used`, `status`, `creditOf`, `settlementOf` (y el resto de la lectura del recinto).
 
 ---
 

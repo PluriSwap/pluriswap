@@ -26,6 +26,7 @@ No se espera a que el compilador grite. El storage y quién mueve el token sigue
 
 ```
 Escrow.sol                 storage + entrypoints; orquesta el catálogo
+  interfaces/IEscrow.sol   lectura del recinto; pools y paquetes importan esto
   libraries/Consent.sol    HolderAuthorization, Provider, ControllerAcceptance
   libraries/Terms.sol      termsHash, snapshot
   libraries/Settlement.sol pull exacto, créditos, try-push, withdraw

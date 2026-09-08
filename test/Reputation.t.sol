@@ -70,7 +70,7 @@ contract ReputationTest is Test {
         reputation.admit(holder, address(token), UNIT, address(0));
         vm.prank(holder);
         vm.expectRevert(Reputation.Unauthorized.selector);
-        reputation.notifyTerminal(holder, address(token), UNIT, IReputation.Close.Peaceful);
+        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Peaceful);
         assertEq(reputation.inFlight(SUBJECT_H, address(token)), UNIT);
     }
 
@@ -79,9 +79,17 @@ contract ReputationTest is Test {
         reputation.admit(address(0xB0B), address(token), 1, address(0));
     }
 
-    function test_noPassport_noNotify() public {
-        vm.expectRevert(IPassport.NoPassport.selector);
-        reputation.notifyTerminal(address(0xB0B), address(token), 1, IReputation.Close.Peaceful);
+    function test_notify_unknownSubject_inFlightUnderflow() public {
+        vm.expectRevert(Reputation.InFlightUnderflow.selector);
+        reputation.notifyTerminal(keccak256("nobody"), address(token), 1, IReputation.Close.Peaceful);
+    }
+
+    function test_notify_usesSubject_afterPassportRevoked() public {
+        reputation.admit(holder, address(token), UNIT, address(0));
+        passport.setHuman(holder, bytes32(0));
+        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Peaceful);
+        assertEq(reputation.inFlight(SUBJECT_H, address(token)), 0);
+        assertEq(reputation.score(SUBJECT_H, address(token)), 2);
     }
 
     function test_t1Cap() public {
@@ -111,7 +119,7 @@ contract ReputationTest is Test {
 
     function test_notifyPeaceful_updatesScore() public {
         reputation.admit(holder, address(token), UNIT, address(0));
-        reputation.notifyTerminal(holder, address(token), UNIT, IReputation.Close.Peaceful);
+        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Peaceful);
         (uint32 count, uint32 penalty, uint256 volume) = reputation.stats(SUBJECT_H, address(token));
         assertEq(count, 1);
         assertEq(penalty, 0);
@@ -122,7 +130,7 @@ contract ReputationTest is Test {
 
     function test_notifySilent_noScore() public {
         reputation.admit(holder, address(token), UNIT, address(0));
-        reputation.notifyTerminal(holder, address(token), UNIT, IReputation.Close.Silent);
+        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Silent);
         (uint32 count, uint32 penalty, uint256 volume) = reputation.stats(SUBJECT_H, address(token));
         assertEq(count, 0);
         assertEq(penalty, 0);
@@ -133,7 +141,7 @@ contract ReputationTest is Test {
 
     function test_notifyStalemate_penaltyFive() public {
         reputation.admit(holder, address(token), UNIT, address(0));
-        reputation.notifyTerminal(holder, address(token), UNIT, IReputation.Close.Stalemate);
+        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Stalemate);
         (, uint32 penalty,) = reputation.stats(SUBJECT_H, address(token));
         assertEq(penalty, 5);
         assertEq(reputation.score(SUBJECT_H, address(token)), 0);
@@ -141,13 +149,13 @@ contract ReputationTest is Test {
 
     function test_notifyArb_winNoVolume_lossPenaltyFifteen() public {
         reputation.admit(holder, address(token), UNIT / 2, address(0));
-        reputation.notifyTerminal(holder, address(token), UNIT / 2, IReputation.Close.ArbWin);
+        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT / 2, IReputation.Close.ArbWin);
         (uint32 count, uint32 penalty, uint256 volume) = reputation.stats(SUBJECT_H, address(token));
         assertEq(count, 0);
         assertEq(penalty, 0);
         assertEq(volume, 0);
         reputation.admit(holder, address(token), UNIT / 2, address(0));
-        reputation.notifyTerminal(holder, address(token), UNIT / 2, IReputation.Close.ArbLoss);
+        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT / 2, IReputation.Close.ArbLoss);
         (, penalty,) = reputation.stats(SUBJECT_H, address(token));
         assertEq(penalty, 15);
     }
@@ -155,7 +163,7 @@ contract ReputationTest is Test {
     function test_fivePeaceful_t2Cap() public {
         for (uint256 i; i < 5; i++) {
             reputation.admit(holder, address(token), UNIT, address(0));
-            reputation.notifyTerminal(holder, address(token), UNIT, IReputation.Close.Peaceful);
+            reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Peaceful);
         }
         assertEq(reputation.score(SUBJECT_H, address(token)), 10);
         uint256 t2 = 500 * 1e6;
@@ -172,7 +180,7 @@ contract ReputationTest is Test {
         vault.deposit(SUBJECT_H, address(token), UNIT / 10);
         reputation.admit(holder, address(token), UNIT, address(vault));
         vault.reserve(SUBJECT_H, address(token), dealId, UNIT);
-        reputation.notifyTerminal(holder, address(token), UNIT, IReputation.Close.Peaceful);
+        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Peaceful);
         vault.unlock(SUBJECT_H, address(token), dealId);
         vm.prank(holder);
         vault.withdraw(SUBJECT_H, address(token), UNIT / 10);
@@ -198,6 +206,6 @@ contract TerminalHarness {
 
     function releaseThenNotify(Reputation r, address wallet, address token, uint256 principal) external {
         status = Status.RELEASED;
-        try r.notifyTerminal(wallet, token, principal, IReputation.Close.Peaceful) {} catch {}
+        try r.notifyTerminal(bytes32(uint256(uint160(wallet))), token, principal, IReputation.Close.Peaceful) {} catch {}
     }
 }

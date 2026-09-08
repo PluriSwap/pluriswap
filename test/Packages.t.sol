@@ -178,7 +178,7 @@ contract PackagesTest is BaseTest {
         assertEq(penalty, 5);
     }
 
-    function test_notifyRevert_stillReleased() public {
+    function test_notify_usesSnapshottedSubject() public {
         _fundBonds();
         bytes32 id = _activateTrio(1, 1);
         _markFiat(id);
@@ -187,6 +187,8 @@ contract PackagesTest is BaseTest {
         escrow.release(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
         assertEq(token.balanceOf(provider), PRINCIPAL - COMP_FEE);
+        assertEq(reputation.inFlight(SUB_H, address(token)), 0);
+        assertEq(reputation.score(SUB_H, address(token)), 1);
     }
 
     function test_disposeBondRevert_stillReleased() public {
@@ -494,7 +496,7 @@ contract DriftReputation is IReputation {
         subject = passport.identify(wallet);
     }
 
-    function notifyTerminal(address, address, uint256, IReputation.Close) external {
+    function notifyTerminal(bytes32, address, uint256, IReputation.Close) external {
         if (msg.sender != operator) revert Unauthorized();
     }
 }

@@ -7,14 +7,7 @@ import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/Messa
 import {DealTerms, HolderAuthorization, Status} from "../libraries/Types.sol";
 import {Consent} from "../libraries/Consent.sol";
 import {Settlement} from "../libraries/Settlement.sol";
-
-interface IEscrowView {
-    function domainSeparator() external view returns (bytes32);
-    function used(address signer, uint256 nonce) external view returns (bool);
-    function status(bytes32 dealId) external view returns (Status);
-    function creditOf(address token, address beneficiary) external view returns (uint256);
-    function settlementOf(bytes32 dealId) external view returns (Status status, uint256 holderAmt, uint256 providerAmt);
-}
+import {IEscrow} from "../interfaces/IEscrow.sol";
 
 contract Pool {
     using SafeERC20 for IERC20;
@@ -162,7 +155,7 @@ contract Pool {
         if (!openDeposits && !allowedDepositor[msg.sender]) revert Unauthorized();
         if (amount == 0) revert BadTerms();
 
-        uint256 onHand = IERC20(token).balanceOf(address(this)) + IEscrowView(escrow).creditOf(token, address(this));
+        uint256 onHand = IERC20(token).balanceOf(address(this)) + IEscrow(escrow).creditOf(token, address(this));
         uint256 accounted = idle + credits;
         uint256 hole = onHand < accounted ? accounted - onHand : 0;
         uint256 invest = amount > hole ? amount - hole : 0;
@@ -239,7 +232,7 @@ contract Pool {
         if (!isAgent(t.controller)) revert Unauthorized();
         if (msg.sender != t.controller && !sponsors[msg.sender]) revert Unauthorized();
         if (block.timestamp > ha.deadline) revert DeadlineActive();
-        if (IEscrowView(escrow).used(address(this), ha.nonce)) revert NonceConsumed();
+        if (IEscrow(escrow).used(address(this), ha.nonce)) revert NonceConsumed();
         Auth storage a = auths[ha.nonce];
         if (a.exists && !a.unlocked && !a.reconciled) revert AuthExists();
 
@@ -272,7 +265,7 @@ contract Pool {
     function unlock(uint256 nonce) external {
         Auth storage a = auths[nonce];
         if (!a.exists || a.unlocked || a.reconciled) revert NoAuth();
-        if (IEscrowView(escrow).used(address(this), nonce)) revert NonceConsumed();
+        if (IEscrow(escrow).used(address(this), nonce)) revert NonceConsumed();
         if (block.timestamp <= a.deadline) revert DeadlineActive();
         a.unlocked = true;
         delete nonceOf[a.digest];
@@ -286,10 +279,10 @@ contract Pool {
     function reconcile(uint256 nonce, uint256 providerNonce, uint256 controllerNonce) external {
         Auth storage a = auths[nonce];
         if (!a.exists || a.unlocked || a.reconciled) revert NoAuth();
-        if (!IEscrowView(escrow).used(address(this), nonce)) revert StillLive();
+        if (!IEscrow(escrow).used(address(this), nonce)) revert StillLive();
         bytes32 id =
-            Consent.dealId(IEscrowView(escrow).domainSeparator(), a.terms, nonce, providerNonce, controllerNonce);
-        (Status st, uint256 returned,) = IEscrowView(escrow).settlementOf(id);
+            Consent.dealId(IEscrow(escrow).domainSeparator(), a.terms, nonce, providerNonce, controllerNonce);
+        (Status st, uint256 returned,) = IEscrow(escrow).settlementOf(id);
         if (!_terminal(st)) revert StillLive();
         if (returned > a.terms.principal) revert BadReturn();
         uint256 onHand = _onHand();
@@ -313,11 +306,11 @@ contract Pool {
 
     function _digest(HolderAuthorization calldata ha) internal view returns (bytes32) {
         return
-            MessageHashUtils.toTypedDataHash(IEscrowView(escrow).domainSeparator(), Consent.hashHolderAuthorization(ha));
+            MessageHashUtils.toTypedDataHash(IEscrow(escrow).domainSeparator(), Consent.hashHolderAuthorization(ha));
     }
 
     function _onHand() internal view returns (uint256) {
-        return IERC20(token).balanceOf(address(this)) + IEscrowView(escrow).creditOf(token, address(this));
+        return IERC20(token).balanceOf(address(this)) + IEscrow(escrow).creditOf(token, address(this));
     }
 
     function _sync() internal {
