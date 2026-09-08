@@ -463,6 +463,51 @@ contract PackagesTest is BaseTest {
         escrow.activate(ha, hs, pa, ps, ca, "", mods);
     }
 
+    function test_completionFeeExceedsPrincipal_releaseStillPays() public {
+        Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL + 1, address(escrow));
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted2(passport.packageId(), fat.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(fat);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.release(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(token.balanceOf(feeRecipient), 0);
+        assertEq(token.balanceOf(provider), BOND + PRINCIPAL);
+    }
+
+    function test_zkFeeExceedsPrincipal_verifyStillReleases() public {
+        ZkMock fat = new ZkMock(new VerifierMock(), feeRecipient, PRINCIPAL + 1, address(escrow));
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _one(fat.packageId());
+        PackageMods memory mods;
+        mods.zk = address(fat);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        escrow.verifyProof(id, abi.encode(id, keccak256("receipt-fat")));
+        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(token.balanceOf(feeRecipient), 0);
+        assertEq(token.balanceOf(provider), BOND + PRINCIPAL);
+    }
+
+    function test_zkFitsCompletionDoesNot_chargesOnlyZk() public {
+        Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL, address(escrow));
+        ZkMock zk = new ZkMock(new VerifierMock(), feeRecipient, ZK_FEE, address(escrow));
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted3(passport.packageId(), fat.packageId(), zk.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(fat);
+        mods.zk = address(zk);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        escrow.verifyProof(id, abi.encode(id, keccak256("receipt-stack")));
+        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(token.balanceOf(feeRecipient), ZK_FEE);
+        assertEq(token.balanceOf(provider), BOND + PRINCIPAL - ZK_FEE);
+    }
+
     function test_invoiceLie_kernelChargesHashedFee() public {
         LyingReputation liar = new LyingReputation(passport, feeRecipient, 0, COMP_FEE, address(escrow));
         DealTerms memory terms = _p2pTerms();

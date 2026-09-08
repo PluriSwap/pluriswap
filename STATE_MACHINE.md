@@ -567,7 +567,7 @@ El Controller no aparece en esta tabla. No es un lado económico del escrow.
 | OUT-12 Arb timeout | `STALEMATE` | 50/50 protocolo | `ARBITRATION` |
 | OUT-13 Dispute timeout | `STALEMATE` | 50/50 protocolo; cualquiera lo ejecuta | Core (off si `PAYMENT_PROOF`) |
 
-**Completion fee.** Lo declara el paquete que lo cobra, no un campo libre del deal. La base es siempre el **principal completo**, nunca la tajada de un split.
+**Completion fee.** Lo declara el paquete que lo cobra, no un campo libre del deal. La base es siempre el **principal completo**, nunca la tajada de un split. Si el fee no cabe en el leftover (`fee > left`), **no se cobra**. El terminal Core sigue. Un paquete no puede revertir release, split, proof ni arb-win.
 
 En un split (OUT-08), incluido el que sale de `DISPUTED`: se deduce el fee sobre el principal entero y después se aplican los bps al resto. Una parte vuelve al Holder y la otra va al Provider. No se puede usar un split chico para achicar el fee. Si el paquete no declara completion fee, el fee es cero y el split es sobre el principal entero.
 

@@ -409,12 +409,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
             revert PackageDrift();
         }
         zk.verifyProof(dealId, proof);
-        uint256 left = d.terms.principal;
-        uint256 fee = zk.verifyFee();
-        if (fee != 0) {
-            left -= fee;
-            Settlement.creditThenTryPush(settlement, d.terms.token, zk.feeRecipient(), fee);
-        }
+        uint256 left = _invoiceFrom(d.terms.principal, zk.verifyFee(), d.terms.token, zk.feeRecipient());
         left = _takeCompletionFrom(d, left);
         _finish(dealId, d, Status.RELEASED, 0, left, IReputation.Close.Peaceful, IReputation.Close.Peaceful, BondAction.Unlock);
     }
@@ -611,10 +606,14 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         ) {
             return left;
         }
-        uint256 fee = r.completionFee();
-        if (fee == 0) return left;
+        return _invoiceFrom(left, r.completionFee(), d.terms.token, r.feeRecipient());
+    }
+
+    /// @dev KERNEL-04: a fee that does not fit the leftover is skipped. Never revert a terminal.
+    function _invoiceFrom(uint256 left, uint256 fee, address token, address to) internal returns (uint256) {
+        if (fee == 0 || fee > left) return left;
         left -= fee;
-        Settlement.creditThenTryPush(settlement, d.terms.token, r.feeRecipient(), fee);
+        Settlement.creditThenTryPush(settlement, token, to, fee);
         return left;
     }
 
