@@ -28,6 +28,7 @@ export type CorePreflightInput = {
   packages: boolean;
   mods: PackageMods;
   policy: LivePolicy | null;
+  holderIsPool: boolean;
 };
 
 export type PreflightStep = { step: string; eval: Eval };
@@ -67,7 +68,13 @@ export async function preflightActivateCore(input: CorePreflightInput): Promise<
   }
   push("DeadlinePassed", enabled());
 
-  if (input.holderSig) {
+  if (input.holderIsPool) {
+    push("InvalidHolderSignature (EIP-1271 bytes vacías)", enabled());
+    if (p2p) {
+      push("ControllerAcceptanceRequired", disabled(R.ControllerAcceptanceRequired));
+      return steps;
+    }
+  } else if (input.holderSig) {
     const recovered = await recoverTypedDataAddress({
       domain: eip712Domain(input.chainId, input.escrow),
       types: eip712Types,

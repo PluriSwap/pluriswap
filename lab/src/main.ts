@@ -56,6 +56,9 @@ import { sendActivate6 } from "./verbs/activateCore.ts";
 import { fetchCourtPref, type CourtPref } from "./deal/courtPref.ts";
 import type { DriftRow } from "./deal/DriftPanel.ts";
 import { isZkArb, sendZkArb } from "./verbs/zkArb.ts";
+import { renderPoolView } from "./pool/PoolView.ts";
+import { probePool, type PoolSnapshot } from "./pool/probe.ts";
+import { poolAuthorize, poolDeposit, poolReconcile, poolUnlock } from "./pool/verbs.ts";
 import { sendActivate7 } from "./verbs/activatePackaged.ts";
 import { renderPackageModsPanel } from "./slots/PackageModsPanel.ts";
 import { computedIds, slotRows } from "./slots/resolve.ts";
@@ -123,6 +126,15 @@ const state = {
   zkArb: true,
   courtPref: null as CourtPref | null,
   dealPolicy: emptyPolicy() as LivePolicy,
+  poolFlag: true,
+  holderIsPool: false,
+  poolPaste: "",
+  poolSnap: null as PoolSnapshot | null,
+  poolError: null as string | null,
+  poolDepositAmt: "1000000",
+  poolUnlockNonce: "1",
+  poolReconP: "1",
+  poolReconC: "1",
 };
 
 const el = {
@@ -133,6 +145,7 @@ const el = {
   consent: document.querySelector<HTMLElement>("#consent")!,
   slots: document.querySelector<HTMLElement>("#slots")!,
   lab: document.querySelector<HTMLElement>("#lab")!,
+  pool: document.querySelector<HTMLElement>("#pool")!,
   book: document.querySelector<HTMLElement>("#address-book")!,
 };
 
@@ -206,7 +219,7 @@ function paint(): void {
       coreActivate: state.coreActivate,
       distinctController: state.distinctController,
       steps: state.preflight,
-      holderSig: state.holderSig,
+      holderSig: state.holderIsPool ? ("0x" as Hex) : state.holderSig,
       providerSig: state.providerSig,
       controllerSig: state.controllerSig,
       ha: tryParsed()?.ha ?? null,
@@ -339,6 +352,75 @@ function paint(): void {
       approve: () => void runLab("approve"),
       deposit: () => void runLab("deposit"),
       warp: () => void runLab("warp"),
+    },
+  );
+  renderPoolView(
+    el.pool,
+    {
+      poolFlag: state.poolFlag,
+      poolPaste: state.poolPaste,
+      snap: state.poolSnap,
+      recinto: state.escrowPaste,
+      holderIsPool: state.holderIsPool,
+      depositAmt: state.poolDepositAmt,
+      unlockNonce: state.poolUnlockNonce,
+      reconP: state.poolReconP,
+      reconC: state.poolReconC,
+      error: state.poolError,
+      suggested: suggestedPool(),
+    },
+    {
+      toggle: () => {
+        state.poolFlag = !state.poolFlag;
+        paint();
+      },
+      poolPaste: (v) => {
+        state.poolPaste = v;
+        paint();
+      },
+      holderIsPool: () => {
+        state.holderIsPool = !state.holderIsPool;
+        if (state.holderIsPool) {
+          state.draft = { ...state.draft, p2p: false };
+          state.distinctController = true;
+        }
+        clearConsentSigs();
+        paint();
+        void refreshPreflight();
+      },
+      depositAmt: (v) => {
+        state.poolDepositAmt = v;
+      },
+      unlockNonce: (v) => {
+        state.poolUnlockNonce = v;
+      },
+      reconP: (v) => {
+        state.poolReconP = v;
+      },
+      reconC: (v) => {
+        state.poolReconC = v;
+      },
+      probe: () => void refreshPool(),
+      useSuggested: () => {
+        const p = suggestedPool();
+        if (!p) return;
+        state.poolPaste = p;
+        paint();
+        void refreshPool();
+      },
+      fillHolder: () => {
+        if (!state.poolPaste) return;
+        state.draft = { ...state.draft, holder: state.poolPaste, p2p: false };
+        state.holderIsPool = true;
+        state.distinctController = true;
+        clearConsentSigs();
+        paint();
+        void refreshPreflight();
+      },
+      deposit: () => void runPool("deposit"),
+      authorize: () => void runPool("authorize"),
+      unlock: () => void runPool("unlock"),
+      reconcile: () => void runPool("reconcile"),
     },
   );
   renderRecintoHome(
@@ -759,6 +841,75 @@ function currentPackageIds() {
   return computedIds(parseModsDraft(state.modsDraft), state.policy);
 }
 
+function suggestedPool(): string | null {
+  if (!isAddress(state.escrowPaste)) return null;
+  const want = getAddress(state.escrowPaste);
+  for (const set of sets) {
+    if (set.chainId === state.chainId && set.escrow === want && set.labels.pool) return set.labels.pool;
+  }
+  return null;
+}
+
+async function refreshPool(): Promise<void> {
+  if (!isAddress(state.poolPaste)) {
+    state.poolError = "pool inválido";
+    paint();
+    return;
+  }
+  try {
+    const agent = activeSender();
+    state.poolSnap = await probePool(state.rpcUrl, getAddress(state.poolPaste) as HexAddress, agent);
+    state.poolError = null;
+  } catch (err) {
+    state.poolSnap = null;
+    state.poolError = err instanceof Error ? err.message : String(err);
+  }
+  paint();
+}
+
+async function runPool(kind: "deposit" | "authorize" | "unlock" | "reconcile"): Promise<void> {
+  if (!state.poolFlag) {
+    state.poolError = "pool off";
+    paint();
+    return;
+  }
+  const pk = seatPk(state.activeRole) ?? seatPk("Controller") ?? seatPk("Holder");
+  if (!pk || !isAddress(state.poolPaste)) {
+    state.poolError = "pk y pool";
+    paint();
+    return;
+  }
+  const common = {
+    rpcUrl: state.rpcUrl,
+    chainId: state.probe?.rpcChainId ?? state.chainId,
+    pool: getAddress(state.poolPaste) as HexAddress,
+    pk,
+  };
+  try {
+    if (kind === "deposit") {
+      await poolDeposit({ ...common, amount: BigInt(state.poolDepositAmt || "0") });
+    } else if (kind === "authorize") {
+      const parsed = tryParsed();
+      if (!parsed) throw new Error("DealTerms inválidos");
+      await poolAuthorize({ ...common, ha: parsed.ha });
+    } else if (kind === "unlock") {
+      await poolUnlock({ ...common, nonce: BigInt(state.poolUnlockNonce || "0") });
+    } else {
+      await poolReconcile({
+        ...common,
+        nonce: BigInt(state.poolUnlockNonce || "0"),
+        providerNonce: BigInt(state.poolReconP || "0"),
+        controllerNonce: BigInt(state.poolReconC || "0"),
+      });
+    }
+    state.poolError = null;
+    await refreshPool();
+  } catch (err) {
+    state.poolError = err instanceof Error ? err.message : String(err);
+    paint();
+  }
+}
+
 function suggestedMods(): ModsDraft | null {
   if (!isAddress(state.escrowPaste)) return null;
   const want = getAddress(state.escrowPaste);
@@ -882,6 +1033,7 @@ async function refreshPreflight(): Promise<void> {
     packages: state.packages,
     mods: parseModsDraft(state.modsDraft),
     policy: state.policy,
+    holderIsPool: state.holderIsPool,
   });
   paint();
 }
@@ -1125,9 +1277,10 @@ async function sendActivate(): Promise<void> {
   const relayerPk = seatPk("Relayer") ?? seatPk("Holder");
   const p2p =
     parsed !== null && parsed.terms.holder.toLowerCase() === parsed.terms.controller.toLowerCase();
+  const holderSig = state.holderIsPool ? ("0x" as Hex) : state.holderSig;
   if (
     !parsed ||
-    !state.holderSig ||
+    !holderSig ||
     !state.providerSig ||
     (!p2p && !state.controllerSig) ||
     !relayerPk ||
@@ -1162,7 +1315,7 @@ async function sendActivate(): Promise<void> {
       escrow,
       relayerPk: (relayerPk.startsWith("0x") ? relayerPk : `0x${relayerPk}`) as Hex,
       ha: parsed.ha,
-      holderSig: state.holderSig,
+      holderSig,
       pa: parsed.pa,
       providerSig: state.providerSig,
       ca: p2p ? null : parsed.ca,

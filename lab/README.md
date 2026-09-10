@@ -113,6 +113,12 @@ PATH-ARB-MOCK `(3600,1800,7200, 1 days)`: `arbitrationDuration = 1 days`, **no**
 
 PATH-KLEROS `(3600,1800,7200,7 days)`: `kernel()` vs Recinto; `msg.value == arbitrationCost(extraData)`. Drift no deshabilita Core (KERNEL-04).
 
+## Demo PR-11: espacio Pool
+
+Flag `pool`. PATH-POOL-HOLDER `(3600,1800,7200,0)` contra el JSON cuyo `escrow` es el Recinto. Banner si `pool.escrow() ≠ Recinto`.
+
+Tres envelopes: HA vía EIP-1271 (`holderSig = ""`), PA del Provider, **CA hashed** (dummy revierte). `holder = pool`, `controller = agente`. `authorize(ha)` en el vault **antes** de activate. Constitución (NAV, shares, deposit) no entra en la matriz del deal. Kick futuro-only: no hay botón.
+
 ## Fuera de este PR
 
-Espacio Pool PR-11.
+Rampa taxi + catálogo PR-12.

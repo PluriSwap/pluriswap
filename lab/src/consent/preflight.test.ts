@@ -52,6 +52,7 @@ describe("preflightActivateCore", () => {
       packages: false,
       mods: ZERO_MODS,
       policy: null,
+      holderIsPool: false,
     });
     expect(steps[0]?.eval.reason).toBe(R.HolderEqualsProvider);
   });
@@ -80,6 +81,7 @@ describe("preflightActivateCore", () => {
       packages: false,
       mods: ZERO_MODS,
       policy: null,
+      holderIsPool: false,
     });
     expect(steps[0]?.eval.reason).toBe("distinctController off");
   });
@@ -110,6 +112,7 @@ describe("preflightActivateCore", () => {
       packages: false,
       mods: ZERO_MODS,
       policy: null,
+      holderIsPool: false,
     });
     expect(steps[0]?.eval.reason).toBe("packages off");
   });
@@ -148,6 +151,7 @@ describe("preflightActivateCore", () => {
       packages: false,
       mods: ZERO_MODS,
       policy: null,
+      holderIsPool: false,
     });
     const last = steps[steps.length - 1];
     expect(steps.find((s) => s.step === "InvalidHolderSignature")?.eval.enabled).toBe(true);
@@ -201,6 +205,7 @@ describe("preflightActivateCore", () => {
       packages: false,
       mods: ZERO_MODS,
       policy: null,
+      holderIsPool: false,
     });
     expect(steps.find((s) => s.step === "InvalidControllerSignature")?.eval.enabled).toBe(true);
     expect(steps[steps.length - 1]?.eval.enabled).toBe(true);
