@@ -34,6 +34,7 @@ import { ZERO_BYTES32, isHexBytes32, isZeroAddress, type DealSnapshot, type Modu
 import { matrixForDeal } from "./eligibility/matrix.ts";
 import { probeRecinto, type RecintoProbe } from "./recinto/probe.ts";
 import { sendActivate6 } from "./verbs/activateCore.ts";
+import { isCoreWrite, sendCoreWrite } from "./verbs/coreWrites.ts";
 import "./style.css";
 
 const sets = loadBundledSets();
@@ -66,6 +67,9 @@ const state = {
   projectedDealId: null as string | null,
   sending: false,
   sendError: null as string | null,
+  coreWrites: true,
+  cancelNonce: "1",
+  writeError: null as string | null,
 };
 
 const el = {
@@ -239,7 +243,24 @@ function paint(): void {
       dualSign: null,
     });
     const label = sender ? `${state.activeRole} ${sender}` : `${state.activeRole} desconectado`;
-    renderDealView(el.deal, state.deal, state.bindings, matrix, label);
+    renderDealView(
+      el.deal,
+      state.deal,
+      state.bindings,
+      matrix,
+      label,
+      { coreWrites: state.coreWrites, nonce: state.cancelNonce, writeError: state.writeError },
+      {
+        coreWrites: (on) => {
+          state.coreWrites = on;
+          paint();
+        },
+        nonce: (value) => {
+          state.cancelNonce = value;
+        },
+        send: (verb) => void sendVerb(verb),
+      },
+    );
   } else renderDealEmpty(el.deal, state.dealError);
   renderAddressBook(el.book, sets, (set: AddressSet) => {
     if (!set.escrow || set.chainId === null) return;
@@ -494,6 +515,38 @@ async function signPa(): Promise<void> {
   }
   paint();
   void refreshPreflight();
+}
+
+async function sendVerb(verb: string): Promise<void> {
+  if (!isCoreWrite(verb) || !state.deal || !isAddress(state.escrowPaste)) return;
+  const pk = seatPk(state.activeRole);
+  if (!pk) {
+    state.writeError = `asiento ${state.activeRole} sin pk`;
+    paint();
+    return;
+  }
+  if (!state.coreWrites) {
+    state.writeError = "coreWrites off";
+    paint();
+    return;
+  }
+  state.writeError = null;
+  try {
+    await sendCoreWrite({
+      rpcUrl: state.rpcUrl,
+      chainId: state.probe?.rpcChainId ?? state.chainId,
+      escrow: getAddress(state.escrowPaste) as HexAddress,
+      pk,
+      verb,
+      dealId: state.deal.dealId,
+      token: state.deal.terms.token,
+      nonce: BigInt(state.cancelNonce || "0"),
+    });
+    await loadDeal();
+  } catch (err) {
+    state.writeError = err instanceof Error ? err.message : String(err);
+    paint();
+  }
 }
 
 async function sendActivate(): Promise<void> {

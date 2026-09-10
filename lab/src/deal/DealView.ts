@@ -13,6 +13,8 @@ export function renderDealView(
   bindings: ModuleBinding[],
   matrix: MatrixRow[],
   senderLabel: string,
+  opts: { coreWrites: boolean; nonce: string; writeError: string | null },
+  on: { coreWrites: (on: boolean) => void; nonce: (value: string) => void; send: (verb: string) => void },
 ): void {
   root.innerHTML = `
     <article class="deal">
@@ -20,8 +22,9 @@ export function renderDealView(
         <h1>Deal</h1>
         <p><code>${deal.dealId}</code></p>
         <p><span class="chip is-on"><code>${statusName(deal.status)}</code></span></p>
+        ${opts.writeError ? `<p class="bad">${opts.writeError.replaceAll("<", "&lt;")}</p>` : ""}
       </header>
-      ${renderMatrixPanel(matrix, senderLabel)}
+      ${renderMatrixPanel(matrix, senderLabel, opts)}
       ${renderTermsPanel(deal)}
       ${renderClocksPanel(deal)}
       ${renderKindsPanel(deal, bindings)}
@@ -29,6 +32,18 @@ export function renderDealView(
       ${renderSettlementPanel(deal)}
     </article>
   `;
+  root.querySelector<HTMLInputElement>("#coreWrites")?.addEventListener("change", (e) => {
+    on.coreWrites((e.target as HTMLInputElement).checked);
+  });
+  root.querySelector<HTMLInputElement>("#cancelNonce")?.addEventListener("change", (e) => {
+    on.nonce((e.target as HTMLInputElement).value.trim());
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-verb]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const verb = btn.dataset.verb;
+      if (verb) on.send(verb);
+    });
+  });
 }
 
 export function renderDealEmpty(root: HTMLElement, message: string | null): void {

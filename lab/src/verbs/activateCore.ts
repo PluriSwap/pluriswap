@@ -1,16 +1,9 @@
-import {
-  createPublicClient,
-  createWalletClient,
-  encodeFunctionData,
-  http,
-  type Hex,
-} from "viem";
-import { privateKeyToAccount } from "viem/accounts";
-import { anvil, arbitrumSepolia } from "viem/chains";
+import { encodeFunctionData, type Hex } from "viem";
 import type { HexAddress } from "../addressbook/types.ts";
 import { ZERO_ADDRESS } from "../deal/types.ts";
 import type { Envelope } from "../consent/eip712.ts";
 import { activateAbi } from "./activateAbi.ts";
+import { normalizePk, writeEscrow } from "./chain.ts";
 
 export const dummyCA = {
   terms: {
@@ -81,16 +74,6 @@ export function inspectActivate6(
   };
 }
 
-function chainOf(chainId: number) {
-  if (chainId === 31337) return anvil;
-  if (chainId === 421614) return arbitrumSepolia;
-  return {
-    ...anvil,
-    id: chainId,
-    name: `chain-${chainId}`,
-  };
-}
-
 export async function sendActivate6(args: {
   rpcUrl: string;
   chainId: number;
@@ -101,20 +84,14 @@ export async function sendActivate6(args: {
   pa: Envelope;
   providerSig: Hex;
 }): Promise<Hex> {
-  const account = privateKeyToAccount(args.relayerPk);
-  const chain = chainOf(args.chainId);
-  const wallet = createWalletClient({ account, chain, transport: http(args.rpcUrl) });
-  const hash = await wallet.writeContract({
-    address: args.escrow,
+  return writeEscrow({
+    rpcUrl: args.rpcUrl,
+    chainId: args.chainId,
+    escrow: args.escrow,
+    pk: normalizePk(args.relayerPk),
     abi: activateAbi,
     functionName: "activate",
-    args: [toArg(args.ha), args.holderSig, toArg(args.pa), args.providerSig, dummyCA, "0x"],
-    chain,
-    account,
+    functionArgs: [toArg(args.ha), args.holderSig, toArg(args.pa), args.providerSig, dummyCA, "0x"],
   });
-  const publicClient = createPublicClient({ chain, transport: http(args.rpcUrl) });
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
-  if (receipt.status !== "success") throw new Error(`activate reverted (${hash})`);
-  return hash;
 }
 

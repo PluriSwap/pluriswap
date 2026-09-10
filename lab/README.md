@@ -73,6 +73,10 @@ En Consentimiento: copiar asientos, testToken del set, nonces libres, deadline u
 
 Si `holder != controller` el preflight corta con PR-7. Si hay `packageIds` corta con PR-8.
 
+## Demo PR-5: verbos Core de asiento
+
+Tras `FUNDED`, asiento Provider + pk → `markFiat`. Asiento Controller (P2P = Holder) → `release`. `timeoutFiat` con `fiatDuration=0` (anyone). `openDisputed` exige `releaseDuration=100` (no 0). `claim` con `releaseDuration=0`. `withdraw` con crédito 0 = `no-op` (no se envía). Flag `coreWrites` (default on). Filas dual-sign/ZK/ARB siguen visibles sin botón Enviar.
+
 ## Fuera de este PR
 
-Verbos de asiento (`markFiat`…) PR-5. Controller distinto PR-7. Dual-sign PR-6.
+Dual-sign PR-6. Controller distinto PR-7. Paquetes PR-8.

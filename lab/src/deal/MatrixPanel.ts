@@ -1,11 +1,36 @@
 import type { MatrixRow } from "../eligibility/matrix.ts";
 
-export function renderMatrixPanel(rows: MatrixRow[], senderLabel: string): string {
+export function renderMatrixPanel(
+  rows: MatrixRow[],
+  senderLabel: string,
+  opts: { coreWrites: boolean; nonce: string },
+): string {
   const body = rows
     .map((row) => {
       const st = row.eval.enabled
         ? `<span class="ok">ENABLED</span>`
         : `<span class="${row.eval.reasonKind === "ui-policy" ? "warn" : "bad"}">DISABLED: <code>${escapeHtml(row.eval.reason)}</code></span>`;
+      const sendable =
+        opts.coreWrites &&
+        row.eval.enabled &&
+        [
+          "markFiat",
+          "cancelByProvider",
+          "timeoutFiat",
+          "release",
+          "claim",
+          "openDisputed",
+          "forceStalemate",
+          "withdraw",
+          "cancelNonce",
+        ].includes(row.verb);
+      const send = sendable
+        ? `<button type="button" data-verb="${row.verb}">Enviar</button>`
+        : opts.coreWrites
+          ? ""
+          : row.eval.enabled
+            ? `<span class="muted">coreWrites off</span>`
+            : "";
       return `<tr>
         <td><code>${row.verb}</code></td>
         <td>${row.class}</td>
@@ -13,14 +38,18 @@ export function renderMatrixPanel(rows: MatrixRow[], senderLabel: string): strin
         <td>${row.kinds}</td>
         <td>${row.clock}</td>
         <td>${row.senderSeat}</td>
-        <td>${st}</td>
+        <td>${st} ${send}</td>
       </tr>`;
     })
     .join("");
   return `
     <section class="panel">
       <h2>Matriz de elegibilidad</h2>
-      <p class="hint">Todos los verbos de <code>Escrow.sol</code> visibles. DISABLED = primer revert del bytecode, o <code>ui-policy</code> (<code>draft-empty</code>, <code>no-op</code>, <code>no-sender</code>). Asiento activo = <code>msg.sender</code> (${escapeHtml(senderLabel)}). Dual-sign sin composer (PR-6) = <code>draft-empty</code>. CASE-CORE-16/17 no se ocultan.</p>
+      <p class="hint">Todos los verbos de <code>Escrow.sol</code> visibles. DISABLED = primer revert. Enviar usa el asiento activo (${escapeHtml(senderLabel)}). Dual-sign = PR-6. Filas ilegales no se ocultan.</p>
+      <p>
+        <label class="inline"><input type="checkbox" id="coreWrites" ${opts.coreWrites ? "checked" : ""}/> coreWrites</label>
+        <label class="inline">cancelNonce <input id="cancelNonce" spellcheck="false" value="${escapeHtml(opts.nonce)}" placeholder="uint256" /></label>
+      </p>
       <table class="grid matrix">
         <thead>
           <tr>
