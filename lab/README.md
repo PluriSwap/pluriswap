@@ -119,6 +119,8 @@ Flag `pool`. PATH-POOL-HOLDER `(3600,1800,7200,0)` contra el JSON cuyo `escrow` 
 
 Tres envelopes: HA vía EIP-1271 (`holderSig = ""`), PA del Provider, **CA hashed** (dummy revierte). `holder = pool`, `controller = agente`. `authorize(ha)` en el vault **antes** de activate. Constitución (NAV, shares, deposit) no entra en la matriz del deal. Kick futuro-only: no hay botón.
 
-## Fuera de este PR
+## Demo PR-12: rampa taxi + catálogo
 
-Rampa taxi + catálogo PR-12.
+Catálogo de Paths on. Arrancar `CASE-CORE-07` prellena `(3600, 0, 7200)`: tras `markFiat`, la matriz muestra `claim` due y `openDisputed` `TooLate`. `CASE-CORE-11` prellena `releaseDuration=100`, nunca 0. Plantillas `PATH-TRIO` / ZK / pool / ramp se deshabilitan si su flag está off. Arrancar un Path **no** esconde la matriz.
+
+Rampa: flag `ramp`. `quote` / `send` contra `sepolia-ramp.json` (USDC `0x3253…`, no TestToken). Copy taxi-only: no hay compose.

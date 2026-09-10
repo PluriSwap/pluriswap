@@ -59,6 +59,10 @@ import { isZkArb, sendZkArb } from "./verbs/zkArb.ts";
 import { renderPoolView } from "./pool/PoolView.ts";
 import { probePool, type PoolSnapshot } from "./pool/probe.ts";
 import { poolAuthorize, poolDeposit, poolReconcile, poolUnlock } from "./pool/verbs.ts";
+import { PATHS, pathById } from "./catalog/paths.ts";
+import { renderCatalogSpace } from "./catalog/CatalogSpace.ts";
+import { emptyRampForm, renderRampView, type RampForm } from "./ramp/RampView.ts";
+import { rampQuote, rampSend } from "./ramp/verbs.ts";
 import { sendActivate7 } from "./verbs/activatePackaged.ts";
 import { renderPackageModsPanel } from "./slots/PackageModsPanel.ts";
 import { computedIds, slotRows } from "./slots/resolve.ts";
@@ -135,6 +139,10 @@ const state = {
   poolUnlockNonce: "1",
   poolReconP: "1",
   poolReconC: "1",
+  rampFlag: true,
+  rampForm: emptyRampForm() as RampForm,
+  rampQuote: null as { nativeFee: string; amountOut: string } | null,
+  rampError: null as string | null,
 };
 
 const el = {
@@ -146,6 +154,8 @@ const el = {
   slots: document.querySelector<HTMLElement>("#slots")!,
   lab: document.querySelector<HTMLElement>("#lab")!,
   pool: document.querySelector<HTMLElement>("#pool")!,
+  ramp: document.querySelector<HTMLElement>("#ramp")!,
+  catalog: document.querySelector<HTMLElement>("#catalog")!,
   book: document.querySelector<HTMLElement>("#address-book")!,
 };
 
@@ -421,6 +431,44 @@ function paint(): void {
       authorize: () => void runPool("authorize"),
       unlock: () => void runPool("unlock"),
       reconcile: () => void runPool("reconcile"),
+    },
+  );
+  renderRampView(
+    el.ramp,
+    {
+      rampFlag: state.rampFlag,
+      form: state.rampForm,
+      quote: state.rampQuote,
+      error: state.rampError,
+    },
+    {
+      toggle: () => {
+        state.rampFlag = !state.rampFlag;
+        paint();
+      },
+      form: (f) => {
+        state.rampForm = f;
+      },
+      quote: () => void runRampQuote(),
+      send: () => void runRampSend(),
+      pasteSet: () => pasteRampSet(),
+    },
+  );
+  renderCatalogSpace(
+    el.catalog,
+    {
+      paths: PATHS,
+      flags: {
+        core: true,
+        packages: state.packages,
+        labVerbs: state.labVerbs,
+        zkArb: state.zkArb,
+        pool: state.poolFlag,
+        ramp: state.rampFlag,
+      },
+    },
+    {
+      start: (id) => startPath(id),
     },
   );
   renderRecintoHome(
@@ -839,6 +887,112 @@ function currentPackageIds() {
     return [];
   }
   return computedIds(parseModsDraft(state.modsDraft), state.policy);
+}
+
+function startPath(id: string): void {
+  const p = pathById(id);
+  if (!p) return;
+  state.draft = {
+    ...state.draft,
+    p2p: p.p2p,
+    fiatDuration: p.fiatDuration,
+    releaseDuration: p.releaseDuration,
+    disputeDuration: p.disputeDuration,
+    arbitrationDuration: p.arbitrationDuration,
+  };
+  if (p.p2p) state.draft.controller = state.draft.holder;
+  if (id === "CASE-CORE-01-CTRL" || id === "PATH-POOL-HOLDER") {
+    state.distinctController = true;
+    state.draft.p2p = false;
+  }
+  if (id === "PATH-POOL-HOLDER") state.holderIsPool = true;
+  if (id === "PATH-RAMP-TAXI") {
+    const usdc = rampSetField("usdc");
+    if (usdc) state.draft = { ...state.draft, token: usdc };
+  }
+  clearConsentSigs();
+  paint();
+  void refreshPreflight();
+}
+
+function rampSetField(key: string): string | null {
+  for (const set of sets) {
+    if (set.chainId === state.chainId && set.labels[key]) return set.labels[key] ?? null;
+    if (set.sourceFile.includes("ramp") && set.labels[key]) return set.labels[key] ?? null;
+  }
+  return null;
+}
+
+function pasteRampSet(): void {
+  state.rampForm = {
+    ...state.rampForm,
+    ramp: rampSetField("ramp") ?? state.rampForm.ramp,
+    token: rampSetField("usdc") ?? state.rampForm.token,
+    dest: rampSetField("destEid") ?? state.rampForm.dest,
+  };
+  paint();
+}
+
+async function runRampQuote(): Promise<void> {
+  const f = state.rampForm;
+  if (!state.rampFlag) {
+    state.rampError = "ramp off";
+    paint();
+    return;
+  }
+  if (!isAddress(f.ramp) || !isAddress(f.token) || !isAddress(f.to)) {
+    state.rampError = "ramp, token y to";
+    paint();
+    return;
+  }
+  try {
+    const q = await rampQuote(state.rpcUrl, getAddress(f.ramp) as HexAddress, {
+      token: getAddress(f.token) as HexAddress,
+      amount: BigInt(f.amount || "0"),
+      minAmountOut: BigInt(f.minAmountOut || "0"),
+      dest: Number(f.dest || "0"),
+      to: getAddress(f.to) as HexAddress,
+      refund: isAddress(f.refund) ? (getAddress(f.refund) as HexAddress) : (getAddress(f.to) as HexAddress),
+    });
+    state.rampQuote = { nativeFee: String(q.nativeFee), amountOut: String(q.amountOut) };
+    state.rampError = null;
+  } catch (err) {
+    state.rampError = err instanceof Error ? err.message : String(err);
+  }
+  paint();
+}
+
+async function runRampSend(): Promise<void> {
+  const f = state.rampForm;
+  const pk = seatPk(state.activeRole) ?? seatPk("Holder");
+  if (!state.rampFlag || !pk || !isAddress(f.ramp) || !isAddress(f.token) || !isAddress(f.to)) {
+    state.rampError = "ramp flag, pk, ramp, token, to";
+    paint();
+    return;
+  }
+  try {
+    const intent = {
+      token: getAddress(f.token) as HexAddress,
+      amount: BigInt(f.amount || "0"),
+      minAmountOut: BigInt(f.minAmountOut || "0"),
+      dest: Number(f.dest || "0"),
+      to: getAddress(f.to) as HexAddress,
+      refund: isAddress(f.refund) ? (getAddress(f.refund) as HexAddress) : (getAddress(f.to) as HexAddress),
+    };
+    const value = state.rampQuote ? BigInt(state.rampQuote.nativeFee) : 0n;
+    await rampSend({
+      rpcUrl: state.rpcUrl,
+      chainId: state.probe?.rpcChainId ?? state.chainId,
+      ramp: getAddress(f.ramp) as HexAddress,
+      pk,
+      intent,
+      value,
+    });
+    state.rampError = null;
+  } catch (err) {
+    state.rampError = err instanceof Error ? err.message : String(err);
+  }
+  paint();
 }
 
 function suggestedPool(): string | null {
