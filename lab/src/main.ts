@@ -12,7 +12,7 @@ import {
 import { renderAddressBook } from "./chrome/AddressBookDrawer.ts";
 import { renderConsentPanel, defaultDraft, type ConsentDraft } from "./consent/ConsentPanel.ts";
 import { computeDealId } from "./consent/eip712.ts";
-import { parseDraft } from "./consent/parse.ts";
+import { parseDraft, parseIdOverride } from "./consent/parse.ts";
 import { preflightActivateCore, type PreflightStep } from "./consent/preflight.ts";
 import { dualSignTypes, eip712Domain, hashDualSign } from "./consent/eip712.ts";
 import {
@@ -42,6 +42,17 @@ import { matrixForDeal } from "./eligibility/matrix.ts";
 import { emptyDualSign, isDraftComplete, toMatrixDraft, type DualSignForm } from "./session/DualSignDraft.ts";
 import { probeRecinto, type RecintoProbe } from "./recinto/probe.ts";
 import { sendActivate6 } from "./verbs/activateCore.ts";
+import { sendActivate7 } from "./verbs/activatePackaged.ts";
+import { renderPackageModsPanel } from "./slots/PackageModsPanel.ts";
+import { computedIds, slotRows } from "./slots/resolve.ts";
+import { parseModsDraft, probeSlots } from "./slots/probe.ts";
+import {
+  emptyModsDraft,
+  emptyPolicy,
+  modsEmpty,
+  type LivePolicy,
+  type ModsDraft,
+} from "./slots/types.ts";
 import { isCoreWrite, sendCoreWrite } from "./verbs/coreWrites.ts";
 import { sendDualSign } from "./verbs/dualSign.ts";
 import "./style.css";
@@ -87,6 +98,10 @@ const state = {
   dsUsedC: false,
   recoveredP: null as string | null,
   recoveredC: null as string | null,
+  packages: true,
+  modsDraft: emptyModsDraft() as ModsDraft,
+  idsOverride: "",
+  policy: emptyPolicy() as LivePolicy,
 };
 
 const el = {
@@ -95,6 +110,7 @@ const el = {
   home: document.querySelector<HTMLElement>("#recinto-home")!,
   deal: document.querySelector<HTMLElement>("#deal-view")!,
   consent: document.querySelector<HTMLElement>("#consent")!,
+  slots: document.querySelector<HTMLElement>("#slots")!,
   book: document.querySelector<HTMLElement>("#address-book")!,
 };
 
@@ -174,6 +190,7 @@ function paint(): void {
       ha: tryParsed()?.ha ?? null,
       pa: tryParsed()?.pa ?? null,
       ca: tryParsed()?.ca ?? null,
+      mods: state.packages ? parseModsDraft(state.modsDraft) : null,
       dealId: state.projectedDealId,
       sending: state.sending,
       sendError: state.sendError,
@@ -230,6 +247,47 @@ function paint(): void {
       signCa: () => void signCa(),
       send: () => void sendActivate(),
       refresh: () => void refreshPreflight(),
+    },
+  );
+  const mods = parseModsDraft(state.modsDraft);
+  const ids = currentPackageIds();
+  renderPackageModsPanel(
+    el.slots,
+    {
+      packages: state.packages,
+      draft: state.modsDraft,
+      rows: slotRows(mods, ids, state.policy, state.escrowPaste),
+      ids,
+      idsOverride: state.idsOverride,
+      suggested: suggestedMods(),
+    },
+    {
+      toggle: () => {
+        state.packages = !state.packages;
+        clearConsentSigs();
+        paint();
+        void refreshSlots();
+      },
+      draft: (d) => {
+        state.modsDraft = d;
+        clearConsentSigs();
+        paint();
+        void refreshSlots();
+      },
+      idsOverride: (value) => {
+        state.idsOverride = value;
+        clearConsentSigs();
+        paint();
+        void refreshPreflight();
+      },
+      pasteSet: () => {
+        const s = suggestedMods();
+        if (!s) return;
+        state.modsDraft = s;
+        clearConsentSigs();
+        paint();
+        void refreshSlots();
+      },
     },
   );
   renderRecintoHome(
@@ -340,9 +398,12 @@ function focusRecinto(row: RecintoRow): void {
   state.probe = null;
   clearDeal();
   clearConsentSigs();
+  state.modsDraft = emptyModsDraft();
+  state.idsOverride = "";
+  state.policy = emptyPolicy();
   paint();
   void refreshProbe();
-  void refreshPreflight();
+  void refreshSlots();
 }
 
 function clearDeal(): void {
@@ -597,9 +658,36 @@ function suggestedToken(): string | null {
   return null;
 }
 
+function currentPackageIds() {
+  if (!state.packages) return [];
+  try {
+    const override = parseIdOverride(state.idsOverride);
+    if (override) return override;
+  } catch {
+    return [];
+  }
+  return computedIds(parseModsDraft(state.modsDraft), state.policy);
+}
+
+function suggestedMods(): ModsDraft | null {
+  if (!isAddress(state.escrowPaste)) return null;
+  const want = getAddress(state.escrowPaste);
+  for (const set of sets) {
+    if (set.chainId !== state.chainId || set.escrow !== want) continue;
+    const passport = set.labels.passport ?? "";
+    const reputation = set.labels.reputation ?? "";
+    const bonds = set.labels.bondVault ?? set.labels.bonds ?? "";
+    const zk = set.labels.zk ?? "";
+    const court = set.labels.arbitration ?? set.labels.court ?? "";
+    if (!passport && !reputation && !bonds && !zk && !court) continue;
+    return { passport, reputation, bonds, zk, court };
+  }
+  return null;
+}
+
 function tryParsed() {
   try {
-    return parseDraft(state.draft);
+    return parseDraft(state.draft, currentPackageIds());
   } catch {
     return null;
   }
@@ -612,6 +700,22 @@ function clearConsentSigs(): void {
   state.preflight = [];
   state.projectedDealId = null;
   state.sendError = null;
+}
+
+async function refreshSlots(): Promise<void> {
+  const mods = parseModsDraft(state.modsDraft);
+  const parsed = tryParsed();
+  try {
+    state.policy = await probeSlots(
+      state.rpcUrl,
+      mods,
+      parsed?.terms.holder ?? null,
+      parsed?.terms.provider ?? null,
+    );
+  } catch {
+    state.policy = emptyPolicy();
+  }
+  await refreshPreflight();
 }
 
 function seatPk(role: Role): string | null {
@@ -685,6 +789,9 @@ async function refreshPreflight(): Promise<void> {
     dealStatus,
     coreActivate: state.coreActivate,
     distinctController: state.distinctController,
+    packages: state.packages,
+    mods: parseModsDraft(state.modsDraft),
+    policy: state.policy,
   });
   paint();
 }
@@ -836,7 +943,9 @@ async function sendActivate(): Promise<void> {
   try {
     const escrow = getAddress(state.escrowPaste) as HexAddress;
     const chainId = state.probe?.rpcChainId ?? state.chainId;
-    await sendActivate6({
+    const packed = parseModsDraft(state.modsDraft);
+    const use7 = state.packages && !modsEmpty(packed);
+    const common = {
       rpcUrl: state.rpcUrl,
       chainId,
       escrow,
@@ -847,7 +956,9 @@ async function sendActivate(): Promise<void> {
       providerSig: state.providerSig,
       ca: p2p ? null : parsed.ca,
       controllerSig: p2p ? null : state.controllerSig,
-    });
+    };
+    if (use7) await sendActivate7({ ...common, mods: packed });
+    else await sendActivate6(common);
     if (state.probe?.domainSeparator) {
       state.lookupDealId = computeDealId(
         state.probe.domainSeparator,

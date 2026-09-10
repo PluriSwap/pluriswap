@@ -1,10 +1,22 @@
 import { getAddress, isAddress } from "viem";
-import type { HexAddress } from "../addressbook/types.ts";
-import { type DealTerms } from "../deal/types.ts";
+import type { HexAddress, HexBytes32 } from "../addressbook/types.ts";
+import { isHexBytes32, type DealTerms } from "../deal/types.ts";
 import type { Envelope } from "./eip712.ts";
 import type { ConsentDraft } from "./ConsentPanel.ts";
 
-export function parseDraft(d: ConsentDraft): {
+export function parseIdOverride(raw: string): HexBytes32[] | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split(/[\s,]+/).filter(Boolean);
+  const ids: HexBytes32[] = [];
+  for (const p of parts) {
+    if (!isHexBytes32(p)) throw new Error(`packageId inválido: ${p}`);
+    ids.push(p);
+  }
+  return ids;
+}
+
+export function parseDraft(d: ConsentDraft, packageIds: HexBytes32[] = []): {
   terms: DealTerms;
   ha: Envelope;
   pa: Envelope;
@@ -24,7 +36,7 @@ export function parseDraft(d: ConsentDraft): {
     releaseDuration: BigInt(d.releaseDuration || "0"),
     disputeDuration: BigInt(d.disputeDuration || "0"),
     arbitrationDuration: BigInt(d.arbitrationDuration || "0"),
-    packageIds: [],
+    packageIds,
   };
   const deadline = BigInt(d.deadline || "0");
   const ha: Envelope = { terms, nonce: BigInt(d.holderNonce || "0"), deadline };

@@ -1,8 +1,10 @@
 import { recoverTypedDataAddress } from "viem";
 import type { HexAddress } from "../addressbook/types.ts";
-import { Status, type DealTerms } from "../deal/types.ts";
+import { Status, type DealTerms, type PackageMods } from "../deal/types.ts";
 import { R, disabled, enabled, type Eval } from "../eligibility/errors.ts";
 import { firstTermsRevert } from "../eligibility/terms.ts";
+import { firstEngageRevert, firstResolveRevert } from "../slots/resolve.ts";
+import { ZERO_MODS, type LivePolicy } from "../slots/types.ts";
 import { eip712Domain, eip712Types, hashTerms, type Envelope } from "./eip712.ts";
 
 export type CorePreflightInput = {
@@ -23,6 +25,9 @@ export type CorePreflightInput = {
   dealStatus: number | null;
   coreActivate: boolean;
   distinctController: boolean;
+  packages: boolean;
+  mods: PackageMods;
+  policy: LivePolicy | null;
 };
 
 export type PreflightStep = { step: string; eval: Eval };
@@ -38,8 +43,8 @@ export async function preflightActivateCore(input: CorePreflightInput): Promise<
     push("flag coreActivate", disabled("coreActivate off", "ui-policy"));
     return steps;
   }
-  if (input.terms.packageIds.length !== 0) {
-    push("Core-only", disabled("PR-8 PackageMods", "ui-policy"));
+  if (input.terms.packageIds.length !== 0 && !input.packages) {
+    push("Core-only", disabled("packages off", "ui-policy"));
     return steps;
   }
   if (!p2p && !input.distinctController) {
@@ -156,7 +161,17 @@ export async function preflightActivateCore(input: CorePreflightInput): Promise<
   }
   push("NonceUsed", enabled());
 
-  push("_resolve Core-only []", enabled());
+  const mods = input.mods ?? ZERO_MODS;
+  if (!input.packages || input.terms.packageIds.length === 0) {
+    push("_resolve Core-only []", enabled());
+  } else if (!input.policy) {
+    push("_resolve", disabled("policy de slots desconocida", "ui-policy"));
+    return steps;
+  } else {
+    const resolved = firstResolveRevert(input.terms.packageIds, mods, input.policy);
+    push("_resolve", resolved);
+    if (!resolved.enabled) return steps;
+  }
 
   if (input.dealStatus !== null && input.dealStatus !== Status.NONE) {
     push("DealExists", disabled("Escrow.DealExists"));
@@ -164,7 +179,16 @@ export async function preflightActivateCore(input: CorePreflightInput): Promise<
   }
   push("DealExists", enabled());
 
-  push("_engage (Core: skip)", enabled());
+  if (!input.packages || input.terms.packageIds.length === 0) {
+    push("_engage (Core: skip)", enabled());
+  } else if (!input.policy) {
+    push("_engage", disabled("policy de slots desconocida", "ui-policy"));
+    return steps;
+  } else {
+    const engaged = firstEngageRevert(mods, input.policy);
+    push("_engage", engaged);
+    if (!engaged.enabled) return steps;
+  }
 
   if (input.allowance === null) {
     push("pullExact", disabled("allowance desconocido", "ui-policy"));

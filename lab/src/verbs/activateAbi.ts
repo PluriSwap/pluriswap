@@ -17,7 +17,15 @@ const envelopeComponents = [
   { name: "deadline", type: "uint256" },
 ] as const;
 
-/** 6-arg Core overload only. P2P still encodes dummy ControllerAcceptance + bytes(""). */
+const modsComponents = [
+  { name: "passport", type: "address" },
+  { name: "reputation", type: "address" },
+  { name: "bonds", type: "address" },
+  { name: "zk", type: "address" },
+  { name: "court", type: "address" },
+] as const;
+
+/** 6-arg Core overload. P2P still encodes dummy ControllerAcceptance + bytes(""). */
 export const activateAbi = [
   {
     type: "function",
@@ -30,6 +38,25 @@ export const activateAbi = [
       { name: "providerSig", type: "bytes" },
       { name: "ca", type: "tuple", components: envelopeComponents },
       { name: "controllerSig", type: "bytes" },
+    ],
+    outputs: [{ name: "id", type: "bytes32" }],
+  },
+] as const;
+
+/** 7-arg packaged overload. PackageMods is calldata, not in the digest. */
+export const activate7Abi = [
+  {
+    type: "function",
+    name: "activate",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "ha", type: "tuple", components: envelopeComponents },
+      { name: "holderSig", type: "bytes" },
+      { name: "pa", type: "tuple", components: envelopeComponents },
+      { name: "providerSig", type: "bytes" },
+      { name: "ca", type: "tuple", components: envelopeComponents },
+      { name: "controllerSig", type: "bytes" },
+      { name: "mods", type: "tuple", components: modsComponents },
     ],
     outputs: [{ name: "id", type: "bytes32" }],
   },

@@ -2,6 +2,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { describe, expect, it } from "vitest";
 import { ZERO_ADDRESS, type DealTerms } from "../deal/types.ts";
 import { R } from "../eligibility/errors.ts";
+import { ZERO_MODS } from "../slots/types.ts";
 import { eip712Types } from "./eip712.ts";
 import { preflightActivateCore } from "./preflight.ts";
 
@@ -48,6 +49,9 @@ describe("preflightActivateCore", () => {
       dealStatus: 0,
       coreActivate: true,
       distinctController: true,
+      packages: false,
+      mods: ZERO_MODS,
+      policy: null,
     });
     expect(steps[0]?.eval.reason).toBe(R.HolderEqualsProvider);
   });
@@ -73,11 +77,14 @@ describe("preflightActivateCore", () => {
       dealStatus: 0,
       coreActivate: true,
       distinctController: false,
+      packages: false,
+      mods: ZERO_MODS,
+      policy: null,
     });
     expect(steps[0]?.eval.reason).toBe("distinctController off");
   });
 
-  it("rejects packageIds in PR-4", async () => {
+  it("rejects packageIds when packages is off", async () => {
     const t = terms({
       packageIds: ["0x0000000000000000000000000000000000000000000000000000000000000001"],
     });
@@ -100,8 +107,11 @@ describe("preflightActivateCore", () => {
       dealStatus: 0,
       coreActivate: true,
       distinctController: true,
+      packages: false,
+      mods: ZERO_MODS,
+      policy: null,
     });
-    expect(steps[0]?.eval.reason).toBe("PR-8 PackageMods");
+    expect(steps[0]?.eval.reason).toBe("packages off");
   });
 
   it("accepts a P2P Core-only envelope with matching holder sig and allowance", async () => {
@@ -135,6 +145,9 @@ describe("preflightActivateCore", () => {
       dealStatus: 0,
       coreActivate: true,
       distinctController: true,
+      packages: false,
+      mods: ZERO_MODS,
+      policy: null,
     });
     const last = steps[steps.length - 1];
     expect(steps.find((s) => s.step === "InvalidHolderSignature")?.eval.enabled).toBe(true);
@@ -185,6 +198,9 @@ describe("preflightActivateCore", () => {
       dealStatus: 0,
       coreActivate: true,
       distinctController: true,
+      packages: false,
+      mods: ZERO_MODS,
+      policy: null,
     });
     expect(steps.find((s) => s.step === "InvalidControllerSignature")?.eval.enabled).toBe(true);
     expect(steps[steps.length - 1]?.eval.enabled).toBe(true);

@@ -89,6 +89,14 @@ Tres addresses distintas. Flag `distinctController`. Desmarcar P2P. Copiar asien
 
 P2P sigue dummy: si `holder == controller` el inspector muestra `dummyCA=true` y `controllerSig 0x`. Flag off + `holder != controller` → preflight `distinctController off`.
 
+## Demo PR-8: PackageId + PackageMods (overload 7)
+
+Flag `packages`. Default Core-only: slots nulos, overload 6. Pegar addresses (o “Pegar slots del set” como atajo, no registry). La tabla recomputa `PackageId.*` y marca match/miss, peer passport, `operator`/`kernel` vs Recinto.
+
+PATH-NEGATIVE-ZK-ARB: slots zk + court. Si ambos ids están en `packageIds` → preflight `Escrow.IncompatiblePackages`. Si falta un id (override) → `Escrow.UnknownPackage` **antes**. PATH-NEGATIVE-UNSORTED: override no canónico → `Terms.UnsortedPackageIds` antes de `TermsMismatch`.
+
+Trío sin `setHuman` (PR-9): `_engage` muestra `IPassport.NoPassport` (DISABLED), no ENABLED. Relayer envía overload 7; `PackageMods` no entra al digest.
+
 ## Fuera de este PR
 
-Paquetes PR-8.
+Jaula LAB PR-9.

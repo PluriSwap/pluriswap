@@ -1,6 +1,9 @@
 import type { Hex } from "viem";
 import type { PreflightStep } from "./preflight.ts";
 import { inspectActivate6 } from "../verbs/activateCore.ts";
+import { inspectActivate7 } from "../verbs/activatePackaged.ts";
+import type { PackageMods } from "../deal/types.ts";
+import { modsEmpty } from "../slots/types.ts";
 import type { Envelope } from "./eip712.ts";
 
 export type ConsentDraft = {
@@ -50,6 +53,7 @@ export function renderConsentPanel(
     ha: Envelope | null;
     pa: Envelope | null;
     ca: Envelope | null;
+    mods: PackageMods | null;
     dealId: string | null;
     sending: boolean;
     sendError: string | null;
@@ -70,22 +74,33 @@ export function renderConsentPanel(
 ): void {
   const d = model.draft;
   const p2p = d.p2p;
+  const packaged = Boolean(model.mods && !modsEmpty(model.mods));
   const inspect =
     model.ha && model.pa && model.holderSig && model.providerSig
-      ? inspectActivate6(
-          model.ha,
-          model.holderSig,
-          model.pa,
-          model.providerSig,
-          p2p ? null : model.ca,
-          p2p ? null : model.controllerSig,
-        )
+      ? packaged && model.mods
+        ? inspectActivate7(
+            model.ha,
+            model.holderSig,
+            model.pa,
+            model.providerSig,
+            model.mods,
+            p2p ? null : model.ca,
+            p2p ? null : model.controllerSig,
+          )
+        : inspectActivate6(
+            model.ha,
+            model.holderSig,
+            model.pa,
+            model.providerSig,
+            p2p ? null : model.ca,
+            p2p ? null : model.controllerSig,
+          )
       : null;
 
   root.innerHTML = `
     <section class="panel consent">
-      <h1>Consentimiento <code>activate</code> Core-only</h1>
-      <p class="hint">P2P: dos firmas (HA + PA) y CA dummy. Controller distinto: tercer envelope hashed (<code>ControllerAcceptance</code>) + <code>controllerSig</code>. El tx es el overload de <code>6</code> args. <code>packageIds = []</code>.</p>
+      <h1>Consentimiento <code>activate</code></h1>
+      <p class="hint">P2P: dos firmas (HA + PA) y CA dummy. Controller distinto: tercer envelope hashed. Core-only = overload 6, <code>packageIds = []</code>. Con slots = overload 7, <code>PackageMods</code> en calldata (no entra al digest).</p>
       <p>
         <label class="inline"><input type="checkbox" id="flag" ${model.coreActivate ? "checked" : ""}/> coreActivate</label>
         <label class="inline"><input type="checkbox" id="distinct" ${model.distinctController ? "checked" : ""}/> distinctController</label>
@@ -111,7 +126,7 @@ export function renderConsentPanel(
         <label class="inline full"><input type="checkbox" id="p2p" ${d.p2p ? "checked" : ""}/> P2P holder == controller</label>
       </div>
       <p class="hint">0 en un reloj = due inmediato <strong>y</strong> strictly-before ya TooLate. CASE-CORE-01-P2P / CASE-CORE-01-CTRL usan (3600, 1800, 7200, 0). P2P ignora controllerNonce en <code>dealId</code>.</p>
-      <p>packageIds = <code>[]</code> · overload = <code>6</code> · ${p2p ? "CA dummy." : "CA hashed."}</p>
+      <p>packageIds.length = <code>${model.ha ? model.ha.terms.packageIds.length : 0}</code> · overload = <code>${packaged ? "7" : "6"}</code> · ${p2p ? "CA dummy." : "CA hashed."}</p>
       ${model.dealId ? `<p>dealId proyectado <code>${model.dealId}</code></p>` : ""}
       <h2>Preflight <code>_activate</code> Core</h2>
       <ol class="preflight">
@@ -126,7 +141,7 @@ export function renderConsentPanel(
         <button type="button" id="signHa">Firmar HolderAuthorization</button>
         <button type="button" id="signPa">Firmar ProviderAgreement</button>
         ${p2p ? "" : `<button type="button" id="signCa">Firmar ControllerAcceptance</button>`}
-        <button type="button" id="send" ${model.sending || !model.coreActivate ? "disabled" : ""}>Relayer: activate (6 args)</button>
+        <button type="button" id="send" ${model.sending || !model.coreActivate ? "disabled" : ""}>Relayer: activate (${packaged ? "7" : "6"} args)</button>
       </p>
       <dl class="eip712">
         <dt>holderSig</dt><dd><code>${model.holderSig ?? "—"}</code></dd>
