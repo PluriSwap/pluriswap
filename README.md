@@ -42,6 +42,7 @@ src/libraries/              Consent, Terms, Settlement, Clocks, Types, PackageId
 src/packages/               optional modules (behind interfaces)
 src/pools/                  Holder-contract vault + factory
 src/ramps/                  Stargate (and other) composers
+lab/                        operator console (read-only Recinto + AddressBook)
 script/                     deploy and deal scripts
 deployments/                addresses, no secrets
 test/                       one catalog area per file

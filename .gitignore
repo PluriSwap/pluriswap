@@ -4,3 +4,5 @@ broadcast/
 .env
 .DS_Store
 deployments/31337.json
+lab/node_modules/
+lab/dist/
