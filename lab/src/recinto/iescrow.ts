@@ -145,6 +145,16 @@ export const operatorAbi = [
   },
 ] as const;
 
+export const courtAbi = [
+  {
+    type: "function",
+    name: "readRuling",
+    stateMutability: "view",
+    inputs: [{ name: "dealId", type: "bytes32" }],
+    outputs: [{ name: "", type: "uint8" }],
+  },
+] as const;
+
 export const kernelAbi = [
   {
     type: "function",

@@ -1,11 +1,19 @@
+import type { MatrixRow } from "../eligibility/matrix.ts";
 import { renderClocksPanel } from "./ClocksPanel.ts";
 import { renderKindsPanel } from "./KindsPanel.ts";
+import { renderMatrixPanel } from "./MatrixPanel.ts";
 import { renderSettlementPanel } from "./SettlementPanel.ts";
 import { renderSubjectsPanel } from "./SubjectsPanel.ts";
 import { renderTermsPanel } from "./TermsPanel.ts";
 import { statusName, type DealSnapshot, type ModuleBinding } from "./types.ts";
 
-export function renderDealView(root: HTMLElement, deal: DealSnapshot, bindings: ModuleBinding[]): void {
+export function renderDealView(
+  root: HTMLElement,
+  deal: DealSnapshot,
+  bindings: ModuleBinding[],
+  matrix: MatrixRow[],
+  senderLabel: string,
+): void {
   root.innerHTML = `
     <article class="deal">
       <header class="deal-id">
@@ -13,12 +21,12 @@ export function renderDealView(root: HTMLElement, deal: DealSnapshot, bindings: 
         <p><code>${deal.dealId}</code></p>
         <p><span class="chip is-on"><code>${statusName(deal.status)}</code></span></p>
       </header>
+      ${renderMatrixPanel(matrix, senderLabel)}
       ${renderTermsPanel(deal)}
       ${renderClocksPanel(deal)}
       ${renderKindsPanel(deal, bindings)}
       ${renderSubjectsPanel(deal)}
       ${renderSettlementPanel(deal)}
-      <p class="muted">Matriz de elegibilidad: PR-3. Esta vista no oculta verbos porque aún no los lista.</p>
     </article>
   `;
 }

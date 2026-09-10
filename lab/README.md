@@ -49,6 +49,16 @@ Si `releaseDuration = 0` y el deal ya está `FIAT_SENT` (o el origen `fiatSentAt
 
 Lookup también acepta `dealOf(signer, nonce)`. Cambiar de Recinto descarta el Deal en foco.
 
+## Demo PR-3: matriz (primer revert)
+
+Pegar la address del **Provider** en el asiento Provider y activarlo. En un deal `FUNDED` Core, `markFiat` = ENABLED. Mismo deal, asiento Holder → `Escrow.Unauthorized`.
+
+Deal ZK `FUNDED`: `markFiat` = `Escrow.EdgeOff`; `timeoutFiat` sigue (anyone, due si `fiatDuration=0`).
+
+Deal `FIAT_SENT` con `releaseDuration=0`: `openDisputed` = `Clocks.TooLate`; `claim` = ENABLED.
+
+Filas dual-sign = `draft-empty` hasta el composer (PR-6). CASE-CORE-16/17 (`release`/`claim` en `DISPUTED`, verbos en terminal) siguen visibles con `WrongStatus`.
+
 ## Fuera de este PR
 
-Matriz de elegibilidad (PR-3), `activate` y verbos (PR-4+).
+`activate` y verbos de escritura (PR-4+), composer dual-sign (PR-6).

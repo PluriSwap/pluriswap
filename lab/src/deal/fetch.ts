@@ -1,6 +1,6 @@
 import { createPublicClient, http, isAddress, type Hex } from "viem";
 import type { HexAddress, HexBytes32 } from "../addressbook/types.ts";
-import { iescrowAbi, kernelAbi, operatorAbi } from "../recinto/iescrow.ts";
+import { courtAbi, iescrowAbi, kernelAbi, operatorAbi } from "../recinto/iescrow.ts";
 import { modulesPresent } from "./kinds.ts";
 import {
   ZERO_BYTES32,
@@ -132,4 +132,38 @@ async function readAddress(
 
 export function isEmptyDealId(id: string): boolean {
   return id.toLowerCase() === ZERO_BYTES32;
+}
+
+export async function fetchCredit(
+  rpcUrl: string,
+  escrow: HexAddress,
+  token: HexAddress,
+  beneficiary: HexAddress,
+): Promise<bigint> {
+  const client = createPublicClient({ transport: http(rpcUrl) });
+  return client.readContract({
+    address: escrow,
+    abi: iescrowAbi,
+    functionName: "creditOf",
+    args: [token, beneficiary],
+  });
+}
+
+export async function fetchRuling(
+  rpcUrl: string,
+  court: HexAddress,
+  dealId: HexBytes32,
+): Promise<number | null> {
+  if (isZeroAddress(court)) return null;
+  const client = createPublicClient({ transport: http(rpcUrl) });
+  try {
+    return await client.readContract({
+      address: court,
+      abi: courtAbi,
+      functionName: "readRuling",
+      args: [dealId],
+    });
+  } catch {
+    return null;
+  }
 }

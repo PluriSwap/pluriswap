@@ -14,8 +14,9 @@ import { renderRecintoHome, type DealShortcut } from "./chrome/RecintoHome.ts";
 import { renderRecintoSelector } from "./chrome/RecintoSelector.ts";
 import { renderRoleStrip } from "./chrome/RoleStrip.ts";
 import { renderDealEmpty, renderDealView } from "./deal/DealView.ts";
-import { fetchBindings, fetchDeal, isEmptyDealId, resolveDealId } from "./deal/fetch.ts";
-import { ZERO_BYTES32, isHexBytes32, type DealSnapshot, type ModuleBinding } from "./deal/types.ts";
+import { fetchBindings, fetchCredit, fetchDeal, fetchRuling, isEmptyDealId, resolveDealId } from "./deal/fetch.ts";
+import { ZERO_BYTES32, isHexBytes32, isZeroAddress, type DealSnapshot, type ModuleBinding } from "./deal/types.ts";
+import { matrixForDeal } from "./eligibility/matrix.ts";
 import { probeRecinto, type RecintoProbe } from "./recinto/probe.ts";
 import "./style.css";
 
@@ -39,6 +40,8 @@ const state = {
   bindings: [] as ModuleBinding[],
   dealError: null as string | null,
   dealLoading: false,
+  credit: null as bigint | null,
+  ruling: null as number | null,
 };
 
 const el = {
@@ -85,12 +88,14 @@ function paint(): void {
     active: (role) => {
       state.activeRole = role;
       paint();
+      void refreshExtras();
     },
     address: (role, value) => {
       const seat = state.seats.find((s) => s.role === role);
       if (!seat) return;
       seat.address = !value ? null : isAddress(value) ? getAddress(value) : value;
       paint();
+      void refreshExtras();
     },
   });
   renderRecintoHome(
@@ -126,8 +131,16 @@ function paint(): void {
       },
     },
   );
-  if (state.deal) renderDealView(el.deal, state.deal, state.bindings);
-  else renderDealEmpty(el.deal, state.dealError);
+  if (state.deal) {
+    const sender = activeSender();
+    const matrix = matrixForDeal(state.deal, sender, {
+      credit: state.credit,
+      ruling: state.ruling,
+      dualSign: null,
+    });
+    const label = sender ? `${state.activeRole} ${sender}` : `${state.activeRole} desconectado`;
+    renderDealView(el.deal, state.deal, state.bindings, matrix, label);
+  } else renderDealEmpty(el.deal, state.dealError);
   renderAddressBook(el.book, sets, (set: AddressSet) => {
     if (!set.escrow || set.chainId === null) return;
     focusRecinto({
@@ -154,6 +167,14 @@ function clearDeal(): void {
   state.bindings = [];
   state.dealError = null;
   state.lookupDealId = "";
+  state.credit = null;
+  state.ruling = null;
+}
+
+function activeSender(): HexAddress | null {
+  const seat = state.seats.find((s) => s.role === state.activeRole);
+  if (!seat?.address || !isAddress(seat.address)) return null;
+  return getAddress(seat.address) as HexAddress;
 }
 
 function shortcutsFor(chainId: number, escrow: string): DealShortcut[] {
@@ -203,6 +224,7 @@ async function loadDeal(): Promise<void> {
     state.deal = deal;
     state.lookupDealId = deal.dealId;
     state.bindings = await fetchBindings(state.rpcUrl, escrow, deal.modules);
+    await refreshExtras();
   } catch (err) {
     state.deal = null;
     state.bindings = [];
@@ -211,6 +233,25 @@ async function loadDeal(): Promise<void> {
     state.dealLoading = false;
     paint();
   }
+}
+
+async function refreshExtras(): Promise<void> {
+  if (!state.deal || !isAddress(state.escrowPaste)) return;
+  const escrow = getAddress(state.escrowPaste) as HexAddress;
+  const sender = activeSender();
+  try {
+    state.credit = sender
+      ? await fetchCredit(state.rpcUrl, escrow, state.deal.terms.token, sender)
+      : null;
+  } catch {
+    state.credit = null;
+  }
+  if (!isZeroAddress(state.deal.modules.court)) {
+    state.ruling = await fetchRuling(state.rpcUrl, state.deal.modules.court, state.deal.dealId);
+  } else {
+    state.ruling = null;
+  }
+  paint();
 }
 
 async function refreshProbe(): Promise<void> {

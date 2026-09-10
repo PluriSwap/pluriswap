@@ -16,6 +16,19 @@ export const STATUS_NAMES = [
 
 export type StatusName = (typeof STATUS_NAMES)[number];
 
+export const Status = {
+  NONE: 0,
+  FUNDED: 1,
+  FIAT_SENT: 2,
+  DISPUTED: 3,
+  RELEASED: 4,
+  RESOLVED_SPLIT: 5,
+  STALEMATE: 6,
+  CANCELLED: 7,
+  ARBITRATION_ACTIVE: 8,
+  RESOLVED_BY_ARBITRATION: 9,
+} as const;
+
 export const PKG = {
   PASSPORT: 1,
   REP: 2,
