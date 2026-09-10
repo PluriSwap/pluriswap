@@ -3,34 +3,32 @@ import type { MatrixRow } from "../eligibility/matrix.ts";
 export function renderMatrixPanel(
   rows: MatrixRow[],
   senderLabel: string,
-  opts: { coreWrites: boolean; nonce: string },
+  opts: { coreWrites: boolean; nonce: string; dualSign?: boolean },
 ): string {
   const body = rows
     .map((row) => {
       const st = row.eval.enabled
         ? `<span class="ok">ENABLED</span>`
         : `<span class="${row.eval.reasonKind === "ui-policy" ? "warn" : "bad"}">DISABLED: <code>${escapeHtml(row.eval.reason)}</code></span>`;
+      const dualVerb = ["mutualCancel", "coSignedRelease", "mutualSplit"].includes(row.verb);
       const sendable =
-        opts.coreWrites &&
         row.eval.enabled &&
-        [
-          "markFiat",
-          "cancelByProvider",
-          "timeoutFiat",
-          "release",
-          "claim",
-          "openDisputed",
-          "forceStalemate",
-          "withdraw",
-          "cancelNonce",
-        ].includes(row.verb);
+        ((opts.coreWrites &&
+          [
+            "markFiat",
+            "cancelByProvider",
+            "timeoutFiat",
+            "release",
+            "claim",
+            "openDisputed",
+            "forceStalemate",
+            "withdraw",
+            "cancelNonce",
+          ].includes(row.verb)) ||
+          (Boolean(opts.dualSign) && dualVerb));
       const send = sendable
         ? `<button type="button" data-verb="${row.verb}">Enviar</button>`
-        : opts.coreWrites
-          ? ""
-          : row.eval.enabled
-            ? `<span class="muted">coreWrites off</span>`
-            : "";
+        : "";
       return `<tr>
         <td><code>${row.verb}</code></td>
         <td>${row.class}</td>

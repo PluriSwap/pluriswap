@@ -185,6 +185,29 @@ describe("Deal matrix (CASE-CORE)", () => {
     }
   });
 
+  it("complete MutualCancel on FUNDED is ENABLED; other dual-sign rows stay draft-empty", () => {
+    const d = deal({ status: Status.FUNDED });
+    const draft = {
+      type: "MutualCancel" as const,
+      complete: true,
+      dealIdA: d.dealId,
+      dealIdB: d.dealId,
+      deadlineA: 99n,
+      deadlineB: 99n,
+      now: 1n,
+      usedP: false,
+      usedC: false,
+      provider,
+      controller: holder,
+      recoveredP: provider,
+      recoveredC: holder,
+    };
+    const rows = matrixForDeal(d, holder, { dualSign: draft });
+    expect(rows.find((r) => r.verb === "mutualCancel")?.eval.enabled).toBe(true);
+    expect(rows.find((r) => r.verb === "coSignedRelease")?.eval.reason).toBe(R.DraftEmpty);
+    expect(rows.find((r) => r.verb === "mutualSplit")?.eval.reason).toBe(R.DraftEmpty);
+  });
+
   it("release from FIAT_SENT only for Controller", () => {
     const d = deal({
       status: Status.FIAT_SENT,

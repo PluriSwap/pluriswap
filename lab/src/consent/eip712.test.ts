@@ -55,6 +55,32 @@ describe("dealId", () => {
   });
 });
 
+describe("hashDualSign", () => {
+  it("uses distinct types so bps 10000 is not CoSignedRelease", async () => {
+    const { hashDualSign } = await import("./eip712.ts");
+    const escrow = "0x0165878A594ca255338adfa4d48449f69242Eb8F";
+    const dealId = "0x1111111111111111111111111111111111111111111111111111111111111111";
+    const cancel = hashDualSign("MutualCancel", 31337, escrow, {
+      dealId,
+      nonce: 1n,
+      deadline: 9n,
+    });
+    const release = hashDualSign("CoSignedRelease", 31337, escrow, {
+      dealId,
+      nonce: 1n,
+      deadline: 9n,
+    });
+    const split = hashDualSign("MutualSplit", 31337, escrow, {
+      dealId,
+      nonce: 1n,
+      deadline: 9n,
+      providerBps: 10000,
+    });
+    expect(cancel).not.toBe(release);
+    expect(split).not.toBe(release);
+  });
+});
+
 describe("hashEnvelope", () => {
   it("produces a digest a local account can sign", async () => {
     const pk = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";

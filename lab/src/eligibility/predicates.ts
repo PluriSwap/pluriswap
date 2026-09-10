@@ -3,6 +3,7 @@ import { PKG, Status, type DealSnapshot } from "../deal/types.ts";
 import { R, disabled, enabled, type Eval } from "./errors.ts";
 
 export type DualSignDraft = {
+  type: "MutualCancel" | "CoSignedRelease" | "MutualSplit" | null;
   complete: boolean;
   dealIdA?: string;
   dealIdB?: string;
@@ -11,6 +12,12 @@ export type DualSignDraft = {
   providerBpsA?: number;
   providerBpsB?: number;
   now?: bigint;
+  usedP?: boolean;
+  usedC?: boolean;
+  provider?: string;
+  controller?: string;
+  recoveredP?: string | null;
+  recoveredC?: string | null;
 };
 
 export type MatrixInput = {
@@ -117,8 +124,15 @@ export function evalForceStalemate(input: MatrixInput): Eval {
   return clockDue(deal.clocks.disputedAt, deal.terms.disputeDuration, deal.blockTimestamp) ?? enabled();
 }
 
-function evalDualSignEnvelope(draft: DualSignDraft | null, live: boolean, split: boolean): Eval {
-  if (!draft?.complete) return disabled(R.DraftEmpty, "ui-policy");
+function evalDualSignEnvelope(
+  draft: DualSignDraft | null,
+  expected: DualSignDraft["type"],
+  live: boolean,
+  split: boolean,
+): Eval {
+  if (!draft || draft.type !== expected || !draft.complete) {
+    return disabled(R.DraftEmpty, "ui-policy");
+  }
   if (draft.dealIdA !== draft.dealIdB) return disabled(R.DealIdMismatch);
   if (draft.deadlineA !== draft.deadlineB) return disabled(R.DeadlineMismatch);
   if (draft.now !== undefined && draft.deadlineA !== undefined && draft.now > draft.deadlineA) {
@@ -129,6 +143,17 @@ function evalDualSignEnvelope(draft: DualSignDraft | null, live: boolean, split:
     if ((draft.providerBpsA ?? 0) > 10_000) return disabled(R.BpsMismatch);
   }
   if (!live) return disabled(R.WrongStatus);
+  if (draft.recoveredP && draft.provider && draft.recoveredP.toLowerCase() !== draft.provider.toLowerCase()) {
+    return disabled("Escrow.InvalidProviderSignature");
+  }
+  if (
+    draft.recoveredC &&
+    draft.controller &&
+    draft.recoveredC.toLowerCase() !== draft.controller.toLowerCase()
+  ) {
+    return disabled("Escrow.InvalidControllerSignature");
+  }
+  if (draft.usedP || draft.usedC) return disabled("Escrow.NonceUsed");
   return enabled();
 }
 
@@ -139,19 +164,19 @@ export function evalMutualCancel(input: MatrixInput): Eval {
     s === Status.FIAT_SENT ||
     s === Status.DISPUTED ||
     s === Status.ARBITRATION_ACTIVE;
-  return evalDualSignEnvelope(input.dualSign, live, false);
+  return evalDualSignEnvelope(input.dualSign, "MutualCancel", live, false);
 }
 
 export function evalCoSignedRelease(input: MatrixInput): Eval {
   const s = input.deal.status;
   const live = s === Status.FIAT_SENT || s === Status.DISPUTED || s === Status.ARBITRATION_ACTIVE;
-  return evalDualSignEnvelope(input.dualSign, live, false);
+  return evalDualSignEnvelope(input.dualSign, "CoSignedRelease", live, false);
 }
 
 export function evalMutualSplit(input: MatrixInput): Eval {
   const s = input.deal.status;
   const live = s === Status.FIAT_SENT || s === Status.DISPUTED || s === Status.ARBITRATION_ACTIVE;
-  return evalDualSignEnvelope(input.dualSign, live, true);
+  return evalDualSignEnvelope(input.dualSign, "MutualSplit", live, true);
 }
 
 export function evalVerifyProof(input: MatrixInput): Eval {

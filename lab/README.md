@@ -77,6 +77,12 @@ Si `holder != controller` el preflight corta con PR-7. Si hay `packageIds` corta
 
 Tras `FUNDED`, asiento Provider + pk → `markFiat`. Asiento Controller (P2P = Holder) → `release`. `timeoutFiat` con `fiatDuration=0` (anyone). `openDisputed` exige `releaseDuration=100` (no 0). `claim` con `releaseDuration=0`. `withdraw` con crédito 0 = `no-op` (no se envía). Flag `coreWrites` (default on). Filas dual-sign/ZK/ARB siguen visibles sin botón Enviar.
 
+## Demo PR-6: dual-sign
+
+En un deal `FUNDED`, panel Dual-sign: type `MutualCancel`, deadline unix futuro, nonceP/nonceC distintos de los de activate. Firmar Provider y Controller (P2P: Controller = Holder pk). Relayer una tx. Flag `dualSign`.
+
+Draft vacío → las tres filas `draft-empty` (no `DeadlinePassed` por deadline 0). `providerBps=10000` no se relabela a `CoSignedRelease`. CASE-CORE-08–10 desde `FIAT_SENT`; 12–14 desde `DISPUTED`.
+
 ## Fuera de este PR
 
-Dual-sign PR-6. Controller distinto PR-7. Paquetes PR-8.
+Controller distinto PR-7. Paquetes PR-8.

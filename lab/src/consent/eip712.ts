@@ -46,6 +46,25 @@ export const eip712Types = {
   ],
 } as const satisfies TypedData;
 
+export const dualSignTypes = {
+  MutualCancel: [
+    { name: "dealId", type: "bytes32" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+  CoSignedRelease: [
+    { name: "dealId", type: "bytes32" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+  MutualSplit: [
+    { name: "dealId", type: "bytes32" },
+    { name: "providerBps", type: "uint16" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+} as const satisfies TypedData;
+
 export type Envelope = {
   terms: DealTerms;
   nonce: bigint;
@@ -122,6 +141,42 @@ export function hashEnvelope(
       },
       nonce: env.nonce,
       deadline: env.deadline,
+    },
+  });
+}
+
+export function hashDualSign(
+  primaryType: "MutualCancel" | "CoSignedRelease" | "MutualSplit",
+  chainId: number,
+  escrow: HexAddress,
+  message: {
+    dealId: Hex;
+    nonce: bigint;
+    deadline: bigint;
+    providerBps?: number;
+  },
+): Hex {
+  if (primaryType === "MutualSplit") {
+    return hashTypedData({
+      domain: eip712Domain(chainId, escrow),
+      types: dualSignTypes,
+      primaryType: "MutualSplit",
+      message: {
+        dealId: message.dealId,
+        providerBps: message.providerBps ?? 0,
+        nonce: message.nonce,
+        deadline: message.deadline,
+      },
+    });
+  }
+  return hashTypedData({
+    domain: eip712Domain(chainId, escrow),
+    types: dualSignTypes,
+    primaryType,
+    message: {
+      dealId: message.dealId,
+      nonce: message.nonce,
+      deadline: message.deadline,
     },
   });
 }

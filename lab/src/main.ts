@@ -1,4 +1,4 @@
-import { getAddress, isAddress, type Hex } from "viem";
+import { getAddress, isAddress, recoverTypedDataAddress, type Hex } from "viem";
 import { loadBundledSets, recintosFromSets } from "./addressbook/load.ts";
 import {
   DEFAULT_RPC,
@@ -14,7 +14,8 @@ import { renderConsentPanel, defaultDraft, type ConsentDraft } from "./consent/C
 import { computeDealId } from "./consent/eip712.ts";
 import { parseDraft } from "./consent/parse.ts";
 import { preflightActivateCore, type PreflightStep } from "./consent/preflight.ts";
-import { accountFromPk, signHolderAuthorization, signProviderAgreement } from "./consent/sign.ts";
+import { dualSignTypes, eip712Domain, hashDualSign } from "./consent/eip712.ts";
+import { accountFromPk, signDualSign, signHolderAuthorization, signProviderAgreement } from "./consent/sign.ts";
 import { renderRecintoHome, type DealShortcut } from "./chrome/RecintoHome.ts";
 import { renderRecintoSelector } from "./chrome/RecintoSelector.ts";
 import { renderRoleStrip } from "./chrome/RoleStrip.ts";
@@ -32,9 +33,11 @@ import {
 } from "./deal/fetch.ts";
 import { ZERO_BYTES32, isHexBytes32, isZeroAddress, type DealSnapshot, type ModuleBinding } from "./deal/types.ts";
 import { matrixForDeal } from "./eligibility/matrix.ts";
+import { emptyDualSign, isDraftComplete, toMatrixDraft, type DualSignForm } from "./session/DualSignDraft.ts";
 import { probeRecinto, type RecintoProbe } from "./recinto/probe.ts";
 import { sendActivate6 } from "./verbs/activateCore.ts";
 import { isCoreWrite, sendCoreWrite } from "./verbs/coreWrites.ts";
+import { sendDualSign } from "./verbs/dualSign.ts";
 import "./style.css";
 
 const sets = loadBundledSets();
@@ -70,6 +73,12 @@ const state = {
   coreWrites: true,
   cancelNonce: "1",
   writeError: null as string | null,
+  dualSign: true,
+  dualForm: emptyDualSign() as DualSignForm,
+  dsUsedP: false,
+  dsUsedC: false,
+  recoveredP: null as string | null,
+  recoveredC: null as string | null,
 };
 
 const el = {
@@ -240,7 +249,15 @@ function paint(): void {
     const matrix = matrixForDeal(state.deal, sender, {
       credit: state.credit,
       ruling: state.ruling,
-      dualSign: null,
+      dualSign: toMatrixDraft(state.dualForm, {
+        now: state.deal.blockTimestamp,
+        usedP: state.dsUsedP,
+        usedC: state.dsUsedC,
+        provider: state.deal.terms.provider,
+        controller: state.deal.terms.controller,
+        recoveredP: state.recoveredP,
+        recoveredC: state.recoveredC,
+      }),
     });
     const label = sender ? `${state.activeRole} ${sender}` : `${state.activeRole} desconectado`;
     renderDealView(
@@ -249,7 +266,16 @@ function paint(): void {
       state.bindings,
       matrix,
       label,
-      { coreWrites: state.coreWrites, nonce: state.cancelNonce, writeError: state.writeError },
+      {
+        coreWrites: state.coreWrites,
+        nonce: state.cancelNonce,
+        writeError: state.writeError,
+        dualSign: state.dualSign,
+        dualForm: state.dualForm,
+        digestP: dualDigests().p,
+        digestC: dualDigests().c,
+        sending: state.sending,
+      },
       {
         coreWrites: (on) => {
           state.coreWrites = on;
@@ -259,6 +285,19 @@ function paint(): void {
           state.cancelNonce = value;
         },
         send: (verb) => void sendVerb(verb),
+        dualToggle: () => {
+          state.dualSign = !state.dualSign;
+          paint();
+        },
+        dualForm: (f) => {
+          state.dualForm = f;
+          state.recoveredP = null;
+          state.recoveredC = null;
+          paint();
+        },
+        signP: () => void signDual("P"),
+        signC: () => void signDual("C"),
+        relay: () => void relayDual(),
       },
     );
   } else renderDealEmpty(el.deal, state.dealError);
@@ -292,6 +331,9 @@ function clearDeal(): void {
   state.lookupDealId = "";
   state.credit = null;
   state.ruling = null;
+  state.dualForm = emptyDualSign();
+  state.recoveredP = null;
+  state.recoveredC = null;
 }
 
 function activeSender(): HexAddress | null {
@@ -347,6 +389,13 @@ async function loadDeal(): Promise<void> {
     state.deal = deal;
     state.lookupDealId = deal.dealId;
     state.bindings = await fetchBindings(state.rpcUrl, escrow, deal.modules);
+    state.dualForm = {
+      ...emptyDualSign(deal.dealId),
+      deadline: String(deal.blockTimestamp + 86_400n),
+      type: state.dualForm.type,
+    };
+    state.recoveredP = null;
+    state.recoveredC = null;
     await refreshExtras();
   } catch (err) {
     state.deal = null;
@@ -374,7 +423,139 @@ async function refreshExtras(): Promise<void> {
   } else {
     state.ruling = null;
   }
+  if (state.deal) {
+    try {
+      state.dsUsedP = await fetchUsed(
+        state.rpcUrl,
+        escrow,
+        state.deal.terms.provider,
+        BigInt(state.dualForm.nonceP || "0"),
+      );
+      state.dsUsedC = await fetchUsed(
+        state.rpcUrl,
+        escrow,
+        state.deal.terms.controller,
+        BigInt(state.dualForm.nonceC || "0"),
+      );
+    } catch {
+      state.dsUsedP = false;
+      state.dsUsedC = false;
+    }
+  }
   paint();
+}
+
+function dualDigests(): { p: string | null; c: string | null } {
+  const f = state.dualForm;
+  if (!f.type || !f.dealId || !f.deadline || f.deadline === "0" || !isAddress(state.escrowPaste)) {
+    return { p: null, c: null };
+  }
+  const chainId = state.probe?.rpcChainId ?? state.chainId;
+  const escrow = getAddress(state.escrowPaste) as HexAddress;
+  const base = {
+    dealId: f.dealId as Hex,
+    deadline: BigInt(f.deadline),
+    providerBps: f.type === "MutualSplit" ? Number(f.providerBps || "0") : undefined,
+  };
+  try {
+    return {
+      p: hashDualSign(f.type, chainId, escrow, { ...base, nonce: BigInt(f.nonceP || "0") }),
+      c: hashDualSign(f.type, chainId, escrow, { ...base, nonce: BigInt(f.nonceC || "0") }),
+    };
+  } catch {
+    return { p: null, c: null };
+  }
+}
+
+async function signDual(who: "P" | "C"): Promise<void> {
+  const f = state.dualForm;
+  if (!f.type || !isAddress(state.escrowPaste)) {
+    state.writeError = "elegí type y Recinto";
+    paint();
+    return;
+  }
+  const role = who === "P" ? "Provider" : "Controller";
+  const pk = seatPk(role) ?? (role === "Controller" ? seatPk("Holder") : null);
+  if (!pk) {
+    state.writeError = `${role} sin pk`;
+    paint();
+    return;
+  }
+  const chainId = state.probe?.rpcChainId ?? state.chainId;
+  const escrow = getAddress(state.escrowPaste) as HexAddress;
+  const msg = {
+    dealId: f.dealId as Hex,
+    nonce: BigInt(who === "P" ? f.nonceP || "0" : f.nonceC || "0"),
+    deadline: BigInt(f.deadline || "0"),
+    providerBps: f.type === "MutualSplit" ? Number(f.providerBps || "0") : undefined,
+  };
+  try {
+    const sig = await signDualSign(pk, chainId, escrow, f.type, msg);
+    if (who === "P") state.dualForm = { ...state.dualForm, providerSig: sig };
+    else state.dualForm = { ...state.dualForm, controllerSig: sig };
+    const recovered =
+      f.type === "MutualSplit"
+        ? await recoverTypedDataAddress({
+            domain: eip712Domain(chainId, escrow),
+            types: dualSignTypes,
+            primaryType: "MutualSplit",
+            message: {
+              dealId: msg.dealId,
+              providerBps: msg.providerBps ?? 0,
+              nonce: msg.nonce,
+              deadline: msg.deadline,
+            },
+            signature: sig,
+          })
+        : await recoverTypedDataAddress({
+            domain: eip712Domain(chainId, escrow),
+            types: dualSignTypes,
+            primaryType: f.type,
+            message: { dealId: msg.dealId, nonce: msg.nonce, deadline: msg.deadline },
+            signature: sig,
+          });
+    if (who === "P") state.recoveredP = recovered;
+    else state.recoveredC = recovered;
+    state.writeError = null;
+  } catch (err) {
+    state.writeError = err instanceof Error ? err.message : String(err);
+  }
+  paint();
+}
+
+async function relayDual(): Promise<void> {
+  const f = state.dualForm;
+  if (!state.dualSign || !f.type || !isDraftComplete(f) || !state.deal || !isAddress(state.escrowPaste)) {
+    state.writeError = "draft dual-sign incompleto o dualSign off";
+    paint();
+    return;
+  }
+  const pk = seatPk("Relayer") ?? seatPk("Holder");
+  if (!pk) {
+    state.writeError = "Relayer/Holder sin pk";
+    paint();
+    return;
+  }
+  try {
+    await sendDualSign({
+      rpcUrl: state.rpcUrl,
+      chainId: state.probe?.rpcChainId ?? state.chainId,
+      escrow: getAddress(state.escrowPaste) as HexAddress,
+      pk,
+      type: f.type,
+      dealId: f.dealId as Hex,
+      deadline: BigInt(f.deadline),
+      nonceP: BigInt(f.nonceP || "0"),
+      nonceC: BigInt(f.nonceC || "0"),
+      providerBps: Number(f.providerBps || "0"),
+      providerSig: f.providerSig!,
+      controllerSig: f.controllerSig!,
+    });
+    await loadDeal();
+  } catch (err) {
+    state.writeError = err instanceof Error ? err.message : String(err);
+    paint();
+  }
 }
 
 async function refreshProbe(): Promise<void> {
@@ -518,6 +699,10 @@ async function signPa(): Promise<void> {
 }
 
 async function sendVerb(verb: string): Promise<void> {
+  if (verb === "mutualCancel" || verb === "coSignedRelease" || verb === "mutualSplit") {
+    await relayDual();
+    return;
+  }
   if (!isCoreWrite(verb) || !state.deal || !isAddress(state.escrowPaste)) return;
   const pk = seatPk(state.activeRole);
   if (!pk) {
