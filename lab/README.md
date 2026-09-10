@@ -39,6 +39,16 @@ No hay botón “usar oficiales”. `sepolia-kleros.json` y `*-pool-factory.json
 
 Holder / Provider / Controller / Relayer empiezan **desconectados**. Pegar una address es sesión, no una clave. No se persisten secretos. Si Holder y Controller son la misma address aparece `Holder=Controller`.
 
+## Demo PR-2: Deal explorer (`IEscrow`)
+
+En el Recinto `sepolia.json` (`0x9b00…`), atajo `releasedDealId` → `status = RELEASED`, `packageIds = []` (Core-only).
+
+Cambiar al Recinto `sepolia-packages.json` (`0xed09…`) y abrir `zkDealId`. Kinds debe incluir ZK. No mezclar esos dealId entre recintos: el dominio es otro `verifyingContract`.
+
+Si `releaseDuration = 0` y el deal ya está `FIAT_SENT` (o el origen `fiatSentAt` está escrito), `openDisputed` aparece como `TooLate` en el panel de clocks. `claim` aparece `due`.
+
+Lookup también acepta `dealOf(signer, nonce)`. Cambiar de Recinto descarta el Deal en foco.
+
 ## Fuera de este PR
 
-Lookup `IEscrow` (PR-2), matriz de elegibilidad (PR-3), `activate` y verbos (PR-4+).
+Matriz de elegibilidad (PR-3), `activate` y verbos (PR-4+).
