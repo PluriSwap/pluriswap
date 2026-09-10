@@ -16,6 +16,7 @@ export type ConsentDraft = {
   arbitrationDuration: string;
   holderNonce: string;
   providerNonce: string;
+  controllerNonce: string;
   deadline: string;
 };
 
@@ -32,6 +33,7 @@ export const defaultDraft = (token: string): ConsentDraft => ({
   arbitrationDuration: "0",
   holderNonce: "1",
   providerNonce: "1",
+  controllerNonce: "1",
   deadline: String(Math.floor(Date.now() / 1000) + 86_400),
 });
 
@@ -40,11 +42,14 @@ export function renderConsentPanel(
   model: {
     draft: ConsentDraft;
     coreActivate: boolean;
+    distinctController: boolean;
     steps: PreflightStep[];
     holderSig: Hex | null;
     providerSig: Hex | null;
+    controllerSig: Hex | null;
     ha: Envelope | null;
     pa: Envelope | null;
+    ca: Envelope | null;
     dealId: string | null;
     sending: boolean;
     sendError: string | null;
@@ -53,27 +58,38 @@ export function renderConsentPanel(
   on: {
     draft: (d: ConsentDraft) => void;
     toggleFlag: () => void;
+    toggleDistinct: () => void;
     fillSeats: () => void;
     useToken: () => void;
     signHa: () => void;
     signPa: () => void;
+    signCa: () => void;
     send: () => void;
     refresh: () => void;
   },
 ): void {
   const d = model.draft;
+  const p2p = d.p2p;
   const inspect =
     model.ha && model.pa && model.holderSig && model.providerSig
-      ? inspectActivate6(model.ha, model.holderSig, model.pa, model.providerSig)
+      ? inspectActivate6(
+          model.ha,
+          model.holderSig,
+          model.pa,
+          model.providerSig,
+          p2p ? null : model.ca,
+          p2p ? null : model.controllerSig,
+        )
       : null;
 
   root.innerHTML = `
     <section class="panel consent">
       <h1>Consentimiento <code>activate</code> Core-only</h1>
-      <p class="hint">P2P: dos firmas (HA + PA). El tx <strong>siempre</strong> es el overload de <code>6</code> args con <code>ControllerAcceptance</code> dummy + <code>bytes("")</code>. <code>packageIds = []</code>. Flag <code>coreActivate</code>.</p>
+      <p class="hint">P2P: dos firmas (HA + PA) y CA dummy. Controller distinto: tercer envelope hashed (<code>ControllerAcceptance</code>) + <code>controllerSig</code>. El tx es el overload de <code>6</code> args. <code>packageIds = []</code>.</p>
       <p>
         <label class="inline"><input type="checkbox" id="flag" ${model.coreActivate ? "checked" : ""}/> coreActivate</label>
-        <button type="button" id="fill">Copiar asientos Holder/Provider</button>
+        <label class="inline"><input type="checkbox" id="distinct" ${model.distinctController ? "checked" : ""}/> distinctController</label>
+        <button type="button" id="fill">Copiar asientos Holder/Provider/Controller</button>
         ${model.suggestedToken ? `<button type="button" id="tok">Usar testToken del set</button>` : ""}
         <button type="button" id="refresh">Releer preflight</button>
       </p>
@@ -90,11 +106,12 @@ export function renderConsentPanel(
         <label>arbitrationDuration <input id="arbitrationDuration" value="${esc(d.arbitrationDuration)}" /></label>
         <label>holder nonce <input id="holderNonce" value="${esc(d.holderNonce)}" /></label>
         <label>provider nonce <input id="providerNonce" value="${esc(d.providerNonce)}" /></label>
+        <label>controller nonce <input id="controllerNonce" value="${esc(d.controllerNonce)}" ${d.p2p ? "readonly" : ""} /></label>
         <label>deadline (unix) <input id="deadline" value="${esc(d.deadline)}" /></label>
         <label class="inline full"><input type="checkbox" id="p2p" ${d.p2p ? "checked" : ""}/> P2P holder == controller</label>
       </div>
-      <p class="hint">0 en un reloj = due inmediato <strong>y</strong> strictly-before ya TooLate. CASE-CORE-01-P2P usa (3600, 1800, 7200, 0).</p>
-      <p>packageIds = <code>[]</code> · overload = <code>6</code> · CA dummy.</p>
+      <p class="hint">0 en un reloj = due inmediato <strong>y</strong> strictly-before ya TooLate. CASE-CORE-01-P2P / CASE-CORE-01-CTRL usan (3600, 1800, 7200, 0). P2P ignora controllerNonce en <code>dealId</code>.</p>
+      <p>packageIds = <code>[]</code> · overload = <code>6</code> · ${p2p ? "CA dummy." : "CA hashed."}</p>
       ${model.dealId ? `<p>dealId proyectado <code>${model.dealId}</code></p>` : ""}
       <h2>Preflight <code>_activate</code> Core</h2>
       <ol class="preflight">
@@ -108,12 +125,13 @@ export function renderConsentPanel(
       <p>
         <button type="button" id="signHa">Firmar HolderAuthorization</button>
         <button type="button" id="signPa">Firmar ProviderAgreement</button>
+        ${p2p ? "" : `<button type="button" id="signCa">Firmar ControllerAcceptance</button>`}
         <button type="button" id="send" ${model.sending || !model.coreActivate ? "disabled" : ""}>Relayer: activate (6 args)</button>
       </p>
       <dl class="eip712">
         <dt>holderSig</dt><dd><code>${model.holderSig ?? "—"}</code></dd>
         <dt>providerSig</dt><dd><code>${model.providerSig ?? "—"}</code></dd>
-        <dt>controllerSig</dt><dd><code>0x</code> (dummy)</dd>
+        <dt>controllerSig</dt><dd><code>${p2p ? "0x (dummy)" : (model.controllerSig ?? "—")}</code></dd>
       </dl>
       ${
         inspect
@@ -137,6 +155,7 @@ export function renderConsentPanel(
     arbitrationDuration: val("arbitrationDuration"),
     holderNonce: val("holderNonce"),
     providerNonce: val("providerNonce"),
+    controllerNonce: val("controllerNonce"),
     deadline: val("deadline"),
   });
   function val(id: string): string {
@@ -160,6 +179,7 @@ export function renderConsentPanel(
     "arbitrationDuration",
     "holderNonce",
     "providerNonce",
+    "controllerNonce",
     "deadline",
   ]) {
     root.querySelector(`#${id}`)?.addEventListener("change", () => {
@@ -169,11 +189,13 @@ export function renderConsentPanel(
     });
   }
   root.querySelector("#flag")?.addEventListener("change", () => on.toggleFlag());
+  root.querySelector("#distinct")?.addEventListener("change", () => on.toggleDistinct());
   root.querySelector("#fill")?.addEventListener("click", () => on.fillSeats());
   root.querySelector("#tok")?.addEventListener("click", () => on.useToken());
   root.querySelector("#refresh")?.addEventListener("click", () => on.refresh());
   root.querySelector("#signHa")?.addEventListener("click", () => on.signHa());
   root.querySelector("#signPa")?.addEventListener("click", () => on.signPa());
+  root.querySelector("#signCa")?.addEventListener("click", () => on.signCa());
   root.querySelector("#send")?.addEventListener("click", () => on.send());
 }
 

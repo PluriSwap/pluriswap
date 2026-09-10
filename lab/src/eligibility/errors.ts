@@ -21,6 +21,8 @@ export const R = {
   ZeroPrincipal: "Terms.ZeroPrincipal",
   UnsortedPackageIds: "Terms.UnsortedPackageIds",
   TermsMismatch: "Escrow.TermsMismatch",
+  ControllerAcceptanceRequired: "Escrow.ControllerAcceptanceRequired",
+  InvalidControllerSignature: "Escrow.InvalidControllerSignature",
   DraftEmpty: "draft-empty",
   NoOp: "no-op",
   NoSender: "no-sender",

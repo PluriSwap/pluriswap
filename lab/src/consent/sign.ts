@@ -60,6 +60,25 @@ export async function signDualSign(
   });
 }
 
+export async function signControllerAcceptance(
+  pk: string,
+  chainId: number,
+  escrow: HexAddress,
+  env: Envelope,
+): Promise<Hex> {
+  const account = accountFromPk(pk);
+  return account.signTypedData({
+    domain: eip712Domain(chainId, escrow),
+    types: eip712Types,
+    primaryType: "ControllerAcceptance",
+    message: {
+      terms: env.terms,
+      nonce: env.nonce,
+      deadline: env.deadline,
+    },
+  });
+}
+
 export async function signProviderAgreement(
   pk: string,
   chainId: number,

@@ -15,7 +15,13 @@ import { computeDealId } from "./consent/eip712.ts";
 import { parseDraft } from "./consent/parse.ts";
 import { preflightActivateCore, type PreflightStep } from "./consent/preflight.ts";
 import { dualSignTypes, eip712Domain, hashDualSign } from "./consent/eip712.ts";
-import { accountFromPk, signDualSign, signHolderAuthorization, signProviderAgreement } from "./consent/sign.ts";
+import {
+  accountFromPk,
+  signControllerAcceptance,
+  signDualSign,
+  signHolderAuthorization,
+  signProviderAgreement,
+} from "./consent/sign.ts";
 import { renderRecintoHome, type DealShortcut } from "./chrome/RecintoHome.ts";
 import { renderRecintoSelector } from "./chrome/RecintoSelector.ts";
 import { renderRoleStrip } from "./chrome/RoleStrip.ts";
@@ -63,9 +69,11 @@ const state = {
   credit: null as bigint | null,
   ruling: null as number | null,
   coreActivate: true,
+  distinctController: true,
   draft: defaultDraft("") as ConsentDraft,
   holderSig: null as Hex | null,
   providerSig: null as Hex | null,
+  controllerSig: null as Hex | null,
   preflight: [] as PreflightStep[],
   projectedDealId: null as string | null,
   sending: false,
@@ -158,11 +166,14 @@ function paint(): void {
     {
       draft: state.draft,
       coreActivate: state.coreActivate,
+      distinctController: state.distinctController,
       steps: state.preflight,
       holderSig: state.holderSig,
       providerSig: state.providerSig,
+      controllerSig: state.controllerSig,
       ha: tryParsed()?.ha ?? null,
       pa: tryParsed()?.pa ?? null,
+      ca: tryParsed()?.ca ?? null,
       dealId: state.projectedDealId,
       sending: state.sending,
       sendError: state.sendError,
@@ -173,6 +184,7 @@ function paint(): void {
         state.draft = d;
         state.holderSig = null;
         state.providerSig = null;
+        state.controllerSig = null;
         state.sendError = null;
         paint();
         void refreshPreflight();
@@ -182,17 +194,24 @@ function paint(): void {
         paint();
         void refreshPreflight();
       },
+      toggleDistinct: () => {
+        state.distinctController = !state.distinctController;
+        paint();
+        void refreshPreflight();
+      },
       fillSeats: () => {
         const h = state.seats.find((s) => s.role === "Holder")?.address ?? "";
         const p = state.seats.find((s) => s.role === "Provider")?.address ?? "";
+        const c = state.seats.find((s) => s.role === "Controller")?.address ?? "";
         state.draft = {
           ...state.draft,
           holder: h,
           provider: p,
-          controller: state.draft.p2p ? h : state.draft.controller,
+          controller: state.draft.p2p ? h : c,
         };
         state.holderSig = null;
         state.providerSig = null;
+        state.controllerSig = null;
         paint();
         void refreshPreflight();
       },
@@ -202,11 +221,13 @@ function paint(): void {
         state.draft = { ...state.draft, token: tok };
         state.holderSig = null;
         state.providerSig = null;
+        state.controllerSig = null;
         paint();
         void refreshPreflight();
       },
       signHa: () => void signHa(),
       signPa: () => void signPa(),
+      signCa: () => void signCa(),
       send: () => void sendActivate(),
       refresh: () => void refreshPreflight(),
     },
@@ -587,6 +608,7 @@ function tryParsed() {
 function clearConsentSigs(): void {
   state.holderSig = null;
   state.providerSig = null;
+  state.controllerSig = null;
   state.preflight = [];
   state.projectedDealId = null;
   state.sendError = null;
@@ -609,12 +631,19 @@ async function refreshPreflight(): Promise<void> {
   const now = state.probe ? BigInt(Math.floor(Date.now() / 1000)) : BigInt(Math.floor(Date.now() / 1000));
   let usedHolder = false;
   let usedProvider = false;
+  let usedController = false;
   let allowance: bigint | null = null;
   let dealStatus: number | null = null;
   let domain = state.probe?.domainSeparator ?? null;
   try {
     usedHolder = await fetchUsed(state.rpcUrl, escrow, parsed.terms.holder, parsed.ha.nonce);
     usedProvider = await fetchUsed(state.rpcUrl, escrow, parsed.terms.provider, parsed.pa.nonce);
+    usedController = await fetchUsed(
+      state.rpcUrl,
+      escrow,
+      parsed.terms.controller,
+      parsed.ca.nonce,
+    );
   } catch {
     /* offline */
   }
@@ -624,7 +653,13 @@ async function refreshPreflight(): Promise<void> {
     allowance = null;
   }
   if (domain) {
-    const id = computeDealId(domain, parsed.terms, parsed.ha.nonce, parsed.pa.nonce, 0n);
+    const id = computeDealId(
+      domain,
+      parsed.terms,
+      parsed.ha.nonce,
+      parsed.pa.nonce,
+      parsed.ca.nonce,
+    );
     state.projectedDealId = id;
     try {
       dealStatus = await fetchStatus(state.rpcUrl, escrow, id);
@@ -636,16 +671,20 @@ async function refreshPreflight(): Promise<void> {
     terms: parsed.terms,
     ha: parsed.ha,
     pa: parsed.pa,
+    ca: parsed.ca,
     holderSig: state.holderSig,
     providerSig: state.providerSig,
+    controllerSig: state.controllerSig,
     chainId,
     escrow,
     now,
     usedHolder,
     usedProvider,
+    usedController,
     allowance,
     dealStatus,
     coreActivate: state.coreActivate,
+    distinctController: state.distinctController,
   });
   paint();
 }
@@ -698,6 +737,35 @@ async function signPa(): Promise<void> {
   void refreshPreflight();
 }
 
+async function signCa(): Promise<void> {
+  const parsed = tryParsed();
+  const pk = seatPk("Controller");
+  if (!parsed || !pk || !isAddress(state.escrowPaste)) {
+    state.sendError = "Controller pk y DealTerms válidos";
+    paint();
+    return;
+  }
+  if (parsed.terms.holder.toLowerCase() === parsed.terms.controller.toLowerCase()) {
+    state.sendError = "P2P: CA dummy, no se firma";
+    paint();
+    return;
+  }
+  const chainId = state.probe?.rpcChainId ?? state.chainId;
+  try {
+    state.controllerSig = await signControllerAcceptance(
+      pk,
+      chainId,
+      getAddress(state.escrowPaste) as HexAddress,
+      parsed.ca,
+    );
+    state.sendError = null;
+  } catch (err) {
+    state.sendError = err instanceof Error ? err.message : String(err);
+  }
+  paint();
+  void refreshPreflight();
+}
+
 async function sendVerb(verb: string): Promise<void> {
   if (verb === "mutualCancel" || verb === "coSignedRelease" || verb === "mutualSplit") {
     await relayDual();
@@ -737,7 +805,16 @@ async function sendVerb(verb: string): Promise<void> {
 async function sendActivate(): Promise<void> {
   const parsed = tryParsed();
   const relayerPk = seatPk("Relayer") ?? seatPk("Holder");
-  if (!parsed || !state.holderSig || !state.providerSig || !relayerPk || !isAddress(state.escrowPaste)) {
+  const p2p =
+    parsed !== null && parsed.terms.holder.toLowerCase() === parsed.terms.controller.toLowerCase();
+  if (
+    !parsed ||
+    !state.holderSig ||
+    !state.providerSig ||
+    (!p2p && !state.controllerSig) ||
+    !relayerPk ||
+    !isAddress(state.escrowPaste)
+  ) {
     state.sendError = "faltan firmas, Relayer/Holder pk o escrow";
     paint();
     return;
@@ -768,6 +845,8 @@ async function sendActivate(): Promise<void> {
       holderSig: state.holderSig,
       pa: parsed.pa,
       providerSig: state.providerSig,
+      ca: p2p ? null : parsed.ca,
+      controllerSig: p2p ? null : state.controllerSig,
     });
     if (state.probe?.domainSeparator) {
       state.lookupDealId = computeDealId(
@@ -775,7 +854,7 @@ async function sendActivate(): Promise<void> {
         parsed.terms,
         parsed.ha.nonce,
         parsed.pa.nonce,
-        0n,
+        parsed.ca.nonce,
       );
       await loadDeal();
     }

@@ -4,7 +4,12 @@ import { type DealTerms } from "../deal/types.ts";
 import type { Envelope } from "./eip712.ts";
 import type { ConsentDraft } from "./ConsentPanel.ts";
 
-export function parseDraft(d: ConsentDraft): { terms: DealTerms; ha: Envelope; pa: Envelope } {
+export function parseDraft(d: ConsentDraft): {
+  terms: DealTerms;
+  ha: Envelope;
+  pa: Envelope;
+  ca: Envelope;
+} {
   const need = [d.holder, d.controller, d.provider, d.token];
   for (const a of need) {
     if (!isAddress(a)) throw new Error(`address inválida: ${a || "(vacía)"}`);
@@ -24,5 +29,6 @@ export function parseDraft(d: ConsentDraft): { terms: DealTerms; ha: Envelope; p
   const deadline = BigInt(d.deadline || "0");
   const ha: Envelope = { terms, nonce: BigInt(d.holderNonce || "0"), deadline };
   const pa: Envelope = { terms, nonce: BigInt(d.providerNonce || "0"), deadline };
-  return { terms, ha, pa };
+  const ca: Envelope = { terms, nonce: BigInt(d.controllerNonce || "0"), deadline };
+  return { terms, ha, pa, ca };
 }

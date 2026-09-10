@@ -9,16 +9,20 @@ export type CorePreflightInput = {
   terms: DealTerms;
   ha: Envelope;
   pa: Envelope;
+  ca: Envelope | null;
   holderSig: `0x${string}` | null;
   providerSig: `0x${string}` | null;
+  controllerSig: `0x${string}` | null;
   chainId: number;
   escrow: HexAddress;
   now: bigint;
   usedHolder: boolean;
   usedProvider: boolean;
+  usedController: boolean;
   allowance: bigint | null;
   dealStatus: number | null;
   coreActivate: boolean;
+  distinctController: boolean;
 };
 
 export type PreflightStep = { step: string; eval: Eval };
@@ -28,6 +32,7 @@ export async function preflightActivateCore(input: CorePreflightInput): Promise<
   const push = (step: string, ev: Eval) => {
     steps.push({ step, eval: ev });
   };
+  const p2p = input.terms.holder.toLowerCase() === input.terms.controller.toLowerCase();
 
   if (!input.coreActivate) {
     push("flag coreActivate", disabled("coreActivate off", "ui-policy"));
@@ -37,8 +42,8 @@ export async function preflightActivateCore(input: CorePreflightInput): Promise<
     push("Core-only", disabled("PR-8 PackageMods", "ui-policy"));
     return steps;
   }
-  if (input.terms.holder.toLowerCase() !== input.terms.controller.toLowerCase()) {
-    push("P2P", disabled("PR-7 ControllerAcceptance", "ui-policy"));
+  if (!p2p && !input.distinctController) {
+    push("P2P", disabled("distinctController off", "ui-policy"));
     return steps;
   }
 
@@ -97,7 +102,53 @@ export async function preflightActivateCore(input: CorePreflightInput): Promise<
     return steps;
   }
 
-  push("CA (P2P dummy, ignored)", enabled());
+  if (p2p) {
+    push("CA (P2P dummy, ignored)", enabled());
+  } else {
+    if (!input.ca) {
+      push("ControllerAcceptanceRequired", disabled(R.ControllerAcceptanceRequired));
+      return steps;
+    }
+    if (input.ca.terms.controller.toLowerCase() !== input.terms.controller.toLowerCase()) {
+      push("ControllerAcceptanceRequired", disabled(R.ControllerAcceptanceRequired));
+      return steps;
+    }
+    push("ControllerAcceptanceRequired", enabled());
+    if (hashTerms(input.ca.terms) !== hashTerms(input.ha.terms)) {
+      push("TermsMismatch (CA)", disabled(R.TermsMismatch));
+      return steps;
+    }
+    push("TermsMismatch (CA)", enabled());
+    if (input.now > input.ca.deadline) {
+      push("DeadlinePassed (CA)", disabled(R.DeadlinePassed));
+      return steps;
+    }
+    push("DeadlinePassed (CA)", enabled());
+    if (input.controllerSig) {
+      const recovered = await recoverTypedDataAddress({
+        domain: eip712Domain(input.chainId, input.escrow),
+        types: eip712Types,
+        primaryType: "ControllerAcceptance",
+        message: envelopeMessage(input.ca),
+        signature: input.controllerSig,
+      });
+      push(
+        "InvalidControllerSignature",
+        recovered.toLowerCase() === input.terms.controller.toLowerCase()
+          ? enabled()
+          : disabled("Escrow.InvalidControllerSignature"),
+      );
+      if (!steps[steps.length - 1]!.eval.enabled) return steps;
+    } else {
+      push("InvalidControllerSignature", disabled("sin ControllerAcceptance", "ui-policy"));
+      return steps;
+    }
+    if (input.usedController) {
+      push("NonceUsed (controller)", disabled("Escrow.NonceUsed"));
+      return steps;
+    }
+    push("NonceUsed (controller)", enabled());
+  }
 
   if (input.usedHolder || input.usedProvider) {
     push("NonceUsed", disabled("Escrow.NonceUsed"));

@@ -34,39 +34,47 @@ describe("preflightActivateCore", () => {
       terms: t,
       ha: env,
       pa: env,
+      ca: env,
       holderSig: null,
       providerSig: null,
+      controllerSig: null,
       chainId: 31337,
       escrow,
       now: 1n,
       usedHolder: false,
       usedProvider: false,
+      usedController: false,
       allowance: 1_000_000n,
       dealStatus: 0,
       coreActivate: true,
+      distinctController: true,
     });
     expect(steps[0]?.eval.reason).toBe(R.HolderEqualsProvider);
   });
 
-  it("rejects distinct controller in PR-4", async () => {
+  it("rejects distinct controller when the flag is off", async () => {
     const t = terms({ controller: ZERO_ADDRESS });
     const env = { terms: t, nonce: 1n, deadline: 9n };
     const steps = await preflightActivateCore({
       terms: t,
       ha: env,
       pa: env,
+      ca: env,
       holderSig: null,
       providerSig: null,
+      controllerSig: null,
       chainId: 31337,
       escrow,
       now: 1n,
       usedHolder: false,
       usedProvider: false,
+      usedController: false,
       allowance: 1n,
       dealStatus: 0,
       coreActivate: true,
+      distinctController: false,
     });
-    expect(steps[0]?.eval.reason).toBe("PR-7 ControllerAcceptance");
+    expect(steps[0]?.eval.reason).toBe("distinctController off");
   });
 
   it("rejects packageIds in PR-4", async () => {
@@ -78,16 +86,20 @@ describe("preflightActivateCore", () => {
       terms: t,
       ha: env,
       pa: env,
+      ca: env,
       holderSig: null,
       providerSig: null,
+      controllerSig: null,
       chainId: 31337,
       escrow,
       now: 1n,
       usedHolder: false,
       usedProvider: false,
+      usedController: false,
       allowance: 1n,
       dealStatus: 0,
       coreActivate: true,
+      distinctController: true,
     });
     expect(steps[0]?.eval.reason).toBe("PR-8 PackageMods");
   });
@@ -109,19 +121,72 @@ describe("preflightActivateCore", () => {
       terms: t,
       ha: env,
       pa: env,
+      ca: env,
       holderSig,
       providerSig: null,
+      controllerSig: null,
       chainId: 31337,
       escrow,
       now: 1n,
       usedHolder: false,
       usedProvider: false,
+      usedController: false,
       allowance: 1_000_000n,
       dealStatus: 0,
       coreActivate: true,
+      distinctController: true,
     });
     const last = steps[steps.length - 1];
     expect(steps.find((s) => s.step === "InvalidHolderSignature")?.eval.enabled).toBe(true);
     expect(last?.step).toBe("InvalidProviderSignature");
+  });
+
+  it("accepts a hashed ControllerAcceptance when holder != controller", async () => {
+    const controllerPk = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a";
+    const controller = privateKeyToAccount(controllerPk);
+    const t = terms({ controller: controller.address });
+    const env = { terms: t, nonce: 1n, deadline: 9_999_999_999n };
+    const ca = { terms: t, nonce: 3n, deadline: env.deadline };
+    const holderSig = await holder.signTypedData({
+      domain: { name: "PluriSwap", version: "1", chainId: 31337, verifyingContract: escrow },
+      types: eip712Types,
+      primaryType: "HolderAuthorization",
+      message: { terms: t, nonce: env.nonce, deadline: env.deadline },
+    });
+    const providerPk = "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d";
+    const providerAccount = privateKeyToAccount(providerPk);
+    const providerSig = await providerAccount.signTypedData({
+      domain: { name: "PluriSwap", version: "1", chainId: 31337, verifyingContract: escrow },
+      types: eip712Types,
+      primaryType: "ProviderAgreement",
+      message: { terms: t, nonce: env.nonce, deadline: env.deadline },
+    });
+    const controllerSig = await controller.signTypedData({
+      domain: { name: "PluriSwap", version: "1", chainId: 31337, verifyingContract: escrow },
+      types: eip712Types,
+      primaryType: "ControllerAcceptance",
+      message: { terms: t, nonce: ca.nonce, deadline: ca.deadline },
+    });
+    const steps = await preflightActivateCore({
+      terms: t,
+      ha: env,
+      pa: env,
+      ca,
+      holderSig,
+      providerSig,
+      controllerSig,
+      chainId: 31337,
+      escrow,
+      now: 1n,
+      usedHolder: false,
+      usedProvider: false,
+      usedController: false,
+      allowance: 1_000_000n,
+      dealStatus: 0,
+      coreActivate: true,
+      distinctController: true,
+    });
+    expect(steps.find((s) => s.step === "InvalidControllerSignature")?.eval.enabled).toBe(true);
+    expect(steps[steps.length - 1]?.eval.enabled).toBe(true);
   });
 });

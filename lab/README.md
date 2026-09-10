@@ -71,7 +71,7 @@ cast send $TOKEN "approve(address,uint256)" $ESCROW 1000000 --private-key $PK0 -
 
 En Consentimiento: copiar asientos, testToken del set, nonces libres, deadline unix futuro, (3600, 1800, 7200, 0), `packageIds=[]`. Firmar HA y PA. Relayer envía overload **6** con CA dummy + `bytes("")`. `status == FUNDED`. El inspector muestra 6 args.
 
-Si `holder != controller` el preflight corta con PR-7. Si hay `packageIds` corta con PR-8.
+Si hay `packageIds` corta con PR-8.
 
 ## Demo PR-5: verbos Core de asiento
 
@@ -83,6 +83,12 @@ En un deal `FUNDED`, panel Dual-sign: type `MutualCancel`, deadline unix futuro,
 
 Draft vacío → las tres filas `draft-empty` (no `DeadlinePassed` por deadline 0). `providerBps=10000` no se relabela a `CoSignedRelease`. CASE-CORE-08–10 desde `FIAT_SENT`; 12–14 desde `DISPUTED`.
 
+## Demo PR-7: Controller distinto (`ControllerAcceptance`)
+
+Tres addresses distintas. Flag `distinctController`. Desmarcar P2P. Copiar asientos (Holder, Provider, Controller). Firmar HA, PA y CA. Relayer envía el mismo overload de 6 args con CA hashed (no dummy). `dealId` incluye `controllerNonce`. Tres `used` y tres `dealOf` apuntan al mismo id. CASE-CORE-01-CTRL: (3600, 1800, 7200, 0).
+
+P2P sigue dummy: si `holder == controller` el inspector muestra `dummyCA=true` y `controllerSig 0x`. Flag off + `holder != controller` → preflight `distinctController off`.
+
 ## Fuera de este PR
 
-Controller distinto PR-7. Paquetes PR-8.
+Paquetes PR-8.
