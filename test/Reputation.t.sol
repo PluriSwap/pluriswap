@@ -6,7 +6,7 @@ import {TestToken} from "../src/TestToken.sol";
 import {PassportMock} from "../src/packages/PassportMock.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
-import {PackageId} from "../src/packages/PackageId.sol";
+import {PackageId} from "../src/libraries/PackageId.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {IReputation} from "../src/packages/interfaces/IReputation.sol";
 

@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {IArbitrableV2, IArbitratorV2} from "./interfaces/IKlerosV2.sol";
 import {IDisputeTemplateRegistry} from "./interfaces/IDisputeTemplateRegistry.sol";
 import {ICourt} from "./interfaces/ICourt.sol";
-import {PackageId} from "./PackageId.sol";
+import {PackageId} from "../libraries/PackageId.sol";
 import {PluriSwapKlerosTemplate} from "./PluriSwapKlerosTemplate.sol";
 
 /// @dev Isolated Kleros V2 adapter. Does not move escrow principal.

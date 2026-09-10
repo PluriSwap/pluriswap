@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
-import {PackageId} from "../src/packages/PackageId.sol";
+import {PackageId} from "../src/libraries/PackageId.sol";
 import {PluriSwapKlerosTemplate} from "../src/packages/PluriSwapKlerosTemplate.sol";
 import {IArbitrableV2, IArbitratorV2} from "../src/packages/interfaces/IKlerosV2.sol";
 import {MockArbitratorV2} from "../src/mocks/MockArbitratorV2.sol";

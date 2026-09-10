@@ -12,6 +12,7 @@ import {
 } from "../src/libraries/Types.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Consent} from "../src/libraries/Consent.sol";
+import {Escrow} from "../src/Escrow.sol";
 import {Pool} from "../src/pools/Pool.sol";
 import {PoolFactory} from "../src/pools/PoolFactory.sol";
 import {PassportMock} from "../src/packages/PassportMock.sol";
@@ -208,6 +209,34 @@ contract PoolTest is BaseTest {
         vm.prank(controller);
         vm.expectRevert(Pool.InsufficientIdle.selector);
         pool.authorize(ha);
+    }
+
+    function test_kickController_pendingAuth_1271Rejects() public {
+        HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
+        vm.prank(controller);
+        pool.authorize(ha);
+        bytes32 digest = _typed(Consent.hashHolderAuthorization(ha));
+        assertEq(pool.isValidSignature(digest, ""), bytes4(0x1626ba7e));
+
+        vm.prank(holder);
+        pool.setController(controller, false);
+        assertEq(pool.isValidSignature(digest, ""), bytes4(0));
+
+        ProviderAgreement memory pa = _providerAuth(_poolHolderTerms(), 1);
+        ControllerAcceptance memory ca = _controllerAuth(_poolHolderTerms(), 1);
+        bytes memory pSig = _signProvider(pa);
+        bytes memory cSig = _signController(ca);
+        vm.expectRevert(Escrow.InvalidHolderSignature.selector);
+        escrow.activate(ha, "", pa, pSig, ca, cSig);
+    }
+
+    function test_runoff_pendingAuth_1271Rejects() public {
+        HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
+        vm.prank(controller);
+        pool.authorize(ha);
+        vm.prank(holder);
+        pool.startRunoff();
+        assertEq(pool.isValidSignature(_typed(Consent.hashHolderAuthorization(ha)), ""), bytes4(0));
     }
 
     function test_kickController_futureOnly() public {

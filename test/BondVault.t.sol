@@ -5,7 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {TestToken} from "../src/TestToken.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
 import {PassportMock} from "../src/packages/PassportMock.sol";
-import {PackageId} from "../src/packages/PackageId.sol";
+import {PackageId} from "../src/libraries/PackageId.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 
 contract BondVaultTest is Test {

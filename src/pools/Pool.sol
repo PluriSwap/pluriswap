@@ -10,7 +10,7 @@ import {Consent} from "../libraries/Consent.sol";
 import {Settlement} from "../libraries/Settlement.sol";
 import {IEscrow} from "../interfaces/IEscrow.sol";
 import {IReputation} from "../packages/interfaces/IReputation.sol";
-import {PackageId} from "../packages/PackageId.sol";
+import {PackageId} from "../libraries/PackageId.sol";
 
 contract Pool is ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
@@ -250,7 +250,9 @@ contract Pool is ReentrancyGuardTransient {
         uint256 nonce = nonceOf[digest];
         Auth storage a = auths[nonce];
         if (!a.exists || a.unlocked || a.reconciled || a.digest != digest) return bytes4(0);
-        if (life == Life.CLOSED) return bytes4(0);
+        // POOLS.md: only ACTIVE validates digests; kick cuts pending auths (future-only vs live deals).
+        if (life != Life.ACTIVE) return bytes4(0);
+        if (!isAgent(a.controller)) return bytes4(0);
         return MAGIC;
     }
 

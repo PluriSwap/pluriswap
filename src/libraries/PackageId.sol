@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-/// @dev Content-addressed package identity. New package = new kind, same DealTerms typehash.
+/// @dev Kernel hash formula: `packageId = keccak(kind, module address, policy)`.
+///      Not an allowlist. Any impl that hashes to a signed id resolves.
+///      New kind = new kernel version; new impl of an existing kind = another id, same escrow.
 library PackageId {
     bytes32 internal constant BONDS_KIND = keccak256("PluriSwap.Package.BONDS");
     bytes32 internal constant PASSPORT_KIND = keccak256("PluriSwap.Package.PASSPORT");

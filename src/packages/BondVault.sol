@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {PackageId} from "./PackageId.sol";
+import {PackageId} from "../libraries/PackageId.sol";
 import {IPassport} from "./interfaces/IPassport.sol";
 import {IBondVault} from "./interfaces/IBondVault.sol";
 import {Settlement} from "../libraries/Settlement.sol";

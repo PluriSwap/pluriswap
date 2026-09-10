@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {PackageId} from "./PackageId.sol";
+import {PackageId} from "../libraries/PackageId.sol";
 import {IVerifier} from "./interfaces/IVerifier.sol";
 import {IPaymentProof} from "./interfaces/IPaymentProof.sol";
 

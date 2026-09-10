@@ -24,7 +24,7 @@ import {IBondVault} from "../src/packages/interfaces/IBondVault.sol";
 import {IReputation} from "../src/packages/interfaces/IReputation.sol";
 import {IPaymentProof} from "../src/packages/interfaces/IPaymentProof.sol";
 import {IVerifier} from "../src/packages/interfaces/IVerifier.sol";
-import {PackageId} from "../src/packages/PackageId.sol";
+import {PackageId} from "../src/libraries/PackageId.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BaseTest} from "./Base.t.sol";
 

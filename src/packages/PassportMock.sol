@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {PackageId} from "./PackageId.sol";
+import {PackageId} from "../libraries/PackageId.sol";
 import {IPassport} from "./interfaces/IPassport.sol";
 
 /// @dev Sepolia adapter: wallet → subject. Official decoder is not on Arbitrum Sepolia.

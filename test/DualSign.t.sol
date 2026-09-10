@@ -191,6 +191,17 @@ contract DualSignTest is BaseTest {
         escrow.mutualSplit(p, pSig, c, cSig);
     }
 
+    function test_mutualSplit_revertsIfBpsOver10000() public {
+        bytes32 id = _fiatSent();
+        uint256 deadline = block.timestamp + 1 days;
+        MutualSplit memory p = MutualSplit({dealId: id, providerBps: 10_001, nonce: 30, deadline: deadline});
+        MutualSplit memory c = MutualSplit({dealId: id, providerBps: 10_001, nonce: 31, deadline: deadline});
+        bytes memory pSig = _signSplit(p, providerPk);
+        bytes memory cSig = _signSplit(c, holderPk);
+        vm.expectRevert(Escrow.BpsMismatch.selector);
+        escrow.mutualSplit(p, pSig, c, cSig);
+    }
+
     function test_mutualSplit_10000_isNotCoSignedReleaseType() public {
         bytes32 id = _fiatSent();
         uint256 deadline = block.timestamp + 1 days;

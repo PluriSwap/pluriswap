@@ -15,7 +15,7 @@ Desde el día uno:
 | Capa | Visibilidad | Para qué |
 | --- | --- | --- |
 | OpenZeppelin | `internal` (la de ellos) | Crypto, ERC-20, reentrancy |
-| Libraries de protocolo | `external` o `public` linkeada | Consentimiento, términos, settlement, relojes |
+| Libraries de protocolo | `external` o `public` linkeada | Consentimiento, términos, settlement, relojes, `PackageId` |
 | `Escrow.sol` | fino | Storage, entrypoints, `nonReentrant`, orquesta. El catálogo es el spec, no una library obligatoria |
 
 No se espera a que el compilador grite. El storage y quién mueve el token siguen en el escrow.
@@ -31,6 +31,7 @@ Escrow.sol                 storage + entrypoints; orquesta el catálogo
   libraries/Terms.sol      termsHash, snapshot
   libraries/Settlement.sol pull exacto, créditos, try-push, withdraw
   libraries/Clocks.sol     origin + duration (>= 0)
+  libraries/PackageId.sol  hash(kind, address, policy); no allowlist
 
 packages/interfaces/*      IPassport, IReputation, IBondVault, IPaymentProof, ICourt, IVerifier
 packages/*                 impls detrás de esas interfaces — no tipos del escrow
@@ -90,5 +91,5 @@ Withdraw de crédito: `safeTransfer` al beneficiario; si falla, el crédito sigu
 - OZ no define economía. No hay `Pausable` ni owner sobre un deal vivo.
 - `SignatureChecker` es la verificación de `HolderAuthorization`. No un `ecrecover` suelto que deje afuera a los pools.
 - BondVault, paquetes y rampas no se meten en estas libraries para “ahorrar tamaño”. Ya son otros contratos.
-- El escrow depende de las interfaces de `ARCHITECTURE.md` §4. Recomputa `packageId` con `PackageId.*`; no confía en un getter mentiroso.
+- El escrow depende de las interfaces de `ARCHITECTURE.md` §4. Recomputa `packageId` con `libraries/PackageId` (fórmula del kernel, no un paquete). No confía en un getter mentiroso.
 - El constructor no bindea paquetes. `PackageMods` entra en `activate`, no en el digest.

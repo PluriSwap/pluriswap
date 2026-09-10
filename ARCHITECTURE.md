@@ -132,7 +132,7 @@ Los *kinds* son la superficie cerrada de extensión (EXT-01). Cinco. Un kind nue
 | `IVerifier` | (no es paquete) | `verify → (dealId, nullifier)` | — |
 | `ICourt` | ARBITRATION | `openCourt`, `readRuling`, `packageBinding` | adapter, partner, key |
 
-`packageId = hash(kind, address del módulo, policy)`. El kernel **recomputa** ese hash con `PackageId.*` y la address que trajo el relayer. No confía en un `packageId()` que el módulo pueda mentir. Mentir sobre la policy solo produce *otro* ID; si las partes no lo firmaron, no hay deal.
+`packageId = hash(kind, address del módulo, policy)`. El kernel **recomputa** ese hash con `libraries/PackageId` y la address que trajo el relayer. La fórmula es del kernel, no un catálogo de vendors: cualquier impl cuyo hash esté firmado resuelve. No confía en un `packageId()` que el módulo pueda mentir. Mentir sobre la policy solo produce *otro* ID; si las partes no lo firmaron, no hay deal.
 
 `admit` / `notifyTerminal` / `verifyProof` / `reserve` / `dispose` / `openCourt` los llama el kernel. Un extraño no es el kernel. Cada impl bindea un `operator` inmutable (el escrow) al deploy; no es un campo de `DealTerms` ni entra al `packageId`.
 

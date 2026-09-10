@@ -22,7 +22,7 @@ import {Terms} from "./libraries/Terms.sol";
 import {Consent} from "./libraries/Consent.sol";
 import {Settlement} from "./libraries/Settlement.sol";
 import {Clocks} from "./libraries/Clocks.sol";
-import {PackageId} from "./packages/PackageId.sol";
+import {PackageId} from "./libraries/PackageId.sol";
 import {IPassport} from "./packages/interfaces/IPassport.sol";
 import {IReputation} from "./packages/interfaces/IReputation.sol";
 import {IBondVault} from "./packages/interfaces/IBondVault.sol";
@@ -380,6 +380,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     ) external nonReentrant {
         _assertDualSignEnvelope(providerMsg.dealId, providerMsg.deadline, controllerMsg.dealId, controllerMsg.deadline);
         if (providerMsg.providerBps != controllerMsg.providerBps) revert BpsMismatch();
+        if (providerMsg.providerBps > 10_000) revert BpsMismatch();
         Deal storage d = deals[providerMsg.dealId];
         _assertDualSignFromActive(d.status);
         _consumeDualSign(
