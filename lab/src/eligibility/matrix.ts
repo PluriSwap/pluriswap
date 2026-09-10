@@ -198,7 +198,15 @@ export function buildMatrix(input: MatrixInput): MatrixRow[] {
 export function matrixForDeal(
   deal: DealSnapshot,
   sender: string | null,
-  extras: { credit?: bigint | null; ruling?: number | null; dualSign?: DualSignDraft | null } = {},
+  extras: {
+    credit?: bigint | null;
+    ruling?: number | null;
+    dualSign?: DualSignDraft | null;
+    driftZk?: boolean;
+    driftArb?: boolean;
+    proof?: string | null;
+    courtPref?: MatrixInput["courtPref"];
+  } = {},
 ): MatrixRow[] {
   return buildMatrix({
     deal,
@@ -206,6 +214,10 @@ export function matrixForDeal(
     credit: extras.credit ?? null,
     ruling: extras.ruling ?? null,
     dualSign: extras.dualSign ?? null,
+    driftZk: extras.driftZk,
+    driftArb: extras.driftArb,
+    proof: extras.proof,
+    courtPref: extras.courtPref,
   });
 }
 

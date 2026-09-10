@@ -5,9 +5,11 @@ import { matrixForDeal } from "./matrix.ts";
 import {
   evalClaim,
   evalMarkFiat,
+  evalOpenCourt,
   evalOpenDisputed,
   evalRelease,
   evalTimeoutFiat,
+  evalVerifyProof,
 } from "./predicates.ts";
 import { firstResolveRevert } from "./resolve.ts";
 import { firstTermsRevert } from "./terms.ts";
@@ -118,6 +120,38 @@ describe("Deal matrix (CASE-CORE)", () => {
     const ctx = { deal: d, sender: provider, credit: null, ruling: null, dualSign: null };
     expect(evalMarkFiat(ctx).reason).toBe(R.EdgeOff);
     expect(evalTimeoutFiat(ctx).enabled).toBe(true);
+    expect(evalVerifyProof(ctx).reason).toBe(R.NoProof);
+    expect(evalVerifyProof({ ...ctx, proof: "0x1234" }).enabled).toBe(true);
+    expect(evalOpenCourt(ctx).reason).toBe(R.PackageNotSelected);
+  });
+
+  it("ARB mock without court allowance is InexactPull, not ENABLED", () => {
+    const d = deal({
+      status: Status.FIAT_SENT,
+      kinds: PKG.ARB,
+      clocks: {
+        activatedAt: 10n,
+        fiatSentAt: 20n,
+        disputedAt: 0n,
+        arbitrationOpenedAt: 0n,
+      },
+      blockTimestamp: 30n,
+    });
+    const ctx = {
+      deal: d,
+      sender: controller,
+      credit: null,
+      ruling: null,
+      dualSign: null,
+      courtPref: {
+        kind: "mock" as const,
+        courtFee: 1n,
+        allowance: 0n,
+        cost: null,
+        msgValue: 0n,
+      },
+    };
+    expect(evalOpenCourt(ctx).reason).toBe(R.InexactPull);
   });
 
   it("FIAT_SENT releaseDuration=0 → openDisputed TooLate, claim due", () => {

@@ -3,7 +3,7 @@ import type { MatrixRow } from "../eligibility/matrix.ts";
 export function renderMatrixPanel(
   rows: MatrixRow[],
   senderLabel: string,
-  opts: { coreWrites: boolean; nonce: string; dualSign?: boolean },
+  opts: { coreWrites: boolean; nonce: string; dualSign?: boolean; zkArb?: boolean },
 ): string {
   const body = rows
     .map((row) => {
@@ -25,7 +25,9 @@ export function renderMatrixPanel(
             "withdraw",
             "cancelNonce",
           ].includes(row.verb)) ||
-          (Boolean(opts.dualSign) && dualVerb));
+          (Boolean(opts.dualSign) && dualVerb) ||
+          (Boolean(opts.zkArb) &&
+            ["verifyProof", "openCourt", "readRuling", "forceArbitrationTimeout"].includes(row.verb)));
       const send = sendable
         ? `<button type="button" data-verb="${row.verb}">Enviar</button>`
         : "";
@@ -43,9 +45,10 @@ export function renderMatrixPanel(
   return `
     <section class="panel">
       <h2>Matriz de elegibilidad</h2>
-      <p class="hint">Todos los verbos de <code>Escrow.sol</code> visibles. DISABLED = primer revert. Enviar usa el asiento activo (${escapeHtml(senderLabel)}). Dual-sign = PR-6. Filas ilegales no se ocultan.</p>
+      <p class="hint">Todos los verbos de <code>Escrow.sol</code> visibles. DISABLED = primer revert. Enviar usa el asiento activo (${escapeHtml(senderLabel)}). Dual-sign = PR-6. ZK/ARB = flag zkArb. Filas ilegales no se ocultan.</p>
       <p>
         <label class="inline"><input type="checkbox" id="coreWrites" ${opts.coreWrites ? "checked" : ""}/> coreWrites</label>
+        <label class="inline"><input type="checkbox" id="zkArb" ${opts.zkArb ? "checked" : ""}/> zkArb</label>
         <label class="inline">cancelNonce <input id="cancelNonce" spellcheck="false" value="${escapeHtml(opts.nonce)}" placeholder="uint256" /></label>
       </p>
       <table class="grid matrix">

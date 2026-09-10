@@ -2,6 +2,7 @@ import type { DualSignForm } from "../session/DualSignDraft.ts";
 import type { MatrixRow } from "../eligibility/matrix.ts";
 import { renderDualSignComposer } from "./DualSignComposer.ts";
 import { renderClocksPanel } from "./ClocksPanel.ts";
+import { renderDriftPanel, type DriftRow } from "./DriftPanel.ts";
 import { renderKindsPanel } from "./KindsPanel.ts";
 import { renderMatrixPanel } from "./MatrixPanel.ts";
 import { renderSettlementPanel } from "./SettlementPanel.ts";
@@ -24,9 +25,12 @@ export function renderDealView(
     digestP: string | null;
     digestC: string | null;
     sending: boolean;
+    zkArb: boolean;
+    drift: DriftRow[];
   },
   on: {
     coreWrites: (on: boolean) => void;
+    zkArb: (on: boolean) => void;
     nonce: (value: string) => void;
     send: (verb: string) => void;
     dualToggle: () => void;
@@ -44,17 +48,21 @@ export function renderDealView(
         <p><span class="chip is-on"><code>${statusName(deal.status)}</code></span></p>
         ${opts.writeError ? `<p class="bad">${opts.writeError.replaceAll("<", "&lt;")}</p>` : ""}
       </header>
-      ${renderMatrixPanel(matrix, senderLabel, { ...opts, dualSign: opts.dualSign })}
+      ${renderMatrixPanel(matrix, senderLabel, { ...opts, dualSign: opts.dualSign, zkArb: opts.zkArb })}
       <div id="dual-sign-slot"></div>
       ${renderTermsPanel(deal)}
       ${renderClocksPanel(deal)}
       ${renderKindsPanel(deal, bindings)}
+      ${renderDriftPanel(deal, opts.drift)}
       ${renderSubjectsPanel(deal)}
       ${renderSettlementPanel(deal)}
     </article>
   `;
   root.querySelector<HTMLInputElement>("#coreWrites")?.addEventListener("change", (e) => {
     on.coreWrites((e.target as HTMLInputElement).checked);
+  });
+  root.querySelector<HTMLInputElement>("#zkArb")?.addEventListener("change", (e) => {
+    on.zkArb((e.target as HTMLInputElement).checked);
   });
   root.querySelector<HTMLInputElement>("#cancelNonce")?.addEventListener("change", (e) => {
     on.nonce((e.target as HTMLInputElement).value.trim());

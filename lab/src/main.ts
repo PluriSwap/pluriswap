@@ -53,6 +53,9 @@ import {
   labSubmitRuling,
 } from "./lab/verbs.ts";
 import { sendActivate6 } from "./verbs/activateCore.ts";
+import { fetchCourtPref, type CourtPref } from "./deal/courtPref.ts";
+import type { DriftRow } from "./deal/DriftPanel.ts";
+import { isZkArb, sendZkArb } from "./verbs/zkArb.ts";
 import { sendActivate7 } from "./verbs/activatePackaged.ts";
 import { renderPackageModsPanel } from "./slots/PackageModsPanel.ts";
 import { computedIds, slotRows } from "./slots/resolve.ts";
@@ -117,6 +120,9 @@ const state = {
   labForm: emptyLabForm() as LabForm,
   labProof: null as string | null,
   labError: null as string | null,
+  zkArb: true,
+  courtPref: null as CourtPref | null,
+  dealPolicy: emptyPolicy() as LivePolicy,
 };
 
 const el = {
@@ -370,6 +376,7 @@ function paint(): void {
   );
   if (state.deal) {
     const sender = activeSender();
+    const drift = driftForDeal();
     const matrix = matrixForDeal(state.deal, sender, {
       credit: state.credit,
       ruling: state.ruling,
@@ -382,6 +389,18 @@ function paint(): void {
         recoveredP: state.recoveredP,
         recoveredC: state.recoveredC,
       }),
+      driftZk: drift.some((r) => r.slot === "zk" && r.liveId !== null && !r.inSigned),
+      driftArb: drift.some((r) => r.slot === "court" && r.liveId !== null && !r.inSigned),
+      proof: state.labProof,
+      courtPref: state.courtPref
+        ? {
+            kind: state.courtPref.kind,
+            courtFee: state.courtPref.courtFee,
+            allowance: state.courtPref.allowance,
+            cost: state.courtPref.cost,
+            msgValue: state.courtPref.kind === "kleros" ? state.courtPref.cost : 0n,
+          }
+        : null,
     });
     const label = sender ? `${state.activeRole} ${sender}` : `${state.activeRole} desconectado`;
     renderDealView(
@@ -399,10 +418,16 @@ function paint(): void {
         digestP: dualDigests().p,
         digestC: dualDigests().c,
         sending: state.sending,
+        zkArb: state.zkArb,
+        drift,
       },
       {
         coreWrites: (on) => {
           state.coreWrites = on;
+          paint();
+        },
+        zkArb: (on) => {
+          state.zkArb = on;
           paint();
         },
         nonce: (value) => {
@@ -547,8 +572,28 @@ async function refreshExtras(): Promise<void> {
   }
   if (!isZeroAddress(state.deal.modules.court)) {
     state.ruling = await fetchRuling(state.rpcUrl, state.deal.modules.court, state.deal.dealId);
+    try {
+      state.courtPref = await fetchCourtPref(
+        state.rpcUrl,
+        state.deal.modules.court,
+        state.deal.terms.controller,
+      );
+    } catch {
+      state.courtPref = null;
+    }
   } else {
     state.ruling = null;
+    state.courtPref = null;
+  }
+  try {
+    state.dealPolicy = await probeSlots(
+      state.rpcUrl,
+      state.deal.modules,
+      state.deal.terms.holder,
+      state.deal.terms.provider,
+    );
+  } catch {
+    state.dealPolicy = emptyPolicy();
   }
   if (state.deal) {
     try {
@@ -1006,9 +1051,42 @@ async function signCa(): Promise<void> {
   void refreshPreflight();
 }
 
+function driftForDeal(): DriftRow[] {
+  if (!state.deal) return [];
+  return slotRows(state.deal.modules, state.deal.terms.packageIds, state.dealPolicy, state.escrowPaste)
+    .filter((r) => r.address)
+    .map((r) => ({ slot: r.slot, liveId: r.id, inSigned: r.inIds === true }));
+}
+
 async function sendVerb(verb: string): Promise<void> {
   if (verb === "mutualCancel" || verb === "coSignedRelease" || verb === "mutualSplit") {
     await relayDual();
+    return;
+  }
+  if (isZkArb(verb)) {
+    if (!state.zkArb || !state.deal || !isAddress(state.escrowPaste)) return;
+    const pk = seatPk(state.activeRole) ?? seatPk("Relayer") ?? seatPk("Holder");
+    if (!pk) {
+      state.writeError = `asiento ${state.activeRole} sin pk`;
+      paint();
+      return;
+    }
+    try {
+      await sendZkArb({
+        rpcUrl: state.rpcUrl,
+        chainId: state.probe?.rpcChainId ?? state.chainId,
+        escrow: getAddress(state.escrowPaste) as HexAddress,
+        pk,
+        verb,
+        dealId: state.deal.dealId,
+        proof: (state.labProof as Hex | null) ?? "0x",
+        value: state.courtPref?.kind === "kleros" ? (state.courtPref.cost ?? 0n) : 0n,
+      });
+      await loadDeal();
+    } catch (err) {
+      state.writeError = err instanceof Error ? err.message : String(err);
+      paint();
+    }
     return;
   }
   if (!isCoreWrite(verb) || !state.deal || !isAddress(state.escrowPaste)) return;

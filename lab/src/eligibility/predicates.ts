@@ -20,12 +20,24 @@ export type DualSignDraft = {
   recoveredC?: string | null;
 };
 
+export type CourtPrefInput = {
+  kind: "mock" | "kleros" | "unknown";
+  courtFee: bigint | null;
+  allowance: bigint | null;
+  cost: bigint | null;
+  msgValue: bigint | null;
+};
+
 export type MatrixInput = {
   deal: DealSnapshot;
   sender: string | null;
   credit: bigint | null;
   ruling: number | null;
   dualSign: DualSignDraft | null;
+  driftZk?: boolean;
+  driftArb?: boolean;
+  proof?: string | null;
+  courtPref?: CourtPrefInput | null;
 };
 
 function isZk(deal: DealSnapshot): boolean {
@@ -183,6 +195,8 @@ export function evalVerifyProof(input: MatrixInput): Eval {
   const { deal } = input;
   if (deal.status !== Status.FUNDED) return disabled(R.WrongStatus);
   if (!isZk(deal)) return disabled(R.PackageNotSelected);
+  if (input.driftZk) return disabled(R.PackageDrift);
+  if (!input.proof) return disabled(R.NoProof, "ui-policy");
   return enabled();
 }
 
@@ -196,16 +210,23 @@ export function evalOpenCourt(input: MatrixInput): Eval {
   const missing = requireSender(sender);
   if (missing) return missing;
   if (!eq(sender!, deal.terms.controller)) return disabled(R.Unauthorized);
-  if (deal.status === Status.FIAT_SENT) {
-    return (
-      clockStrictlyBefore(deal.clocks.fiatSentAt, deal.terms.releaseDuration, deal.blockTimestamp) ??
-      enabled()
-    );
+  const clock =
+    deal.status === Status.FIAT_SENT
+      ? clockStrictlyBefore(deal.clocks.fiatSentAt, deal.terms.releaseDuration, deal.blockTimestamp)
+      : clockStrictlyBefore(deal.clocks.disputedAt, deal.terms.disputeDuration, deal.blockTimestamp);
+  if (clock) return clock;
+  if (input.driftArb) return disabled(R.PackageDrift);
+  const pref = input.courtPref;
+  if (pref?.kind === "mock") {
+    if (pref.courtFee !== null && (pref.allowance === null || pref.allowance < pref.courtFee)) {
+      return disabled(R.InexactPull);
+    }
   }
-  return (
-    clockStrictlyBefore(deal.clocks.disputedAt, deal.terms.disputeDuration, deal.blockTimestamp) ??
-    enabled()
-  );
+  if (pref?.kind === "kleros" && pref.cost !== null) {
+    const value = pref.msgValue ?? pref.cost;
+    if (value !== pref.cost) return disabled(R.InsufficientFee);
+  }
+  return enabled();
 }
 
 export function evalReadRuling(input: MatrixInput): Eval {

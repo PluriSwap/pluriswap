@@ -105,6 +105,14 @@ PATH-TRIO: `setHuman` ×2 (Holder y Provider), `mint`, `approve` vault, `vault.d
 
 El payload mock se ensambla aquí y se pega en `verifyProof` (PR-10).
 
+## Demo PR-10: ZK/ARB + drift
+
+Flag `zkArb`. `verifyProof` exige el payload LAB (no es un circuito). Deal ZK `FUNDED`: `markFiat`/`openDisputed`/`claim` = `EdgeOff`; `timeoutFiat` sigue. PATH-ZK-PROOF `(3600,1800,7200,0)`: ensamblar proof mock → `verifyProof` → `RELEASED`. PATH-ZK-TIMEOUT `(0,1800,7200,0)`: `timeoutFiat` due inmediato.
+
+PATH-ARB-MOCK `(3600,1800,7200, 1 days)`: `arbitrationDuration = 1 days`, **no** meter 1 days en `disputeDuration`. Controller approve **court** ≥ `courtFee`; `msg.value = 0`. Sin approve: matriz `Settlement.InexactPull`, no ENABLED. Luego `openCourt`, LAB `submitRuling`, `readRuling`. `forceArbitrationTimeout` no está due al abrir.
+
+PATH-KLEROS `(3600,1800,7200,7 days)`: `kernel()` vs Recinto; `msg.value == arbitrationCost(extraData)`. Drift no deshabilita Core (KERNEL-04).
+
 ## Fuera de este PR
 
-Verbos ZK/ARB PR-10.
+Espacio Pool PR-11.
