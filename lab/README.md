@@ -97,6 +97,14 @@ PATH-NEGATIVE-ZK-ARB: slots zk + court. Si ambos ids están en `packageIds` → 
 
 Trío sin `setHuman` (PR-9): `_engage` muestra `IPassport.NoPassport` (DISABLED), no ENABLED. Relayer envía overload 7; `PackageMods` no entra al digest.
 
+## Demo PR-9: jaula LAB
+
+Flag `labVerbs`. El panel Laboratorio está marcado visualmente distinto de los verbos kernel. Copy: **no es humanidad ni un proof de circuito**. No hay botón “Verify humanity”. `ArbitrationMock.open()` no aparece.
+
+PATH-TRIO: `setHuman` ×2 (Holder y Provider), `mint`, `approve` vault, `vault.deposit` del lock `(principal+9)/10`, `approve` escrow, activate 7-arg, `markFiat`, **release** (no claim). Reloj Anvil visible solo si `chainId == 31337`; warp 100s para CASE-CORE-11.
+
+El payload mock se ensambla aquí y se pega en `verifyProof` (PR-10).
+
 ## Fuera de este PR
 
-Jaula LAB PR-9.
+Verbos ZK/ARB PR-10.

@@ -13,6 +13,34 @@ export function normalizePk(pk: string): Hex {
   return (pk.startsWith("0x") ? pk : `0x${pk}`) as Hex;
 }
 
+export async function writeContractTx(args: {
+  rpcUrl: string;
+  chainId: number;
+  address: HexAddress;
+  pk: string;
+  abi: Abi;
+  functionName: string;
+  functionArgs?: readonly unknown[];
+  value?: bigint;
+}): Promise<Hex> {
+  const account = privateKeyToAccount(normalizePk(args.pk));
+  const chain = chainOf(args.chainId);
+  const wallet = createWalletClient({ account, chain, transport: http(args.rpcUrl) });
+  const hash = await wallet.writeContract({
+    address: args.address,
+    abi: args.abi,
+    functionName: args.functionName,
+    args: args.functionArgs ?? [],
+    value: args.value,
+    chain,
+    account,
+  });
+  const publicClient = createPublicClient({ chain, transport: http(args.rpcUrl) });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") throw new Error(`${args.functionName} reverted (${hash})`);
+  return hash;
+}
+
 export async function writeEscrow(args: {
   rpcUrl: string;
   chainId: number;
@@ -21,20 +49,7 @@ export async function writeEscrow(args: {
   abi: Abi;
   functionName: string;
   functionArgs?: readonly unknown[];
+  value?: bigint;
 }): Promise<Hex> {
-  const account = privateKeyToAccount(normalizePk(args.pk));
-  const chain = chainOf(args.chainId);
-  const wallet = createWalletClient({ account, chain, transport: http(args.rpcUrl) });
-  const hash = await wallet.writeContract({
-    address: args.escrow,
-    abi: args.abi,
-    functionName: args.functionName,
-    args: args.functionArgs ?? [],
-    chain,
-    account,
-  });
-  const publicClient = createPublicClient({ chain, transport: http(args.rpcUrl) });
-  const receipt = await publicClient.waitForTransactionReceipt({ hash });
-  if (receipt.status !== "success") throw new Error(`${args.functionName} reverted (${hash})`);
-  return hash;
+  return writeContractTx({ ...args, address: args.escrow });
 }

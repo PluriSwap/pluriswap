@@ -5,6 +5,7 @@ import {
   ROLES,
   type AddressSet,
   type HexAddress,
+  type HexBytes32,
   type RecintoRow,
   type Role,
   type SeatState,
@@ -41,6 +42,16 @@ import { ZERO_BYTES32, isHexBytes32, isZeroAddress, type DealSnapshot, type Modu
 import { matrixForDeal } from "./eligibility/matrix.ts";
 import { emptyDualSign, isDraftComplete, toMatrixDraft, type DualSignForm } from "./session/DualSignDraft.ts";
 import { probeRecinto, type RecintoProbe } from "./recinto/probe.ts";
+import { emptyLabForm, renderLabCage, type LabForm } from "./lab/LabCage.ts";
+import { encodeMockProof } from "./lab/proof.ts";
+import {
+  anvilIncreaseTime,
+  labApprove,
+  labDeposit,
+  labMint,
+  labSetHuman,
+  labSubmitRuling,
+} from "./lab/verbs.ts";
 import { sendActivate6 } from "./verbs/activateCore.ts";
 import { sendActivate7 } from "./verbs/activatePackaged.ts";
 import { renderPackageModsPanel } from "./slots/PackageModsPanel.ts";
@@ -102,6 +113,10 @@ const state = {
   modsDraft: emptyModsDraft() as ModsDraft,
   idsOverride: "",
   policy: emptyPolicy() as LivePolicy,
+  labVerbs: true,
+  labForm: emptyLabForm() as LabForm,
+  labProof: null as string | null,
+  labError: null as string | null,
 };
 
 const el = {
@@ -111,6 +126,7 @@ const el = {
   deal: document.querySelector<HTMLElement>("#deal-view")!,
   consent: document.querySelector<HTMLElement>("#consent")!,
   slots: document.querySelector<HTMLElement>("#slots")!,
+  lab: document.querySelector<HTMLElement>("#lab")!,
   book: document.querySelector<HTMLElement>("#address-book")!,
 };
 
@@ -288,6 +304,35 @@ function paint(): void {
         paint();
         void refreshSlots();
       },
+    },
+  );
+  renderLabCage(
+    el.lab,
+    {
+      labVerbs: state.labVerbs,
+      form: state.labForm,
+      proof: state.labProof,
+      anvil: (state.probe?.rpcChainId ?? state.chainId) === 31337,
+      error: state.labError,
+      passport: state.modsDraft.passport,
+      court: state.modsDraft.court,
+      token: state.draft.token,
+    },
+    {
+      toggle: () => {
+        state.labVerbs = !state.labVerbs;
+        paint();
+      },
+      form: (f) => {
+        state.labForm = f;
+      },
+      setHuman: () => void runLab("setHuman"),
+      encodeProof: () => encodeLabProof(),
+      submitRuling: () => void runLab("submitRuling"),
+      mint: () => void runLab("mint"),
+      approve: () => void runLab("approve"),
+      deposit: () => void runLab("deposit"),
+      warp: () => void runLab("warp"),
     },
   );
   renderRecintoHome(
@@ -793,6 +838,94 @@ async function refreshPreflight(): Promise<void> {
     mods: parseModsDraft(state.modsDraft),
     policy: state.policy,
   });
+  paint();
+}
+
+function encodeLabProof(): void {
+  const f = state.labForm;
+  const dealId = f.dealId || state.lookupDealId || state.deal?.dealId || "";
+  if (!isHexBytes32(dealId) || !isHexBytes32(f.nullifier)) {
+    state.labError = "dealId y nullifier bytes32";
+    paint();
+    return;
+  }
+  state.labProof = encodeMockProof(dealId, f.nullifier);
+  state.labError = null;
+  paint();
+}
+
+async function runLab(kind: "setHuman" | "submitRuling" | "mint" | "approve" | "deposit" | "warp"): Promise<void> {
+  if (!state.labVerbs) {
+    state.labError = "labVerbs off";
+    paint();
+    return;
+  }
+  const pk = seatPk(state.activeRole) ?? seatPk("Holder") ?? seatPk("Relayer");
+  const chainId = state.probe?.rpcChainId ?? state.chainId;
+  const f = state.labForm;
+  try {
+    if (kind === "warp") {
+      if (chainId !== 31337) throw new Error("reloj LAB solo en Anvil 31337");
+      await anvilIncreaseTime(state.rpcUrl, Number(f.warp || "0"));
+      if (state.deal) await loadDeal();
+      else paint();
+      return;
+    }
+    if (!pk) throw new Error("asiento activo sin pk");
+    const common = { rpcUrl: state.rpcUrl, chainId, pk };
+    if (kind === "setHuman") {
+      if (!isAddress(state.modsDraft.passport) || !isAddress(f.wallet) || !isHexBytes32(f.subject)) {
+        throw new Error("passport, wallet y subject bytes32");
+      }
+      await labSetHuman({
+        ...common,
+        passport: getAddress(state.modsDraft.passport) as HexAddress,
+        wallet: getAddress(f.wallet) as HexAddress,
+        subject: f.subject,
+      });
+    } else if (kind === "submitRuling") {
+      if (!isAddress(state.modsDraft.court) || !isHexBytes32(f.dealId || state.deal?.dealId || "")) {
+        throw new Error("court y dealId");
+      }
+      await labSubmitRuling({
+        ...common,
+        court: getAddress(state.modsDraft.court) as HexAddress,
+        dealId: (f.dealId || state.deal!.dealId) as HexBytes32,
+        ruling: Number(f.ruling || "0"),
+      });
+      if (state.deal) await loadDeal();
+    } else if (kind === "mint") {
+      if (!isAddress(state.draft.token) || !isAddress(f.mintTo)) throw new Error("token y mint to");
+      await labMint({
+        ...common,
+        token: getAddress(state.draft.token) as HexAddress,
+        to: getAddress(f.mintTo) as HexAddress,
+        amount: BigInt(f.mintAmount || "0"),
+      });
+    } else if (kind === "approve") {
+      if (!isAddress(state.draft.token) || !isAddress(f.approveSpender)) throw new Error("token y spender");
+      await labApprove({
+        ...common,
+        token: getAddress(state.draft.token) as HexAddress,
+        spender: getAddress(f.approveSpender) as HexAddress,
+        amount: BigInt(f.approveAmount || "0"),
+      });
+    } else if (kind === "deposit") {
+      if (!isAddress(f.vault) || !isHexBytes32(f.subject) || !isAddress(state.draft.token)) {
+        throw new Error("vault, subject y token");
+      }
+      await labDeposit({
+        ...common,
+        vault: getAddress(f.vault) as HexAddress,
+        subject: f.subject,
+        token: getAddress(state.draft.token) as HexAddress,
+        amount: BigInt(f.depositAmount || "0"),
+      });
+    }
+    state.labError = null;
+  } catch (err) {
+    state.labError = err instanceof Error ? err.message : String(err);
+  }
   paint();
 }
 

@@ -92,6 +92,7 @@ label input, label select { min-width: 8rem; }
 .set th { text-align: left; color: var(--muted); font-weight: 400; padding: 0.15rem 0.4rem 0.15rem 0; vertical-align: top; white-space: nowrap; }
 .set td { overflow-wrap: anywhere; }
 
+.lab-cage { border-left: 3px solid var(--warn); padding-left: 0.85rem; }
 .soon { margin-top: 1.5rem; border-top: 1px solid var(--line); padding-top: 1rem; }
 main { padding: 1rem 1.25rem 3rem; }
 #recinto-home { padding: 0; }
