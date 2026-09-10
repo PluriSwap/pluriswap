@@ -1,6 +1,7 @@
 import { createPublicClient, http, isAddress, type Hex } from "viem";
 import type { HexAddress, HexBytes32 } from "../addressbook/types.ts";
 import { courtAbi, iescrowAbi, kernelAbi, operatorAbi } from "../recinto/iescrow.ts";
+import { erc20Abi } from "../verbs/activateAbi.ts";
 import { modulesPresent } from "./kinds.ts";
 import {
   ZERO_BYTES32,
@@ -146,6 +147,50 @@ export async function fetchCredit(
     abi: iescrowAbi,
     functionName: "creditOf",
     args: [token, beneficiary],
+  });
+}
+
+export async function fetchUsed(
+  rpcUrl: string,
+  escrow: HexAddress,
+  signer: HexAddress,
+  nonce: bigint,
+): Promise<boolean> {
+  const client = createPublicClient({ transport: http(rpcUrl) });
+  return client.readContract({
+    address: escrow,
+    abi: iescrowAbi,
+    functionName: "used",
+    args: [signer, nonce],
+  });
+}
+
+export async function fetchAllowance(
+  rpcUrl: string,
+  token: HexAddress,
+  owner: HexAddress,
+  spender: HexAddress,
+): Promise<bigint> {
+  const client = createPublicClient({ transport: http(rpcUrl) });
+  return client.readContract({
+    address: token,
+    abi: erc20Abi,
+    functionName: "allowance",
+    args: [owner, spender],
+  });
+}
+
+export async function fetchStatus(
+  rpcUrl: string,
+  escrow: HexAddress,
+  dealId: HexBytes32,
+): Promise<number> {
+  const client = createPublicClient({ transport: http(rpcUrl) });
+  return client.readContract({
+    address: escrow,
+    abi: iescrowAbi,
+    functionName: "status",
+    args: [dealId],
   });
 }
 

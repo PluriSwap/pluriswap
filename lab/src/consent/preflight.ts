@@ -1,0 +1,147 @@
+import { recoverTypedDataAddress } from "viem";
+import type { HexAddress } from "../addressbook/types.ts";
+import { Status, type DealTerms } from "../deal/types.ts";
+import { R, disabled, enabled, type Eval } from "../eligibility/errors.ts";
+import { firstTermsRevert } from "../eligibility/terms.ts";
+import { eip712Domain, eip712Types, hashTerms, type Envelope } from "./eip712.ts";
+
+export type CorePreflightInput = {
+  terms: DealTerms;
+  ha: Envelope;
+  pa: Envelope;
+  holderSig: `0x${string}` | null;
+  providerSig: `0x${string}` | null;
+  chainId: number;
+  escrow: HexAddress;
+  now: bigint;
+  usedHolder: boolean;
+  usedProvider: boolean;
+  allowance: bigint | null;
+  dealStatus: number | null;
+  coreActivate: boolean;
+};
+
+export type PreflightStep = { step: string; eval: Eval };
+
+export async function preflightActivateCore(input: CorePreflightInput): Promise<PreflightStep[]> {
+  const steps: PreflightStep[] = [];
+  const push = (step: string, ev: Eval) => {
+    steps.push({ step, eval: ev });
+  };
+
+  if (!input.coreActivate) {
+    push("flag coreActivate", disabled("coreActivate off", "ui-policy"));
+    return steps;
+  }
+  if (input.terms.packageIds.length !== 0) {
+    push("Core-only", disabled("PR-8 PackageMods", "ui-policy"));
+    return steps;
+  }
+  if (input.terms.holder.toLowerCase() !== input.terms.controller.toLowerCase()) {
+    push("P2P", disabled("PR-7 ControllerAcceptance", "ui-policy"));
+    return steps;
+  }
+
+  push("Terms.hashTerms(HA)", firstTermsRevert(input.ha.terms));
+  if (!steps[steps.length - 1]!.eval.enabled) return steps;
+  push("Terms.hashTerms(PA)", firstTermsRevert(input.pa.terms));
+  if (!steps[steps.length - 1]!.eval.enabled) return steps;
+
+  const mismatch = hashTerms(input.ha.terms) !== hashTerms(input.pa.terms);
+  push("TermsMismatch", mismatch ? disabled(R.TermsMismatch) : enabled());
+  if (mismatch) return steps;
+
+  if (input.now > input.ha.deadline || input.now > input.pa.deadline) {
+    push("DeadlinePassed", disabled(R.DeadlinePassed));
+    return steps;
+  }
+  push("DeadlinePassed", enabled());
+
+  if (input.holderSig) {
+    const recovered = await recoverTypedDataAddress({
+      domain: eip712Domain(input.chainId, input.escrow),
+      types: eip712Types,
+      primaryType: "HolderAuthorization",
+      message: envelopeMessage(input.ha),
+      signature: input.holderSig,
+    });
+    push(
+      "InvalidHolderSignature",
+      recovered.toLowerCase() === input.terms.holder.toLowerCase()
+        ? enabled()
+        : disabled("Escrow.InvalidHolderSignature"),
+    );
+    if (!steps[steps.length - 1]!.eval.enabled) return steps;
+  } else {
+    push("InvalidHolderSignature", disabled("sin HolderAuthorization", "ui-policy"));
+    return steps;
+  }
+
+  if (input.providerSig) {
+    const recovered = await recoverTypedDataAddress({
+      domain: eip712Domain(input.chainId, input.escrow),
+      types: eip712Types,
+      primaryType: "ProviderAgreement",
+      message: envelopeMessage(input.pa),
+      signature: input.providerSig,
+    });
+    push(
+      "InvalidProviderSignature",
+      recovered.toLowerCase() === input.terms.provider.toLowerCase()
+        ? enabled()
+        : disabled("Escrow.InvalidProviderSignature"),
+    );
+    if (!steps[steps.length - 1]!.eval.enabled) return steps;
+  } else {
+    push("InvalidProviderSignature", disabled("sin ProviderAgreement", "ui-policy"));
+    return steps;
+  }
+
+  push("CA (P2P dummy, ignored)", enabled());
+
+  if (input.usedHolder || input.usedProvider) {
+    push("NonceUsed", disabled("Escrow.NonceUsed"));
+    return steps;
+  }
+  push("NonceUsed", enabled());
+
+  push("_resolve Core-only []", enabled());
+
+  if (input.dealStatus !== null && input.dealStatus !== Status.NONE) {
+    push("DealExists", disabled("Escrow.DealExists"));
+    return steps;
+  }
+  push("DealExists", enabled());
+
+  push("_engage (Core: skip)", enabled());
+
+  if (input.allowance === null) {
+    push("pullExact", disabled("allowance desconocido", "ui-policy"));
+    return steps;
+  }
+  if (input.allowance < input.terms.principal) {
+    push("pullExact", disabled("Settlement.InexactPull"));
+    return steps;
+  }
+  push("pullExact allowance >= principal", enabled());
+  return steps;
+}
+
+function envelopeMessage(env: Envelope) {
+  return {
+    terms: {
+      holder: env.terms.holder,
+      controller: env.terms.controller,
+      provider: env.terms.provider,
+      token: env.terms.token,
+      principal: env.terms.principal,
+      fiatDuration: env.terms.fiatDuration,
+      releaseDuration: env.terms.releaseDuration,
+      disputeDuration: env.terms.disputeDuration,
+      arbitrationDuration: env.terms.arbitrationDuration,
+      packageIds: env.terms.packageIds,
+    },
+    nonce: env.nonce,
+    deadline: env.deadline,
+  };
+}

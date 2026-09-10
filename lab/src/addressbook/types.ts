@@ -26,8 +26,10 @@ export type RecintoRow = {
 
 export type SeatState = {
   role: Role;
-  /** Session paste only. Never persisted. Not a connected wallet in PR-1. */
+  /** Session paste only. Never persisted. */
   address: string | null;
+  /** Session only. Never written to AddressBook or localStorage. */
+  pk: string | null;
 };
 
 export const DEFAULT_RPC: Record<number, string> = {

@@ -101,6 +101,16 @@ main { padding: 1rem 1.25rem 3rem; }
 table.grid { width: 100%; border-collapse: collapse; font-size: 0.78rem; }
 table.grid th, table.grid td { text-align: left; vertical-align: top; padding: 0.35rem 0.5rem 0.35rem 0; border-bottom: 1px solid var(--line); }
 table.grid th { color: var(--muted); font-weight: 400; }
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 0.5rem 0.75rem;
+}
+.form-grid .full { grid-column: 1 / -1; }
+label.inline { flex-direction: row; align-items: center; gap: 0.4rem; color: var(--text); }
+.preflight { font-size: 0.85rem; }
+.encode { font-size: 0.75rem; overflow-x: auto; border: 1px solid var(--line); padding: 0.6rem; }
+.seat input[type="password"] { font-size: 0.7rem; }
 h1, h2, h3 { font-weight: 550; letter-spacing: 0.01em; }
 h1 { font-size: 1.25rem; }
 h2 { font-size: 1rem; }

@@ -4,7 +4,11 @@ export function renderRoleStrip(
   root: HTMLElement,
   seats: SeatState[],
   active: Role,
-  on: { active: (role: Role) => void; address: (role: Role, value: string) => void },
+  on: {
+    active: (role: Role) => void;
+    address: (role: Role, value: string) => void;
+    pk: (role: Role, value: string) => void;
+  },
 ): void {
   const holder = seats.find((s) => s.role === "Holder")?.address;
   const controller = seats.find((s) => s.role === "Controller")?.address;
@@ -13,7 +17,7 @@ export function renderRoleStrip(
   root.innerHTML = `
     <div class="roles-head">
       <span>Asientos</span>
-      <span class="muted">PR-1: desconectados. Pegar address es sesión, no una wallet. No hay secretos.</span>
+      <span class="muted">PK de sesión (Anvil/test). Nunca en el AddressBook. Relayer envía <code>activate</code>.</span>
       ${p2p ? `<span class="chip">Holder=Controller</span>` : ""}
     </div>
     <div class="roles">
@@ -25,8 +29,10 @@ export function renderRoleStrip(
               <strong>${seat.role}</strong>
               <span class="muted">${seat.address ? "address de sesión" : "desconectado"}</span>
             </button>
-            <input spellcheck="false" data-role="${seat.role}" placeholder="0x… (opcional)"
+            <input spellcheck="false" data-addr="${seat.role}" placeholder="0x…"
               value="${seat.address ?? ""}" />
+            <input type="password" data-pk="${seat.role}" placeholder="pk sesión" autocomplete="off"
+              value="${seat.pk ?? ""}" />
           </article>`;
         })
         .join("")}
@@ -37,10 +43,16 @@ export function renderRoleStrip(
   root.querySelectorAll<HTMLButtonElement>(".seat-pick").forEach((btn) => {
     btn.addEventListener("click", () => on.active(btn.dataset.role as Role));
   });
-  root.querySelectorAll<HTMLInputElement>("input[data-role]").forEach((input) => {
+  root.querySelectorAll<HTMLInputElement>("input[data-addr]").forEach((input) => {
     input.addEventListener("change", () => {
-      const role = input.dataset.role as Role;
+      const role = input.dataset.addr as Role;
       if (ROLES.includes(role)) on.address(role, input.value.trim());
+    });
+  });
+  root.querySelectorAll<HTMLInputElement>("input[data-pk]").forEach((input) => {
+    input.addEventListener("change", () => {
+      const role = input.dataset.pk as Role;
+      if (ROLES.includes(role)) on.pk(role, input.value.trim());
     });
   });
 }

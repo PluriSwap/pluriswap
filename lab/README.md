@@ -59,6 +59,20 @@ Deal `FIAT_SENT` con `releaseDuration=0`: `openDisputed` = `Clocks.TooLate`; `cl
 
 Filas dual-sign = `draft-empty` hasta el composer (PR-6). CASE-CORE-16/17 (`release`/`claim` en `DISPUTED`, verbos en terminal) siguen visibles con `WrongStatus`.
 
+## Demo PR-4: `activate` P2P Core-only (6 args)
+
+Anvil (`31337`). Cuentas Foundry 0 (Holder=Relayer) y 1 (Provider). PK solo en el asiento, nunca en el AddressBook.
+
+```bash
+# mint + approve al escrow del Recinto 31337
+cast send $TOKEN "mint(address,uint256)" $HOLDER 1000000 --private-key $PK0 --rpc-url http://127.0.0.1:8545
+cast send $TOKEN "approve(address,uint256)" $ESCROW 1000000 --private-key $PK0 --rpc-url http://127.0.0.1:8545
+```
+
+En Consentimiento: copiar asientos, testToken del set, nonces libres, deadline unix futuro, (3600, 1800, 7200, 0), `packageIds=[]`. Firmar HA y PA. Relayer envía overload **6** con CA dummy + `bytes("")`. `status == FUNDED`. El inspector muestra 6 args.
+
+Si `holder != controller` el preflight corta con PR-7. Si hay `packageIds` corta con PR-8.
+
 ## Fuera de este PR
 
-`activate` y verbos de escritura (PR-4+), composer dual-sign (PR-6).
+Verbos de asiento (`markFiat`…) PR-5. Controller distinto PR-7. Dual-sign PR-6.
