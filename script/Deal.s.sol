@@ -4,7 +4,13 @@ pragma solidity ^0.8.28;
 import {Script, console} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {Status, DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance} from "../src/libraries/Types.sol";
+import {
+    Status,
+    DealTerms,
+    HolderAuthorization,
+    ProviderAgreement,
+    ControllerAcceptance
+} from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {TestToken} from "../src/TestToken.sol";

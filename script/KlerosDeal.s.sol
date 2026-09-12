@@ -5,7 +5,14 @@ import {Script, console} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {Status, DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance, PackageMods} from "../src/libraries/Types.sol";
+import {
+    Status,
+    DealTerms,
+    HolderAuthorization,
+    ProviderAgreement,
+    ControllerAcceptance,
+    PackageMods
+} from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {TestToken} from "../src/TestToken.sol";
@@ -108,8 +115,7 @@ contract KlerosDeal is Script {
 
         HolderAuthorization memory ha =
             HolderAuthorization({terms: terms, nonce: 1, deadline: block.timestamp + 1 days});
-        ProviderAgreement memory pa =
-            ProviderAgreement({terms: terms, nonce: 1, deadline: block.timestamp + 1 days});
+        ProviderAgreement memory pa = ProviderAgreement({terms: terms, nonce: 1, deadline: block.timestamp + 1 days});
         ControllerAcceptance memory ca;
         PackageMods memory mods;
         mods.court = address(court);

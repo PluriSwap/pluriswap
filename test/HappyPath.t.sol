@@ -38,6 +38,7 @@ contract HappyPathTest is BaseTest {
         vm.prank(holder);
         escrow.release(id);
     }
+
     function test_markFiat_onlyProvider() public {
         bytes32 id = _activateP2P(1, 1);
 

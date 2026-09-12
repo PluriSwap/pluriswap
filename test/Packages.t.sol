@@ -237,9 +237,7 @@ contract PackagesTest is BaseTest {
     function test_p2p_holderWin_slashesBondToHolder() public {
         _fundBonds();
         DealTerms memory terms = _p2pTerms();
-        terms.packageIds = _sorted4(
-            passport.packageId(), reputation.packageId(), vault.packageId(), court.packageId()
-        );
+        terms.packageIds = _sorted4(passport.packageId(), reputation.packageId(), vault.packageId(), court.packageId());
         terms.arbitrationDuration = 1 days;
         PackageMods memory mods = _trioMods();
         mods.court = address(court);

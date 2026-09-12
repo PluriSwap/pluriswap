@@ -190,8 +190,9 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
             if (ca.terms.controller != terms.controller) revert ControllerAcceptanceRequired();
             if (termsHash != Terms.hashTerms(ca.terms)) revert TermsMismatch();
             if (block.timestamp > ca.deadline) revert DeadlinePassed();
-            if (!Consent.isValid(terms.controller, _hashTypedDataV4(Consent.hashControllerAcceptance(ca)), controllerSig))
-            {
+            if (!Consent.isValid(
+                    terms.controller, _hashTypedDataV4(Consent.hashControllerAcceptance(ca)), controllerSig
+                )) {
                 revert InvalidControllerSignature();
             }
             if (used[terms.controller][ca.nonce]) revert NonceUsed();
@@ -243,7 +244,16 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         if (d.status != Status.FIAT_SENT) revert WrongStatus();
         if (msg.sender != d.terms.controller) revert Unauthorized();
         uint256 left = _takeCompletion(d);
-        _finish(dealId, d, Status.RELEASED, 0, left, IReputation.Close.Peaceful, IReputation.Close.Peaceful, BondAction.Unlock);
+        _finish(
+            dealId,
+            d,
+            Status.RELEASED,
+            0,
+            left,
+            IReputation.Close.Peaceful,
+            IReputation.Close.Peaceful,
+            BondAction.Unlock
+        );
     }
 
     function cancelByProvider(bytes32 dealId) external nonReentrant {
@@ -284,7 +294,14 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         _requireNotZk(d);
         Clocks.requireDue(d.fiatSentAt, d.terms.releaseDuration);
         _finish(
-            dealId, d, Status.RELEASED, 0, d.terms.principal, IReputation.Close.Silent, IReputation.Close.Silent, BondAction.Unlock
+            dealId,
+            d,
+            Status.RELEASED,
+            0,
+            d.terms.principal,
+            IReputation.Close.Silent,
+            IReputation.Close.Silent,
+            BondAction.Unlock
         );
     }
 
@@ -368,7 +385,14 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         );
         uint256 left = _takeCompletion(d);
         _finish(
-            providerMsg.dealId, d, Status.RELEASED, 0, left, IReputation.Close.Peaceful, IReputation.Close.Peaceful, BondAction.Unlock
+            providerMsg.dealId,
+            d,
+            Status.RELEASED,
+            0,
+            left,
+            IReputation.Close.Peaceful,
+            IReputation.Close.Peaceful,
+            BondAction.Unlock
         );
     }
 
@@ -418,7 +442,16 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         zk.verifyProof(dealId, proof);
         uint256 left = _invoiceFrom(d.terms.principal, zk.verifyFee(), d.terms.token, zk.feeRecipient());
         left = _takeCompletionFrom(d, left);
-        _finish(dealId, d, Status.RELEASED, 0, left, IReputation.Close.Peaceful, IReputation.Close.Peaceful, BondAction.Unlock);
+        _finish(
+            dealId,
+            d,
+            Status.RELEASED,
+            0,
+            left,
+            IReputation.Close.Peaceful,
+            IReputation.Close.Peaceful,
+            BondAction.Unlock
+        );
     }
 
     function openCourt(bytes32 dealId) external payable nonReentrant {
@@ -527,7 +560,9 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         if (mods.reputation != address(0)) {
             IReputation r = IReputation(mods.reputation);
             if (address(r.passport()) != mods.passport) revert PeerMismatch();
-            _requireNamed(ids, PackageId.reputation(mods.reputation, r.feeRecipient(), r.activationFee(), r.completionFee()));
+            _requireNamed(
+                ids, PackageId.reputation(mods.reputation, r.feeRecipient(), r.activationFee(), r.completionFee())
+            );
             pkgs |= PKG_REP;
             matched++;
         }
@@ -608,9 +643,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         if ((d.pkgs & PKG_REP) == 0) return left;
         IReputation r = IReputation(d.mods.reputation);
         // TRUST-03: a module that drifts its policy loses the invoice; Core exits keep running.
-        if (
-            !_named(d, PackageId.reputation(address(r), r.feeRecipient(), r.activationFee(), r.completionFee()))
-        ) {
+        if (!_named(d, PackageId.reputation(address(r), r.feeRecipient(), r.activationFee(), r.completionFee()))) {
             return left;
         }
         return _invoiceFrom(left, r.completionFee(), d.terms.token, r.feeRecipient());
@@ -663,7 +696,8 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
             address controller = d.terms.controller == d.terms.holder ? address(0) : d.terms.controller;
             try vault.slash(d.subjectP, d.subjectH, d.terms.token, dealId, d.terms.holder, controller) {} catch {}
         } else {
-            try vault.slash(d.subjectH, d.subjectP, d.terms.token, dealId, d.terms.provider, d.terms.controller) {} catch {}
+            try vault.slash(d.subjectH, d.subjectP, d.terms.token, dealId, d.terms.provider, d.terms.controller) {}
+                catch {}
         }
     }
 
@@ -688,9 +722,9 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     }
 
     function _assertLiveForDualSign(Status s) private pure {
-        if (
-            s != Status.FUNDED && s != Status.FIAT_SENT && s != Status.DISPUTED && s != Status.ARBITRATION_ACTIVE
-        ) revert WrongStatus();
+        if (s != Status.FUNDED && s != Status.FIAT_SENT && s != Status.DISPUTED && s != Status.ARBITRATION_ACTIVE) {
+            revert WrongStatus();
+        }
     }
 
     function _assertDualSignFromActive(Status s) private pure {
@@ -707,7 +741,9 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         bytes calldata controllerSig,
         uint256 controllerNonce
     ) private {
-        if (!Consent.isValid(provider, providerDigest, providerSig)) revert InvalidProviderSignature();
+        if (!Consent.isValid(provider, providerDigest, providerSig)) {
+            revert InvalidProviderSignature();
+        }
         if (!Consent.isValid(controller, controllerDigest, controllerSig)) revert InvalidControllerSignature();
         if (used[provider][providerNonce] || used[controller][controllerNonce]) revert NonceUsed();
         used[provider][providerNonce] = true;

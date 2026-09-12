@@ -8,6 +8,7 @@ import {PluriSwapKlerosTemplate} from "../src/packages/PluriSwapKlerosTemplate.s
 import {IArbitrableV2, IArbitratorV2} from "../src/packages/interfaces/IKlerosV2.sol";
 import {MockArbitratorV2} from "../src/mocks/MockArbitratorV2.sol";
 import {MockTemplateRegistry} from "../src/mocks/MockTemplateRegistry.sol";
+
 contract KlerosAdapterTest is Test {
     uint256 internal constant COST = 0.01 ether;
     bytes32 internal constant DEAL = keccak256("deal-kleros");

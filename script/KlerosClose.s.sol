@@ -45,7 +45,7 @@ contract KlerosClose is Script {
         }
         vm.stopBroadcast();
 
-        (uint96 courtId, , uint8 period, bool ruled, uint256 lastChange) = core.disputes(disputeId);
+        (uint96 courtId,, uint8 period, bool ruled, uint256 lastChange) = core.disputes(disputeId);
         uint8 adapterRuling = court.readRuling(dealId);
         uint8 status = uint8(escrow.status(dealId));
         console.log("period", period);
@@ -62,17 +62,17 @@ contract KlerosClose is Script {
     }
 
     function _advance(IKlerosCoreAdvance core, uint256 disputeId) internal {
-        (uint96 courtId, , uint8 period, bool ruled, uint256 lastChange) = core.disputes(disputeId);
+        (uint96 courtId,, uint8 period, bool ruled, uint256 lastChange) = core.disputes(disputeId);
         if (period == PERIOD_EVIDENCE) {
             uint256 drawn = core.draw(disputeId, 20);
             console.log("drawn", drawn);
-            (courtId, , period, ruled, lastChange) = core.disputes(disputeId);
+            (courtId,, period, ruled, lastChange) = core.disputes(disputeId);
         }
         if (!ruled && period < PERIOD_EXECUTION) {
             uint256[4] memory times = core.getTimesPerPeriod(courtId);
             if (block.timestamp >= lastChange + times[period]) {
                 core.passPeriod(disputeId);
-                (courtId, , period, ruled, lastChange) = core.disputes(disputeId);
+                (courtId,, period, ruled, lastChange) = core.disputes(disputeId);
                 console.log("passedTo", period);
             }
         }

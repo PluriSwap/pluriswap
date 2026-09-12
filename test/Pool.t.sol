@@ -939,7 +939,14 @@ contract PoolTest is BaseTest {
         assertEq(token.allowance(address(pool), address(escrow)), PRINCIPAL * 2);
 
         DealTerms memory terms = _poolHolderTerms();
-        escrow.activate(ha, "", _providerAuth(terms, 1), _signProvider(_providerAuth(terms, 1)), _controllerAuth(terms, 1), _signController(_controllerAuth(terms, 1)));
+        escrow.activate(
+            ha,
+            "",
+            _providerAuth(terms, 1),
+            _signProvider(_providerAuth(terms, 1)),
+            _controllerAuth(terms, 1),
+            _signController(_controllerAuth(terms, 1))
+        );
         pool.sync();
         assertEq(token.allowance(address(pool), address(escrow)), PRINCIPAL);
     }

@@ -5,7 +5,13 @@ import {Script, console} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
-import {Status, DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance} from "../src/libraries/Types.sol";
+import {
+    Status,
+    DealTerms,
+    HolderAuthorization,
+    ProviderAgreement,
+    ControllerAcceptance
+} from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {RampIntent, RampQuote} from "../src/ramps/interfaces/IRamp.sol";
@@ -105,8 +111,7 @@ contract RampDeal is Script {
 
         HolderAuthorization memory ha =
             HolderAuthorization({terms: terms, nonce: 4, deadline: block.timestamp + 1 days});
-        ProviderAgreement memory pa =
-            ProviderAgreement({terms: terms, nonce: 4, deadline: block.timestamp + 1 days});
+        ProviderAgreement memory pa = ProviderAgreement({terms: terms, nonce: 4, deadline: block.timestamp + 1 days});
         ControllerAcceptance memory ca;
 
         bytes memory holderSig = _sign(escrow, Consent.hashHolderAuthorization(ha), holderPk);

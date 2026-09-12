@@ -278,8 +278,7 @@ contract Pool is ReentrancyGuardTransient {
         Auth storage a = auths[nonce];
         if (!a.exists || a.unlocked || a.reconciled) revert NoAuth();
         if (!IEscrow(escrow).used(address(this), nonce)) revert StillLive();
-        bytes32 id =
-            Consent.dealId(IEscrow(escrow).domainSeparator(), a.terms, nonce, providerNonce, controllerNonce);
+        bytes32 id = Consent.dealId(IEscrow(escrow).domainSeparator(), a.terms, nonce, providerNonce, controllerNonce);
         (Status st, uint256 returned,) = IEscrow(escrow).settlementOf(id);
         if (!_terminal(st)) revert StillLive();
         if (returned > a.terms.principal) revert BadReturn();
@@ -353,8 +352,7 @@ contract Pool is ReentrancyGuardTransient {
     }
 
     function _digest(HolderAuthorization calldata ha) internal view returns (bytes32) {
-        return
-            MessageHashUtils.toTypedDataHash(IEscrow(escrow).domainSeparator(), Consent.hashHolderAuthorization(ha));
+        return MessageHashUtils.toTypedDataHash(IEscrow(escrow).domainSeparator(), Consent.hashHolderAuthorization(ha));
     }
 
     function _onHand() internal view returns (uint256) {

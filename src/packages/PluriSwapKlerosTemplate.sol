@@ -13,7 +13,7 @@ library PluriSwapKlerosTemplate {
             '{"id":"0x00","title":"Refuse to Arbitrate / Invalid","description":"The dispute cannot be decided."},',
             '{"id":"0x01","title":"Holder","description":"Return the principal to the Holder."},',
             '{"id":"0x02","title":"Provider","description":"Release the principal to the Provider."}',
-            '],',
+            "],",
             '"arbitratorChainID":"421614",',
             '"arbitratorAddress":"0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479",',
             '"category":"Escrow","lang":"en_US","specification":"KIP-99","version":"1.0"}'

@@ -190,8 +190,7 @@ contract Paths is Script {
         uint256 n = actNonce++;
         HolderAuthorization memory ha =
             HolderAuthorization({terms: terms, nonce: n, deadline: block.timestamp + 1 days});
-        ProviderAgreement memory pa =
-            ProviderAgreement({terms: terms, nonce: n, deadline: block.timestamp + 1 days});
+        ProviderAgreement memory pa = ProviderAgreement({terms: terms, nonce: n, deadline: block.timestamp + 1 days});
         ControllerAcceptance memory ca;
         bytes memory holderSig = _sign(Consent.hashHolderAuthorization(ha), holderPk);
         bytes memory providerSig = _sign(Consent.hashProviderAgreement(pa), providerPk);

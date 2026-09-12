@@ -35,9 +35,7 @@ contract ReputationTest is Test {
 
     function test_packageId_passportAndReputationStable() public view {
         assertEq(passport.packageId(), PackageId.passport(address(passport)));
-        assertEq(
-            reputation.packageId(), PackageId.reputation(address(reputation), feeRecipient, 1_000_000, 2_000_000)
-        );
+        assertEq(reputation.packageId(), PackageId.reputation(address(reputation), feeRecipient, 1_000_000, 2_000_000));
     }
 
     function test_invoice_declaredInPackage() public view {
@@ -206,6 +204,7 @@ contract TerminalHarness {
 
     function releaseThenNotify(Reputation r, address wallet, address token, uint256 principal) external {
         status = Status.RELEASED;
-        try r.notifyTerminal(bytes32(uint256(uint160(wallet))), token, principal, IReputation.Close.Peaceful) {} catch {}
+        try r.notifyTerminal(bytes32(uint256(uint160(wallet))), token, principal, IReputation.Close.Peaceful) {}
+            catch {}
     }
 }

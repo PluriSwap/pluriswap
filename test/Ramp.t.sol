@@ -118,12 +118,7 @@ contract RampTest is Test {
 
     function _intent(uint256 amount, uint256 minOut) internal view returns (RampIntent memory) {
         return RampIntent({
-            token: address(token),
-            amount: amount,
-            minAmountOut: minOut,
-            dest: DEST,
-            to: destWallet,
-            refund: refund
+            token: address(token), amount: amount, minAmountOut: minOut, dest: DEST, to: destWallet, refund: refund
         });
     }
 

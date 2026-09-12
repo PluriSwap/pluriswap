@@ -61,10 +61,7 @@ contract Reputation is IReputation {
         return (s.successCount, s.penalty, s.volume);
     }
 
-    function admit(address wallet, address token, uint256 principal, address vault)
-        external
-        returns (bytes32 subject)
-    {
+    function admit(address wallet, address token, uint256 principal, address vault) external returns (bytes32 subject) {
         if (msg.sender != operator) revert Unauthorized();
         subject = passport.identify(wallet);
         uint256 next = inFlight[subject][token] + principal;

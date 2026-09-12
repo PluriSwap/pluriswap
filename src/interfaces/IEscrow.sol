@@ -24,10 +24,7 @@ interface IEscrow {
 
     function kinds(bytes32 dealId) external view returns (uint8);
 
-    function settlementOf(bytes32 dealId)
-        external
-        view
-        returns (Status status_, uint256 holderAmt, uint256 providerAmt);
+    function settlementOf(bytes32 dealId) external view returns (Status status_, uint256 holderAmt, uint256 providerAmt);
 
     function creditOf(address token, address beneficiary) external view returns (uint256);
 }

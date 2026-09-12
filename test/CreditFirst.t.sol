@@ -42,9 +42,7 @@ contract CreditFirstTest is BaseTest {
         escrow.markFiat(id);
         vm.prank(holder);
         escrow.openDisputed(id);
-        vm.mockCallRevert(
-            address(token), abi.encodeCall(IERC20.transfer, (holder, PRINCIPAL / 2)), "blocked"
-        );
+        vm.mockCallRevert(address(token), abi.encodeCall(IERC20.transfer, (holder, PRINCIPAL / 2)), "blocked");
         escrow.forceStalemate(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
         assertEq(escrow.creditOf(address(token), holder), PRINCIPAL / 2);

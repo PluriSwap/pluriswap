@@ -86,9 +86,7 @@ contract SettlementTest is Test {
     function test_withdraw_paysBeneficiary() public {
         address provider = address(0xB0B);
         token.mint(address(harness), PRINCIPAL);
-        vm.mockCallRevert(
-            address(token), abi.encodeCall(IERC20.transfer, (provider, PRINCIPAL)), "blocked"
-        );
+        vm.mockCallRevert(address(token), abi.encodeCall(IERC20.transfer, (provider, PRINCIPAL)), "blocked");
         harness.creditThenTryPush(address(token), provider, PRINCIPAL);
         assertEq(harness.creditOf(address(token), provider), PRINCIPAL);
         vm.clearMockedCalls();
@@ -102,9 +100,7 @@ contract SettlementTest is Test {
     function test_withdraw_revertingKeepsCredit() public {
         address provider = address(0xB0B);
         token.mint(address(harness), PRINCIPAL);
-        vm.mockCallRevert(
-            address(token), abi.encodeCall(IERC20.transfer, (provider, PRINCIPAL)), "blocked"
-        );
+        vm.mockCallRevert(address(token), abi.encodeCall(IERC20.transfer, (provider, PRINCIPAL)), "blocked");
         harness.creditThenTryPush(address(token), provider, PRINCIPAL);
 
         vm.prank(provider);

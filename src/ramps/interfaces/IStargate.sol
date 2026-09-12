@@ -51,10 +51,7 @@ interface IStargate {
         view
         returns (OFTLimit memory, OFTFeeDetail[] memory, OFTReceipt memory);
 
-    function quoteSend(SendParam calldata sendParam, bool payInLzToken)
-        external
-        view
-        returns (MessagingFee memory);
+    function quoteSend(SendParam calldata sendParam, bool payInLzToken) external view returns (MessagingFee memory);
 
     function sendToken(SendParam calldata sendParam, MessagingFee calldata fee, address refundAddress)
         external

@@ -4,12 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
-import {
-    DealTerms,
-    HolderAuthorization,
-    ProviderAgreement,
-    ControllerAcceptance
-} from "../src/libraries/Types.sol";
+import {DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance} from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Mock1271} from "../src/mocks/Mock1271.sol";
 
@@ -145,8 +140,6 @@ contract ConsentTest is Test {
         assertEq(a, Consent.dealId(domain, t, 1, 2, 0));
         assertTrue(a != Consent.dealId(domain, t, 1, 3, 0));
         DealTerms memory distinct = _terms(holder, controller, provider);
-        assertTrue(
-            Consent.dealId(domain, distinct, 1, 2, 5) != Consent.dealId(domain, distinct, 1, 2, 6)
-        );
+        assertTrue(Consent.dealId(domain, distinct, 1, 2, 5) != Consent.dealId(domain, distinct, 1, 2, 6));
     }
 }

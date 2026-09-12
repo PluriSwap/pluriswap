@@ -61,21 +61,13 @@ contract BaseTest is Test {
         return abi.encodePacked(r, s, v);
     }
 
-    function _holderAuth(DealTerms memory terms, uint256 nonce)
-        internal
-        view
-        returns (HolderAuthorization memory a)
-    {
+    function _holderAuth(DealTerms memory terms, uint256 nonce) internal view returns (HolderAuthorization memory a) {
         a.terms = terms;
         a.nonce = nonce;
         a.deadline = block.timestamp + 1 days;
     }
 
-    function _providerAuth(DealTerms memory terms, uint256 nonce)
-        internal
-        view
-        returns (ProviderAgreement memory a)
-    {
+    function _providerAuth(DealTerms memory terms, uint256 nonce) internal view returns (ProviderAgreement memory a) {
         a.terms = terms;
         a.nonce = nonce;
         a.deadline = block.timestamp + 1 days;
@@ -146,8 +138,10 @@ contract BaseTest is Test {
         MutualCancel memory p = MutualCancel({dealId: id, nonce: providerNonce, deadline: deadline});
         MutualCancel memory c = MutualCancel({dealId: id, nonce: controllerNonce, deadline: deadline});
         escrow.mutualCancel(
-            p, _sign(_typed(Consent.hashMutualCancel(p)), providerPk),
-            c, _sign(_typed(Consent.hashMutualCancel(c)), holderPk)
+            p,
+            _sign(_typed(Consent.hashMutualCancel(p)), providerPk),
+            c,
+            _sign(_typed(Consent.hashMutualCancel(c)), holderPk)
         );
     }
 
@@ -156,8 +150,10 @@ contract BaseTest is Test {
         CoSignedRelease memory p = CoSignedRelease({dealId: id, nonce: providerNonce, deadline: deadline});
         CoSignedRelease memory c = CoSignedRelease({dealId: id, nonce: controllerNonce, deadline: deadline});
         escrow.coSignedRelease(
-            p, _sign(_typed(Consent.hashCoSignedRelease(p)), providerPk),
-            c, _sign(_typed(Consent.hashCoSignedRelease(c)), holderPk)
+            p,
+            _sign(_typed(Consent.hashCoSignedRelease(p)), providerPk),
+            c,
+            _sign(_typed(Consent.hashCoSignedRelease(c)), holderPk)
         );
     }
 
@@ -166,8 +162,10 @@ contract BaseTest is Test {
         MutualSplit memory p = MutualSplit({dealId: id, providerBps: bps, nonce: providerNonce, deadline: deadline});
         MutualSplit memory c = MutualSplit({dealId: id, providerBps: bps, nonce: controllerNonce, deadline: deadline});
         escrow.mutualSplit(
-            p, _sign(_typed(Consent.hashMutualSplit(p)), providerPk),
-            c, _sign(_typed(Consent.hashMutualSplit(c)), holderPk)
+            p,
+            _sign(_typed(Consent.hashMutualSplit(p)), providerPk),
+            c,
+            _sign(_typed(Consent.hashMutualSplit(c)), holderPk)
         );
     }
 
