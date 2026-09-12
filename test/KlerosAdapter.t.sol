@@ -22,7 +22,8 @@ contract KlerosAdapterTest is Test {
     function setUp() public {
         extraData = abi.encode(uint256(1), uint256(3), uint256(1));
         arbitrator = new MockArbitratorV2(COST);
-        adapter = new KlerosAdapter(address(arbitrator), extraData, 0, "", address(0), address(0));
+        adapter = new KlerosAdapter(address(arbitrator), extraData, 0, "", address(this), address(0));
+        vm.deal(address(this), 1 ether);
         vm.deal(controller, 1 ether);
         vm.deal(provider, 1 ether);
     }
@@ -35,28 +36,33 @@ contract KlerosAdapterTest is Test {
         );
     }
 
-    function test_onlyControllerOpens() public {
-        vm.prank(provider);
+    function test_onlyKernelOpens() public {
+        vm.prank(controller);
         vm.expectRevert(KlerosAdapter.Unauthorized.selector);
         adapter.openCourt{value: COST}(DEAL, controller);
 
-        vm.prank(controller);
+        uint256 before = address(this).balance;
         adapter.openCourt{value: COST}(DEAL, controller);
         assertTrue(adapter.opened(DEAL));
         assertEq(adapter.disputeOf(DEAL), 0);
         assertEq(address(arbitrator).balance, COST);
-        assertEq(controller.balance, 1 ether - COST);
+        assertEq(address(this).balance, before - COST);
+    }
+
+    function test_constructor_requiresArbitratorAndKernel() public {
+        vm.expectRevert(KlerosAdapter.ZeroAddress.selector);
+        new KlerosAdapter(address(0), extraData, 0, "", address(this), address(0));
+        vm.expectRevert(KlerosAdapter.ZeroAddress.selector);
+        new KlerosAdapter(address(arbitrator), extraData, 0, "", address(0), address(0));
     }
 
     function test_insufficientFeeReverts() public {
-        vm.prank(controller);
         vm.expectRevert(KlerosAdapter.InsufficientFee.selector);
         adapter.openCourt{value: COST - 1}(DEAL, controller);
     }
 
     function test_cannotOpenTwice() public {
         _open(DEAL);
-        vm.prank(controller);
         vm.expectRevert(KlerosAdapter.AlreadyOpen.selector);
         adapter.openCourt{value: COST}(DEAL, controller);
     }
@@ -88,14 +94,13 @@ contract KlerosAdapterTest is Test {
     function test_registersTemplateWhenRegistrySet() public {
         MockTemplateRegistry registry = new MockTemplateRegistry();
         KlerosAdapter wired =
-            new KlerosAdapter(address(arbitrator), extraData, 99, "ipfs://ignore", address(0), address(registry));
+            new KlerosAdapter(address(arbitrator), extraData, 99, "ipfs://ignore", address(this), address(registry));
         assertEq(wired.templateId(), 1);
         assertEq(wired.templateUri(), "");
         assertEq(registry.lastTag(), PluriSwapKlerosTemplate.tag());
         assertEq(registry.lastData(), PluriSwapKlerosTemplate.json());
         assertEq(registry.lastMappings(), PluriSwapKlerosTemplate.mappings());
 
-        vm.prank(controller);
         vm.expectEmit(true, true, false, true, address(wired));
         emit IArbitrableV2.DisputeRequest(IArbitratorV2(address(arbitrator)), 0, uint256(DEAL), 1, "");
         wired.openCourt{value: COST}(DEAL, controller);
@@ -121,7 +126,6 @@ contract KlerosAdapterTest is Test {
     }
 
     function _open(bytes32 dealId) internal {
-        vm.prank(controller);
         adapter.openCourt{value: COST}(dealId, controller);
     }
 }

@@ -16,7 +16,7 @@ Las rampas de bridge (`RAMPS.md`) no son un paquete de esta lista: no hay `invoi
 | --- | --- | --- | --- | --- |
 | Human Passport | Raíz anti-Sybil: sólo wallets con Passport vigente entran al recinto con paquetes | Admisión | No | — |
 | Reputación | Capa de confianza: cap del principal y fee de acceso | Activación (cap + fee); post-terminal (score) | Sí, en activación | Lo que diga el paquete (oficial: DAO) |
-| Bonds | Suben el cap, skin-in-the-game | Activación (reserva); terminal (suelta o slash) | No es un fee: es colateral | Slash: address de firma del ganador (Holder o Provider); **quema** en stalemate |
+| Bonds | Suben el cap, skin-in-the-game | Activación (reserva); terminal (suelta o slash) | No es un fee: es colateral | Slash: address de firma del ganador (Holder o Provider); **quema** sólo en el stalemate que las partes dejaron vencer |
 | ZK / payment proof | Auto-release autenticado; apaga `DISPUTED` | Arista `FUNDED` → `RELEASED` | Sí, **al verificar** | Lo que diga el paquete (oficial: DAO) |
 | Arbitraje | Tribunal cuando no hay ZK | `FIAT_SENT` / `DISPUTED` → `ARBITRATION_ACTIVE` | Court fee al abrir, de la wallet del opener | Tribunal; el paquete puede sumar contest-open a la DAO |
 | DAO | Recipient | — | No cobra por sí | — |
@@ -120,8 +120,9 @@ Atómico con el commit Core (`disposeBond`):
 | Terminal | Qué hace el vault con el lock de ese deal |
 | --- | --- |
 | Pacífico (release, split, ZK, cancel, fiat timeout, claim) | Unlock → vuelve a `available` |
-| Culpable (arb win/loss) | Slash: lock del perdedor → address de firma del ganador (Holder o Provider). Unlock del ganador a su `available`. Nunca al Controller. |
-| Stalemate | Quema el lock de **ambos** al sink inmutable |
+| Culpable (arb win/loss) | Slash: lock del perdedor → address de firma del ganador (Holder o Provider). Unlock del ganador a su `available`. |
+| Sin veredicto (tribunal rehúsa, arbitration timeout) | Unlock de ambos: sin culpa probada no se mueve dinero |
+| Stalemate de `DISPUTED` (nadie co-firmó ni fue a tribunal) | Quema el lock de **ambos** al sink inmutable |
 
 Después del unlock, ese monto ya es `available`: se puede retirar o volver a lockear en otro deal. No hay cooldown extra: el slash/quema va en la misma tx que el terminal, no hay carrera contra un withdraw.
 
@@ -137,12 +138,14 @@ Después del unlock, ese monto ya es `available`: se puede retirar o volver a lo
 
 Pacífico (los bonds se sueltan): release, dual-sign (incluido el split), proof ZK, cancel, fiat timeout, claim por silencio.
 
-Slash:
+Principio: **el dinero sólo se mueve con culpa probada o con negativa probada a resolver.** El score registra el resto.
 
 | Terminal | Bonds |
 | --- | --- |
-| Adapter declara culpable (holder win / provider win) | Lock del perdedor a la address de firma del **ganador** (Holder o Provider de ese deal). El lock del ganador vuelve a su `available`. Nunca al Controller; si el ganador es el Controller, quema al sink. Nunca a la DAO. |
-| Stalemate — timeout de `DISPUTED` sin tribunal, ruling rehusado, o arbitration timeout | **Quema** de ambos bonds a un sink inmutable. No a la DAO. No a una parte. |
+| Adapter declara culpable (holder win / provider win) | Lock del perdedor a la address de firma del **ganador** (Holder o Provider de ese deal). El lock del ganador vuelve a su `available`. Es compensación a la parte dañada; nunca a la DAO. Si el Holder es su propio Controller, cobra como Holder. |
+| Tribunal rehúsa decidir (ruling 0 de Kleros → 3) | Unlock de ambos. Sin culpa probada no hay castigo monetario. Ambos scores registran el stalemate (+5). |
+| Arbitration timeout (el tribunal nunca contestó) | Unlock de ambos, scores en silencio: la falla es del tribunal, no de las partes. |
+| Stalemate — timeout de `DISPUTED` sin co-firma ni tribunal | **Quema** de ambos bonds a un sink inmutable. No a la DAO. No a una parte. Las dos partes tenían salida (split, co-firma, tribunal) y ninguna la tomó. |
 
 El timeout de `DISPUTED` **es** stalemate. Cualquiera lo ejecuta. Si el slash en empate fuera al counterparty, conviene forzar el reloj para cazar el bond ajeno. La quema cierra eso.
 
@@ -161,9 +164,9 @@ Lista cerrada. Un paquete no inventa un cuarto momento.
 | Activación | Al entrar a `FUNDED` | Extra al principal (Holder). Reputación usa este. |
 | Abrir contest | Al abrir `DISPUTED` o arbitraje | Wallet del opener. Muerto en deals ZK. |
 | Al verificar | Proof ZK → `RELEASED` | Lo declara el paquete ZK. |
-| Terminal con completion | Split u otro terminal donde el paquete cobre completion | Sobre el **principal completo**, deducido antes de partir. |
+| Terminal con completion | **Cualquier terminal donde la tajada del Provider sea > 0**: release, co-firma, split, claim, ZK, arb win del Provider, stalemate 50/50 | Sobre el **pot completo**, deducido antes de partir. La operación ocurrió; el fee es el mismo sin importar cómo cerró. |
 
-Timeout / cancel Holder-positivo: no hay fee extra. Lo de activación, si se cobró, ya se consumió.
+Refund al Holder (cancel, fiat timeout, split que deja al Provider en cero, arb win del Holder): no hay completion fee. No hubo operación. Lo de activación, si se cobró, ya se consumió.
 
 Varios paquetes: cada uno cobra lo suyo. Si en activación no alcanza, no hay deal. En el terminal, si verify/completion no cabe en el leftover, ese fee se omite; el escrow no revierte.
 
@@ -175,9 +178,10 @@ Varios paquetes: cada uno cobra lo suyo. Si en activación no alcanza, no hay de
 - Core-only: cero fees de paquete.
 - Humanidad no cobra; reputación sí, en activación, y raciona el size.
 - ZK cobra al verificar, no al seleccionar. Un `paymentNullifier` liquida un deal; el `dealId` va en los public inputs.
-- Split desde `DISPUTED` es pacífico; completion fee sobre el deal entero.
-- Stalemate (timeout de `DISPUTED`, arb refused, arb timeout) quema bonds. El split antes del reloj es la salida pacífica.
-- Slash con culpable: lock del perdedor a la address de firma del ganador (Holder o Provider). Nunca al Controller.
+- Completion fee si y sólo si el Provider cobra algo; sobre el pot entero, antes del split. Un refund nunca la paga.
+- `CLAIMED` es terminal propio: el Provider cerró la operación (Peaceful), el Controller ausente no es culpa probada (Silent).
+- Stalemate de `DISPUTED` (nadie resolvió) quema bonds. Tribunal que rehúsa o no contesta: bonds de vuelta. El split antes del reloj es la salida pacífica.
+- Slash con culpable: lock del perdedor a la address de firma del ganador (Holder o Provider). Compensa a la parte dañada.
 - La DAO cobra cuando usás **sus** paquetes, no cuando usás la idea de ZK o de reputación.
 
 ---
@@ -255,8 +259,10 @@ Por qué `UNIT = 250`: un deal al tope de T1 suma `+1` de count y `+1` de volume
 | --- | --- | --- |
 | Release (Controller, co-signed, ZK) | `+1` y `+principal` | — |
 | Split dual-firmado | `+1` y `+principal` | — |
-| Cancel, fiat timeout, claim por silencio | nada | — |
-| Stalemate (incl. timeout de `DISPUTED`) | nada | `+5` ambos |
+| Claim por silencio | Provider: `+1` y `+principal`. Holder: nada | — |
+| Cancel, fiat timeout | nada | — |
+| Stalemate (timeout de `DISPUTED`, tribunal rehúsa) | nada | `+5` ambos |
+| Arbitration timeout | nada | — (la falla es del tribunal) |
 | Arb win | nada extra de volumen | — |
 | Arb loss | nada | `+15` el perdedor |
 

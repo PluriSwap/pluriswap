@@ -33,6 +33,15 @@ contract ReputationTest is Test {
         token.approve(address(vault), type(uint256).max);
     }
 
+    function test_constructor_rejectsZeroAddresses() public {
+        vm.expectRevert(Reputation.ZeroAddress.selector);
+        new Reputation(IPassport(address(0)), feeRecipient, 1, 1, address(this));
+        vm.expectRevert(Reputation.ZeroAddress.selector);
+        new Reputation(passport, address(0), 1, 1, address(this));
+        vm.expectRevert(Reputation.ZeroAddress.selector);
+        new Reputation(passport, feeRecipient, 1, 1, address(0));
+    }
+
     function test_packageId_passportAndReputationStable() public view {
         assertEq(passport.packageId(), PackageId.passport(address(passport)));
         assertEq(reputation.packageId(), PackageId.reputation(address(reputation), feeRecipient, 1_000_000, 2_000_000));

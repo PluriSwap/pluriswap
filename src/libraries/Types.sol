@@ -11,7 +11,8 @@ enum Status {
     STALEMATE,
     CANCELLED,
     ARBITRATION_ACTIVE,
-    RESOLVED_BY_ARBITRATION
+    RESOLVED_BY_ARBITRATION,
+    CLAIMED
 }
 
 struct DealTerms {
@@ -71,6 +72,31 @@ struct PackageMods {
     address bonds;
     address zk;
     address court;
+}
+
+/// @dev What the kernel does with the bond locks at a terminal. `HolderWins` moves the Provider's lock to the
+///      Holder; `ProviderWins` the reverse. `Burn` sends both to the sink. Money only moves with a proven side.
+enum BondAction {
+    Unlock,
+    Burn,
+    HolderWins,
+    ProviderWins
+}
+
+/// @dev Kernel storage for one deal. Read through `IEscrow`, written only by `Escrow`.
+struct Deal {
+    Status status;
+    DealTerms terms;
+    uint256 activatedAt;
+    uint256 fiatSentAt;
+    uint256 disputedAt;
+    uint256 arbitrationOpenedAt;
+    bytes32 subjectH;
+    bytes32 subjectP;
+    uint8 pkgs;
+    PackageMods mods;
+    uint256 holderAmt;
+    uint256 providerAmt;
 }
 
 /// @dev Clock origins snapshotted by the kernel. Deadlines are origin + duration on `DealTerms`.

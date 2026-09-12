@@ -133,11 +133,20 @@ contract BondVaultTest is Test {
         assertEq(token.balanceOf(holder), PRINCIPAL);
     }
 
+    function test_constructor_rejectsZeroAddresses() public {
+        vm.expectRevert(BondVault.ZeroAddress.selector);
+        new BondVault(address(0), sink, passport);
+        vm.expectRevert(BondVault.ZeroAddress.selector);
+        new BondVault(address(this), address(0), passport);
+        vm.expectRevert(BondVault.ZeroAddress.selector);
+        new BondVault(address(this), sink, IPassport(address(0)));
+    }
+
     function test_slashToWinnerSigningAddress() public {
         bytes32 dealId = keccak256("deal-slash");
         _lockBoth(dealId);
         uint256 lockAmount = PRINCIPAL / 10;
-        vault.slash(SUBJECT_P, SUBJECT, address(token), dealId, holder, controller);
+        vault.slash(SUBJECT_P, SUBJECT, address(token), dealId, holder);
         assertEq(token.balanceOf(holder), lockAmount);
         assertEq(token.balanceOf(controller), 0);
         assertEq(token.balanceOf(provider), 0);
@@ -153,13 +162,13 @@ contract BondVaultTest is Test {
         assertEq(token.balanceOf(holder), lockAmount + PRINCIPAL);
     }
 
-    function test_winnerIsController_burnsLoserLockToSink() public {
+    function test_slashPaysControllerWhenControllerIsTheHolder() public {
         bytes32 dealId = keccak256("deal-ctrl");
         _lockBoth(dealId);
         uint256 lockAmount = PRINCIPAL / 10;
-        vault.slash(SUBJECT_P, SUBJECT, address(token), dealId, controller, controller);
-        assertEq(token.balanceOf(sink), lockAmount);
-        assertEq(token.balanceOf(controller), 0);
+        vault.slash(SUBJECT_P, SUBJECT, address(token), dealId, controller);
+        assertEq(token.balanceOf(controller), lockAmount, "winner's signing address is paid, whoever it is");
+        assertEq(token.balanceOf(sink), 0, "nothing burns on a ruled slash");
         assertEq(vault.lockOf(SUBJECT_P, dealId), 0);
         assertEq(vault.lockOf(SUBJECT, dealId), 0);
         assertEq(vault.available(SUBJECT, address(token)), PRINCIPAL);

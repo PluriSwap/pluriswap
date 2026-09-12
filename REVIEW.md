@@ -2,7 +2,7 @@
 
 Hallazgo de código (2026-09-08). No reabre el grafo ni el typed data. Si hay conflicto sobre estados, manda `STATE_MACHINE.md`. Sobre capas, `ARCHITECTURE.md`. Este archivo congela **brechas** entre spec, bytecode y el recorte “Core trustless + módulos que se referencian”.
 
-**Hecho:** ítems 1–3 y 5. Ítem 4 (mocks oficiales) y 6 (storage del Deal) siguen abiertos. `claim` sigue sin completion.
+**Hecho:** ítems 1–3 y 5. Ítem 4: Passport hecho, court y verifier siguen mock. Ítem 6 resuelto por otra vía: el edge de paquetes salió a la librería externa `Packages` (Escrow 22.2 KB → 15.3 KB). Decisiones de kernel del 2026-09-12 (§3.1, §3.5, `CLAIMED`, zero-checks) cerradas; ver §7.
 
 ---
 
@@ -57,7 +57,12 @@ Hallazgo de código (2026-09-08). No reabre el grafo ni el typed data. Si hay co
 
 ## 3. Diferencias de negocio
 
-### 3.1 `claim` no paga completion; `release` sí
+### 3.1 `claim` no paga completion; `release` sí — **cerrado**
+
+**Decisión (2026-09-12):** el completion fee se cobra sobre el pot entero en cualquier terminal donde el Provider cobre algo (release, co-firma, split con bps > 0, claim, ZK, arb win del Provider, stalemate 50/50) y nunca en un refund. `claim` cierra en `CLAIMED`.
+
+Hallazgo original:
+
 
 `release`, `coSignedRelease`, `mutualSplit`, `verifyProof` y un win de corte deducen `completionFee`. `claim` manda el principal entero al Provider.
 
@@ -89,7 +94,12 @@ Un relayer puede combinar Passport oficial + Reputation clonado con otro Passpor
 
 `VerifierMock` acepta cualquier `abi.encode(dealId, nullifier)`. El camino ZK de Sepolia no es un proof.
 
-### 3.5 Slash P2P vs Provider-Controller
+### 3.5 Slash P2P vs Provider-Controller — **cerrado**
+
+**Decisión (2026-09-12):** el slash siempre paga a la address de firma del ganador; no existe la excepción del Controller (`controller == provider` ahora es inválido en `Terms`). Tribunal que rehúsa o no contesta: unlock de ambos, sin culpa probada no se mueve dinero. Sólo el stalemate de `DISPUTED` quema.
+
+Hallazgo original:
+
 
 Holder-win + `holder == controller`: pasan `controller = address(0)` para que el Holder-P2P **cobre** el slash. Provider-win: siempre pasan el Controller real; si `provider == controller`, el slash **quema al sink**.
 
@@ -116,8 +126,8 @@ Kleros está mejor. No es lo que despliega `DeployPackages`.
 | Contest-open invoice | Momento cerrado, opcional | `openDisputed` no cobra nada |
 | Compose rampa → `activate` | `RAMPS.md` lo permite | Solo taxi |
 | `credits` del pool | Bucket de tesorería | Campo muerto |
-| `CLAIMED` vs `RELEASED` | Outcome distinto | Mismo estado; `settlementOf` no distingue origen |
-| Stalemate 50/50 | Exacto | `principal/2` al Holder; el wei impar al Provider |
+| `CLAIMED` vs `RELEASED` | Outcome distinto | **Hecho:** `Status.CLAIMED` (10) |
+| Stalemate 50/50 | Exacto | `pot/2` al Provider; el wei impar al Holder (pot = principal − completion) |
 | Reloj `duration >= 0`, sin máximo | Riesgo de las partes | `origin + duration` overflow (0.8) **revierte** el timeout |
 | UI en deal ZK | Proof o timeout | Ofrece `markFiat` / `claim` / `openDisputed` (`EdgeOff`) |
 
@@ -177,7 +187,12 @@ El recinto Core (firmas, nonce atómico, pull exacto, credit-first del principal
 
 1. **`IEscrow` en Core** — terms/clocks/settlement/subjects/modules/kinds. Pool deja de copiar la interfaz. `notifyTerminal` recibe el sujeto snapshotado. **Hecho.**
 2. Binding de peers en `activate`: mismo Passport para Rep y Vault; `packageId` de ZK con address del módulo; invoice amount = valor hasheado. **Hecho.**
-3. `_takeCompletionFrom` no puede revertir el terminal (`fee > left` → se omite el fee). **Hecho.** `claim` sigue sin completion (timeout Provider-positivo).
+3. `_takeCompletionFrom` no puede revertir el terminal (`fee > left` → se omite el fee). **Hecho.** `claim` cobra completion y cierra en `CLAIMED`. **Hecho.**
 4. Sacar mocks del path “oficial” (Passport writable, court con `submitRuling` público, verifier que decodifica bytes). **Passport hecho:** `HumanPassport` sobre el decoder de Human Passport; `PassportPicker` lo elige en Arbitrum One o con `PASSPORT_DECODER`. `PassportMock` queda sólo para Sepolia/local. Court y verifier pendientes.
 5. Pool: escribir `credits` (o dejar de anunciarlo); reservar `invoiceActivation`; approve exacto; `nonReentrant` en `withdrawCredit`/`reconcile`. **Hecho.**
-6. Recorte de storage del `Deal` cuando toque tamaño/gas.
+6. Recorte de storage del `Deal` cuando toque tamaño/gas. **Superado:** `Packages` (librería externa) saca resolve/engage/invoice/disposeBond/notify del kernel; Escrow queda en 15.3 KB con 9.2 KB de margen.
+7. Decisiones de kernel (2026-09-12). **Hecho.**
+   - Completion fee iff el Provider cobra algo, sobre el pot entero, antes del split. Refund nunca paga.
+   - `Status.CLAIMED`: Provider Peaceful, Holder Silent, bonds unlock.
+   - Bonds: slash siempre al ganador (address de firma). Tribunal rehúsa → unlock + stalemate en el score. Arbitration timeout → unlock, silencio. Sólo el stalemate de `DISPUTED` quema.
+   - `Terms.hashTerms` rechaza roles/token en cero y `controller == provider`. Zero-checks en `Reputation`, `BondVault`, `KlerosAdapter` (que además pierde el modo standalone), `StargateV2Ramp`. Eventos en `BondVault` y `cancelNonce`.

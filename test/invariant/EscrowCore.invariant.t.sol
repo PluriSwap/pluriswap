@@ -102,7 +102,8 @@ contract EscrowCoreInvariantTest is Test {
             assertEq(hAmt + pAmt, principal, "terminal does not conserve principal");
             if (s == Status.CANCELLED) assertEq(hAmt, principal, "cancel not holder-gross");
             if (s == Status.RELEASED) assertEq(pAmt, principal, "release not provider-gross");
-            if (s == Status.STALEMATE) assertEq(hAmt, principal / 2, "stalemate not 50/50");
+            if (s == Status.STALEMATE) assertEq(pAmt, principal / 2, "stalemate not 50/50");
+            if (s == Status.CLAIMED) assertEq(pAmt, principal, "claim not provider-gross");
         }
     }
 
@@ -172,6 +173,6 @@ contract EscrowCoreInvariantTest is Test {
 
     function _terminal(Status s) internal pure returns (bool) {
         return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
-            || s == Status.RESOLVED_BY_ARBITRATION;
+            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
     }
 }

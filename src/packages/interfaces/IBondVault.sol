@@ -12,13 +12,7 @@ interface IBondVault {
     function locked(bytes32 subject, address token) external view returns (uint256);
     function reserve(bytes32 subject, address token, bytes32 dealId, uint256 principal) external;
     function unlock(bytes32 subject, address token, bytes32 dealId) external;
-    function slash(
-        bytes32 loser,
-        bytes32 winner,
-        address token,
-        bytes32 dealId,
-        address winnerSigning,
-        address controller
-    ) external;
+    /// @dev Loser's lock to `to` (the winner's signing address); winner's lock released.
+    function slash(bytes32 loser, bytes32 winner, address token, bytes32 dealId, address to) external;
     function burn(bytes32 subjectA, bytes32 subjectB, address token, bytes32 dealId) external;
 }

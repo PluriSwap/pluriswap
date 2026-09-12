@@ -155,7 +155,7 @@ abstract contract HandlerBase is Test {
 
     function _isTerminal(Status s) internal pure returns (bool) {
         return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
-            || s == Status.RESOLVED_BY_ARBITRATION;
+            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
     }
 
     function _canMarkFiat(bytes32 id) internal view returns (bool) {

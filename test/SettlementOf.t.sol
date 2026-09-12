@@ -44,7 +44,7 @@ contract SettlementOfTest is BaseTest {
         escrow.forceStalemate(id);
         (Status st, uint256 h, uint256 p) = escrow.settlementOf(id);
         assertEq(uint8(st), uint8(Status.STALEMATE));
-        assertEq(h, PRINCIPAL / 2);
-        assertEq(p, PRINCIPAL - PRINCIPAL / 2);
+        assertEq(h, PRINCIPAL - PRINCIPAL / 2);
+        assertEq(p, PRINCIPAL / 2);
     }
 }

@@ -381,8 +381,9 @@ contract EscrowPackagesInvariantTest is Test {
             assertLe(hAmt + pAmt, principal, "terminal paid out more than principal");
             uint8 kinds = escrow.kinds(id);
             if ((kinds & (K_REP | K_ZK)) == 0) assertEq(hAmt + pAmt, principal, "fee taken without a fee package");
-            if (s == Status.CANCELLED || s == Status.STALEMATE) {
-                assertEq(hAmt + pAmt, principal, "holder-positive terminal charged a fee");
+            // A refund is never invoiced: cancel, or the Holder winning in court, returns the whole principal.
+            if (s == Status.CANCELLED || (s == Status.RESOLVED_BY_ARBITRATION && pAmt == 0)) {
+                assertEq(hAmt, principal, "refund charged a fee");
             }
             terminalFees += principal - hAmt - pAmt;
         }
@@ -483,7 +484,7 @@ contract EscrowPackagesInvariantTest is Test {
     }
 
     function afterInvariant() public view {
-        uint256[10] memory byStatus;
+        uint256[11] memory byStatus;
         uint256 zkReleased;
         uint256 bondsTerminal;
         uint256 n = h.idsLength();
@@ -499,12 +500,13 @@ contract EscrowPackagesInvariantTest is Test {
         console2.log("FUNDED/FIAT_SENT/DISPUTED", byStatus[1], byStatus[2], byStatus[3]);
         console2.log("RELEASED/SPLIT/STALEMATE", byStatus[4], byStatus[5], byStatus[6]);
         console2.log("CANCELLED/ARB_ACTIVE/ARB_RESOLVED", byStatus[7], byStatus[8], byStatus[9]);
+        console2.log("CLAIMED", byStatus[10]);
         console2.log("zkReleased/bondsTerminal", zkReleased, bondsTerminal);
         console2.log("sink/controller", token.balanceOf(h.SINK()), token.balanceOf(h.controller()));
     }
 
     function _terminal(Status s) internal pure returns (bool) {
         return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
-            || s == Status.RESOLVED_BY_ARBITRATION;
+            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
     }
 }

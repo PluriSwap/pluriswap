@@ -177,4 +177,30 @@ contract ActivateTest is BaseTest {
         vm.expectRevert(Terms.HolderEqualsProvider.selector);
         escrow.activate(ha, hex"", pa, hex"", ca, "");
     }
+
+    /// The Provider cannot also be the Controller: it would release the principal to itself.
+    function test_activate_revertsIfControllerEqualsProvider() public {
+        DealTerms memory terms = _p2pTerms();
+        terms.controller = provider;
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca;
+        vm.expectRevert(Terms.ControllerEqualsProvider.selector);
+        escrow.activate(ha, hex"", pa, hex"", ca, "");
+    }
+
+    function test_activate_revertsOnZeroAddressRole() public {
+        ControllerAcceptance memory ca;
+        for (uint256 slot; slot < 4; slot++) {
+            DealTerms memory terms = _p2pTerms();
+            if (slot == 0) terms.holder = address(0);
+            else if (slot == 1) terms.controller = address(0);
+            else if (slot == 2) terms.provider = address(0);
+            else terms.token = address(0);
+            HolderAuthorization memory ha = _holderAuth(terms, 1);
+            ProviderAgreement memory pa = _providerAuth(terms, 1);
+            vm.expectRevert(Terms.ZeroAddress.selector);
+            escrow.activate(ha, hex"", pa, hex"", ca, "");
+        }
+    }
 }

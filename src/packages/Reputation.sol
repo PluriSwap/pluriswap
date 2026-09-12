@@ -11,6 +11,7 @@ contract Reputation is IReputation {
     error CapExceeded();
     error InFlightUnderflow();
     error InsufficientBond();
+    error ZeroAddress();
     error Unauthorized();
 
     struct Stat {
@@ -36,6 +37,9 @@ contract Reputation is IReputation {
         uint256 completionFee_,
         address operator_
     ) {
+        if (address(passport_) == address(0) || feeRecipient_ == address(0) || operator_ == address(0)) {
+            revert ZeroAddress();
+        }
         passport = passport_;
         feeRecipient = feeRecipient_;
         activationFee = activationFee_;

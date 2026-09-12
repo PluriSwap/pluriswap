@@ -99,6 +99,8 @@ No guarda un set mundial de paquetes oficiales. No guarda fees ni receivers: viv
 
 El kernel **no importa implementaciones**. Habla las interfaces de la sección 4. OpenZeppelin: crypto, ERC-20, reentrancy (`IMPLEMENTATION.md`).
 
+El borde con los paquetes (`resolve`, `engage`, invoice de completion, `disposeBond`, `notify`) vive en la librería externa `Packages` (DELEGATECALL, mismo contexto de storage y de custodia). Es reparto de bytecode, no de confianza: la librería es inmutable y linkeada en el deploy, igual que `Settlement` y `Clocks`.
+
 `Machine.sol` no es una capa. El catálogo es `STATE_MACHINE.md`.
 
 El constructor del escrow **no** recibe paquetes. Un escrow vacío es un recinto Core completo.

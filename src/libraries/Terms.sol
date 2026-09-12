@@ -10,10 +10,18 @@ library Terms {
 
     error UnsortedPackageIds();
     error HolderEqualsProvider();
+    error ControllerEqualsProvider();
     error ZeroPrincipal();
+    error ZeroAddress();
 
+    /// @dev Terms that cannot hash cannot be signed: the four roles are non-zero, the Provider is neither
+    ///      the Holder nor the Controller (it would release to itself), principal is non-zero, ids are canonical.
     function hashTerms(DealTerms memory t) public pure returns (bytes32) {
+        if (t.holder == address(0) || t.controller == address(0) || t.provider == address(0) || t.token == address(0)) {
+            revert ZeroAddress();
+        }
         if (t.holder == t.provider) revert HolderEqualsProvider();
+        if (t.controller == t.provider) revert ControllerEqualsProvider();
         if (t.principal == 0) revert ZeroPrincipal();
         _assertPackageIdsCanonical(t.packageIds);
         return keccak256(

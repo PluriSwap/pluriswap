@@ -11,6 +11,7 @@ import {
 } from "../src/libraries/Types.sol";
 import {Clocks} from "../src/libraries/Clocks.sol";
 import {Escrow} from "../src/Escrow.sol";
+import {Packages} from "../src/libraries/Packages.sol";
 import {TestToken} from "../src/TestToken.sol";
 import {PassportMock} from "../src/packages/PassportMock.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
@@ -89,7 +90,7 @@ contract PackagesTest is BaseTest {
         ControllerAcceptance memory ca;
         bytes memory hs = _signHolder(ha);
         bytes memory ps = _signProvider(pa);
-        vm.expectRevert(Escrow.UnknownPackage.selector);
+        vm.expectRevert(Packages.UnknownPackage.selector);
         escrow.activate(ha, hs, pa, ps, ca, "");
         assertFalse(escrow.used(holder, 1));
     }
@@ -105,7 +106,7 @@ contract PackagesTest is BaseTest {
         mods.court = address(court);
         bytes memory hs = _signHolder(ha);
         bytes memory ps = _signProvider(pa);
-        vm.expectRevert(Escrow.IncompatiblePackages.selector);
+        vm.expectRevert(Packages.IncompatiblePackages.selector);
         escrow.activate(ha, hs, pa, ps, ca, "", mods);
     }
 
@@ -178,6 +179,106 @@ contract PackagesTest is BaseTest {
         assertEq(penalty, 5);
     }
 
+    /// Decision: the completion fee is invoiced on the whole pot whenever the Provider is paid, before any split.
+    function test_stalemate_isASplit_chargesCompletionOnTotal() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        _markFiat(id);
+        _openDisputed(id);
+        vm.warp(block.timestamp + 7200);
+        escrow.forceStalemate(id);
+        uint256 pot = PRINCIPAL - COMP_FEE;
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE);
+        assertEq(token.balanceOf(provider), pot / 2);
+        assertEq(token.balanceOf(holder), pot - pot / 2);
+    }
+
+    /// Decision: CLAIMED is its own terminal. The trade happened: fee on the pot, Provider credited, Holder silent.
+    function test_claim_isClaimed_chargesCompletion_creditsProviderOnly() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        _markFiat(id);
+        vm.warp(block.timestamp + 1800);
+        escrow.claim(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.CLAIMED));
+        assertEq(token.balanceOf(provider), PRINCIPAL - COMP_FEE);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE);
+        assertEq(reputation.score(SUB_P, address(token)), 1, "provider closed the trade");
+        assertEq(reputation.score(SUB_H, address(token)), 0, "absent controller is not credited");
+        (, uint32 penaltyH,) = reputation.stats(SUB_H, address(token));
+        assertEq(penaltyH, 0, "absent controller is not proven fault");
+        assertEq(vault.available(SUB_H, address(token)), BOND);
+        assertEq(vault.available(SUB_P, address(token)), BOND);
+        assertEq(reputation.inFlight(SUB_H, address(token)), 0);
+    }
+
+    /// Decision: the court refusing to decide is not proven fault. Locks come back; both scores record the dispute.
+    function test_courtRefuses_unlocksBonds_recordsStalemate() public {
+        _fundBonds();
+        bytes32 id = _activateArbTrio();
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.openCourt{value: COURT_ETH}(id);
+        arbitrator.giveRuling(court.disputeOf(id), 0);
+        escrow.readRuling(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        assertEq(token.balanceOf(sink), 0, "court tie burned a bond");
+        assertEq(vault.available(SUB_H, address(token)), BOND);
+        assertEq(vault.available(SUB_P, address(token)), BOND);
+        (, uint32 penaltyH,) = reputation.stats(SUB_H, address(token));
+        (, uint32 penaltyP,) = reputation.stats(SUB_P, address(token));
+        assertEq(penaltyH, 5);
+        assertEq(penaltyP, 5);
+    }
+
+    /// Decision: a court that never answers is the court's failure. Locks back, no score moves.
+    function test_courtTimeout_unlocksBonds_silent() public {
+        _fundBonds();
+        bytes32 id = _activateArbTrio();
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.openCourt{value: COURT_ETH}(id);
+        vm.warp(block.timestamp + 1 days);
+        escrow.forceArbitrationTimeout(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        assertEq(token.balanceOf(sink), 0);
+        assertEq(vault.available(SUB_H, address(token)), BOND);
+        assertEq(vault.available(SUB_P, address(token)), BOND);
+        (, uint32 penaltyH,) = reputation.stats(SUB_H, address(token));
+        (, uint32 penaltyP,) = reputation.stats(SUB_P, address(token));
+        assertEq(penaltyH, 0);
+        assertEq(penaltyP, 0);
+        assertEq(reputation.inFlight(SUB_P, address(token)), 0);
+    }
+
+    /// Decision: a ruled slash always compensates the wronged side; Provider wins → Holder's lock to the Provider.
+    function test_providerWin_slashesHolderBondToProvider_feeOnPot() public {
+        _fundBonds();
+        bytes32 id = _activateArbTrio();
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.openCourt{value: COURT_ETH}(id);
+        arbitrator.giveRuling(court.disputeOf(id), 2);
+        escrow.readRuling(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
+        assertEq(token.balanceOf(provider), PRINCIPAL - COMP_FEE + BOND);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE);
+        assertEq(token.balanceOf(sink), 0);
+        assertEq(vault.available(SUB_P, address(token)), BOND, "winner's own lock released");
+        assertEq(vault.deposited(SUB_H, address(token)), 0, "loser's lock left the vault");
+        (, uint32 penaltyH,) = reputation.stats(SUB_H, address(token));
+        assertEq(penaltyH, 15);
+    }
+
+    function _activateArbTrio() internal returns (bytes32) {
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted4(passport.packageId(), reputation.packageId(), vault.packageId(), court.packageId());
+        terms.arbitrationDuration = 1 days;
+        PackageMods memory mods = _trioMods();
+        mods.court = address(court);
+        return _activateWith(terms, mods, 1, 1);
+    }
+
     function test_notify_usesSnapshottedSubject() public {
         _fundBonds();
         bytes32 id = _activateTrio(1, 1);
@@ -248,8 +349,9 @@ contract PackagesTest is BaseTest {
         arbitrator.giveRuling(court.disputeOf(id), 1);
         escrow.readRuling(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
-        assertEq(token.balanceOf(holder), PRINCIPAL - COMP_FEE + BOND);
-        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE);
+        // A refund is not a trade: no completion fee. The Provider's lock compensates the Holder.
+        assertEq(token.balanceOf(holder), PRINCIPAL + BOND);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE);
         assertEq(token.balanceOf(provider), 0);
         assertEq(vault.lockOf(SUB_H, id), 0);
         assertEq(vault.lockOf(SUB_P, id), 0);
@@ -270,7 +372,7 @@ contract PackagesTest is BaseTest {
         escrow.openCourt{value: COURT_ETH}(id);
 
         escrow.claim(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(uint8(escrow.status(id)), uint8(Status.CLAIMED));
     }
 
     function test_openCourt_fromDisputed_strictlyBeforeDisputeDeadline() public {
@@ -321,7 +423,7 @@ contract PackagesTest is BaseTest {
         mods.zk = address(drift);
         bytes32 id = _activateWith(terms, mods, 1, 1);
         drift.setVerifier(new VerifierMock());
-        vm.expectRevert(Escrow.PackageDrift.selector);
+        vm.expectRevert(Packages.PackageDrift.selector);
         escrow.verifyProof(id, abi.encode(id, keccak256("receipt")));
         assertEq(uint8(escrow.status(id)), uint8(Status.FUNDED));
     }
@@ -421,7 +523,7 @@ contract PackagesTest is BaseTest {
         ControllerAcceptance memory ca;
         bytes memory hs = _signHolder(ha);
         bytes memory ps = _signProvider(pa);
-        vm.expectRevert(Escrow.PeerMismatch.selector);
+        vm.expectRevert(Packages.PeerMismatch.selector);
         escrow.activate(ha, hs, pa, ps, ca, "", mods);
     }
 
@@ -439,7 +541,7 @@ contract PackagesTest is BaseTest {
         ControllerAcceptance memory ca;
         bytes memory hs = _signHolder(ha);
         bytes memory ps = _signProvider(pa);
-        vm.expectRevert(Escrow.PeerMismatch.selector);
+        vm.expectRevert(Packages.PeerMismatch.selector);
         escrow.activate(ha, hs, pa, ps, ca, "", mods);
     }
 
@@ -457,7 +559,7 @@ contract PackagesTest is BaseTest {
         ControllerAcceptance memory ca;
         bytes memory hs = _signHolder(ha);
         bytes memory ps = _signProvider(pa);
-        vm.expectRevert(Escrow.UnknownPackage.selector);
+        vm.expectRevert(Packages.UnknownPackage.selector);
         escrow.activate(ha, hs, pa, ps, ca, "", mods);
     }
 
@@ -696,7 +798,7 @@ contract DriftSinkVault is IBondVault {
         delete lockOf[subject][dealId];
     }
 
-    function slash(bytes32, bytes32, address, bytes32, address, address) external pure {}
+    function slash(bytes32, bytes32, address, bytes32, address) external pure {}
 
     function burn(bytes32 subjectA, bytes32 subjectB, address token, bytes32 dealId) external {
         if (msg.sender != operator) revert Hostile();
@@ -738,7 +840,7 @@ contract UnlockRevertingVault is IBondVault {
         revert Hostile();
     }
 
-    function slash(bytes32, bytes32, address, bytes32, address, address) external pure {
+    function slash(bytes32, bytes32, address, bytes32, address) external pure {
         revert Hostile();
     }
 

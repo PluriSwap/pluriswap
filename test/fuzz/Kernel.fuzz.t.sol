@@ -53,9 +53,9 @@ contract KernelFuzzTest is BaseTest {
 
         (Status s, uint256 h, uint256 p) = escrow.settlementOf(id);
         assertEq(uint8(s), uint8(Status.STALEMATE));
-        assertEq(h, principal / 2, "holder != principal/2");
+        assertEq(p, principal / 2, "provider != principal/2");
         assertEq(h + p, principal, "stalemate does not conserve principal");
-        assertLe(p - h, 1, "odd wei goes anywhere but the provider");
+        assertLe(h - p, 1, "odd wei goes anywhere but the holder");
     }
 
     function testFuzz_everyTerminal_paysExactlyPrincipal(uint256 principal, uint8 path) public {
@@ -90,7 +90,7 @@ contract KernelFuzzTest is BaseTest {
         }
 
         (Status s, uint256 h, uint256 p) = escrow.settlementOf(id);
-        assertTrue(s == Status.CANCELLED || s == Status.RELEASED, "unexpected terminal");
+        assertTrue(s == Status.CANCELLED || s == Status.RELEASED || s == Status.CLAIMED, "unexpected terminal");
         assertEq(h + p, principal, "terminal does not conserve principal");
         assertEq(token.balanceOf(holder) - holderBefore, h, "holder push != holderAmt");
         assertEq(token.balanceOf(provider), p, "provider push != providerAmt");
@@ -156,7 +156,7 @@ contract KernelFuzzTest is BaseTest {
             vm.expectRevert(Clocks.TooLate.selector);
             escrow.openDisputed(id);
             escrow.claim(id);
-            assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+            assertEq(uint8(escrow.status(id)), uint8(Status.CLAIMED));
         }
     }
 

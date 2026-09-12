@@ -193,12 +193,13 @@ Extender el protocolo **no** es abrir el catálogo. Es componer partes inmutable
 | `FUNDED` | Activo | Principal en custodia; fiat aún no marcado |
 | `FIAT_SENT` | Activo | El Provider afirmó envío fiat; corre el release deadline |
 | `DISPUTED` | Activo | Freeze abierto por el Controller; claim y release unilateral deshabilitados |
-| `RELEASED` | Terminal | Principal al lado Provider (release, co-signed release, claim, o payment proof) |
+| `RELEASED` | Terminal | Principal al lado Provider (release, co-signed release, o payment proof) |
+| `CLAIMED` | Terminal | Principal al lado Provider por timeout: fiat marcado, el Controller nunca liberó |
 | `RESOLVED_SPLIT` | Terminal | Split dual-firmado |
-| `STALEMATE` | Terminal | 50/50 de protocolo: timeout de `DISPUTED` sin tribunal, o arbitraje rehusado / arbitration timeout |
+| `STALEMATE` | Terminal | 50/50 de protocolo: timeout de `DISPUTED` sin tribunal, o arbitraje rehusado / arbitration timeout. Bonds: quema sólo en el primero; en los otros dos se devuelven |
 | `CANCELLED` | Terminal | Principal al Holder (cancel Provider, fiat timeout, o mutual cancel) |
 
-`CLAIMED` no es un estado. Es un **outcome económico** de `RELEASED` (timeout claim). `STALEMATE` sí es un estado. El terminal record distingue origen (reloj de `DISPUTED` vs adapter vs arbitration timeout) sin partir la economía: principal 50/50; bonds, si hay, se queman.
+`CLAIMED` es un estado propio (valor 10, al final del enum): misma economía de principal que `RELEASED`, distinto origen y distinta lectura para reputación (Provider Peaceful, Holder Silent). `STALEMATE` no distingue origen en el estado: principal 50/50 siempre; los bonds sí distinguen (`PACKAGES.md` §6).
 
 ### Solo perfil ARBITRATION
 
@@ -220,7 +221,8 @@ stateDiagram-v2
     [*] --> FUNDED: activación atómica
     FUNDED --> FIAT_SENT: Provider marca fiat
     FUNDED --> CANCELLED: cancel Provider, fiat timeout, o mutual cancel
-    FIAT_SENT --> RELEASED: Controller release, co-signed release, o claim
+    FIAT_SENT --> RELEASED: Controller release o co-signed release
+    FIAT_SENT --> CLAIMED: claim tras el release deadline
     FIAT_SENT --> RESOLVED_SPLIT: split dual-firmado
     FIAT_SENT --> CANCELLED: mutual cancel
     FIAT_SENT --> DISPUTED: Controller abre DISPUTED
@@ -281,7 +283,7 @@ Los derechos de timeout **no caducan** porque un keeper no actuó de inmediato. 
 | CASE-CORE-04 | `FUNDED` | Cualquiera ejecuta fiat timeout | En o después de `fiatDeadline` | Principal al Holder; `CANCELLED` |
 | CASE-CORE-05 | `FUNDED` | Cualquiera relay de autorización dual RES-01 (Provider + Controller) | Antes de expiry del payload | Mutual cancel |
 | CASE-CORE-06 | `FIAT_SENT` | Controller libera | Antes de que gane otro terminal | `RELEASED` al Provider |
-| CASE-CORE-07 | `FIAT_SENT` | Cualquiera claim | En o después del release deadline; sigue en `FIAT_SENT` | `RELEASED` con outcome `CLAIMED` |
+| CASE-CORE-07 | `FIAT_SENT` | Cualquiera claim | En o después del release deadline; sigue en `FIAT_SENT` | `CLAIMED` al Provider |
 | CASE-CORE-08 | `FIAT_SENT` | Cualquiera relay mutual cancel | Antes de expiry del payload | Mutual cancel |
 | CASE-CORE-09 | `FIAT_SENT` | Cualquiera relay split RES-02 | Antes de otro terminal y expiry | `RESOLVED_SPLIT` |
 | CASE-CORE-10 | `FIAT_SENT` | Cualquiera relay co-signed release RES-03 | Antes de otro terminal y expiry | `RELEASED` al Provider |
@@ -556,7 +558,7 @@ El Controller no aparece en esta tabla. No es un lado económico del escrow.
 | OUT-01 Voluntary release | `RELEASED` | 100% Provider | Core (off si `PAYMENT_PROOF`) |
 | OUT-02 Co-signed release | `RELEASED` | 100% Provider | Core |
 | OUT-03 Payment-proof release | `RELEASED` | 100% Provider | `PAYMENT_PROOF` |
-| OUT-04 Timeout claim | `RELEASED` | 100% Provider | Core, solo desde `FIAT_SENT` (off si `PAYMENT_PROOF`) |
+| OUT-04 Timeout claim | `CLAIMED` | 100% Provider | Core, solo desde `FIAT_SENT` (off si `PAYMENT_PROOF`) |
 | OUT-05 Provider cancel | `CANCELLED` | 100% Holder | Core |
 | OUT-06 Fiat-timeout cancel | `CANCELLED` | 100% Holder | Core |
 | OUT-07 Mutual cancel | `CANCELLED` | 100% Holder | Core |

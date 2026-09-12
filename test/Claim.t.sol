@@ -14,7 +14,7 @@ contract ClaimTest is BaseTest {
         vm.prank(provider);
         escrow.markFiat(id);
         escrow.claim(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(uint8(escrow.status(id)), uint8(Status.CLAIMED));
         assertEq(token.balanceOf(provider), PRINCIPAL);
     }
 
@@ -45,6 +45,6 @@ contract ClaimTest is BaseTest {
         escrow.openDisputed(id);
 
         escrow.claim(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(uint8(escrow.status(id)), uint8(Status.CLAIMED));
     }
 }

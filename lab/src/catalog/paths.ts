@@ -121,7 +121,7 @@ export const PATHS: PathTemplate[] = [
     p2p: true,
     needs: ["core"],
     sequence: "markFiat → claim due inmediato",
-    assertion: "RELEASED (no status CLAIMED); sin completion fee",
+    assertion: "CLAIMED; providerAmt=principal (Core-only). Con reputación: completion fee sobre el pot, Provider Peaceful, Holder Silent",
   },
   {
     id: "CASE-CORE-08",

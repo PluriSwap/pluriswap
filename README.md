@@ -32,7 +32,7 @@ forge test                       # unit + fuzz (256 runs) + invariants (32 runs 
 FOUNDRY_PROFILE=ci forge test    # heavier campaign: fuzz 2048, invariants 128 x 512
 ```
 
-CI (`.github/workflows/ci.yml`) runs on push and PR: `forge fmt --check`, `forge build --sizes` plus a bytecode-margin gate (Escrow must keep ≥ 1 KB under EIP-170), `forge test`, Slither (`slither.config.json`, fails on Medium), Aderyn (`aderyn.toml`, fails on High) and the lab console (vitest + build). A nightly job runs the `ci` profile. Static-analysis exclusions are triaged inline in those config files; the remaining Low findings (zero-address checks, shadowing) are open kernel decisions, not suppressed.
+CI (`.github/workflows/ci.yml`) runs on push and PR: `forge fmt --check`, `forge build --sizes` plus a bytecode-margin gate (Escrow must keep ≥ 1 KB under EIP-170; it sits at ~15.3 KB after moving the package edge to the external `Packages` library), `forge test`, Slither (`slither.config.json`, fails on Medium), Aderyn (`aderyn.toml`, fails on High) and the lab console (vitest + build). A nightly job runs the `ci` profile. Static-analysis exclusions are triaged inline in those config files; the remaining Low findings (zero-address checks, shadowing) are open kernel decisions, not suppressed.
 
 Locally: `uvx --from slither-analyzer slither . --config-file slither.config.json --fail-medium` and `aderyn .`.
 
@@ -47,7 +47,7 @@ Core-only deals use `packageIds = []`. A packaged deal names `packageId`s and th
 ```
 src/Escrow.sol              kernel
 src/interfaces/IEscrow.sol  read surface for packages, pools, ramps
-src/libraries/              Consent, Terms, Settlement, Clocks, Types, PackageId
+src/libraries/              Consent, Terms, Settlement, Clocks, Types, PackageId, Packages (external: the kernel's package edge)
 src/packages/               optional modules (behind interfaces)
 src/pools/                  Holder-contract vault + factory
 src/ramps/                  Stargate (and other) composers

@@ -1,6 +1,6 @@
 import type { HexAddress, HexBytes32 } from "../addressbook/types.ts";
 
-/** Types.sol Status. CLAIMED is not a member. */
+/** Types.sol Status. CLAIMED (10) is the Provider-positive timeout terminal, distinct from RELEASED. */
 export const STATUS_NAMES = [
   "NONE",
   "FUNDED",
@@ -12,6 +12,7 @@ export const STATUS_NAMES = [
   "CANCELLED",
   "ARBITRATION_ACTIVE",
   "RESOLVED_BY_ARBITRATION",
+  "CLAIMED",
 ] as const;
 
 export type StatusName = (typeof STATUS_NAMES)[number];
@@ -27,6 +28,7 @@ export const Status = {
   CANCELLED: 7,
   ARBITRATION_ACTIVE: 8,
   RESOLVED_BY_ARBITRATION: 9,
+  CLAIMED: 10,
 } as const;
 
 export const PKG = {

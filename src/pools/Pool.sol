@@ -456,7 +456,7 @@ contract Pool is ReentrancyGuardTransient {
 
     function _terminal(Status s) internal pure returns (bool) {
         return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
-            || s == Status.RESOLVED_BY_ARBITRATION;
+            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
     }
 
     function _unique(address[] calldata xs) internal pure {

@@ -90,7 +90,7 @@ contract StateMachineTest is BaseTest {
         _markFiat(id);
         vm.prank(address(0xDEAD));
         escrow.claim(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(uint8(escrow.status(id)), uint8(Status.CLAIMED));
         assertEq(token.balanceOf(provider), PRINCIPAL);
     }
 

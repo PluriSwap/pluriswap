@@ -14,13 +14,16 @@ contract StargateV2Ramp is IRamp {
     error InsufficientNativeFee();
     error InsufficientAmountOut();
     error RefundFailed();
+    error ZeroAddress();
 
     IStargate public immutable stargate;
     address public immutable token;
 
     constructor(address stargate_) {
+        if (stargate_ == address(0)) revert ZeroAddress();
         stargate = IStargate(stargate_);
         token = IStargate(stargate_).token();
+        if (token == address(0)) revert ZeroAddress();
     }
 
     function quote(RampIntent calldata intent) external view returns (RampQuote memory q) {

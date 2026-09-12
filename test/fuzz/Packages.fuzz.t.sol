@@ -16,6 +16,7 @@ import {
 import {Consent} from "../../src/libraries/Consent.sol";
 import {PackageId} from "../../src/libraries/PackageId.sol";
 import {Escrow} from "../../src/Escrow.sol";
+import {Packages} from "../../src/libraries/Packages.sol";
 import {TestToken} from "../../src/TestToken.sol";
 import {PassportMock} from "../../src/packages/PassportMock.sol";
 import {Reputation} from "../../src/packages/Reputation.sol";
@@ -82,7 +83,10 @@ contract PackagesFuzzTest is Test {
         }
 
         (Status s, uint256 h, uint256 p) = escrow.settlementOf(id);
-        uint256 expectedFee = completionFee <= principal ? completionFee : 0;
+        // Invoiced iff the Provider's share is non-zero and the fee fits; a split that rounds the Provider
+        // to zero is a refund and is never invoiced.
+        bool providerPaid = path != 2 || principal * bps / 10_000 != 0;
+        uint256 expectedFee = providerPaid && completionFee <= principal ? completionFee : 0;
         uint256 left = principal - expectedFee;
         assertEq(token.balanceOf(FEE_RECIPIENT), expectedFee, "fee != hashed completion fee (or 0 if it does not fit)");
         assertEq(h + p + expectedFee, principal, "fee + payouts != principal");
@@ -266,17 +270,11 @@ contract PackagesFuzzTest is Test {
         assertEq(vault.lockOf(SUB_H, bytes32("deal")), 0);
     }
 
-    /// Slash moves exactly the loser's lock to the winner's signing address; if that address is the Controller it burns.
-    function testFuzz_bondVault_slashNeverPaysController(
-        uint256 principal,
-        address winnerSigning,
-        address other,
-        bool winnerIsController
-    ) public {
+    /// Slash moves exactly the loser's lock to the winner's signing address and releases the winner's own lock.
+    function testFuzz_bondVault_slashPaysWinnerExactly(uint256 principal, address winner) public {
         principal = bound(principal, 1, type(uint128).max);
-        vm.assume(winnerSigning != address(0) && winnerSigning != SINK && other != winnerSigning);
-        vm.assume(winnerSigning.code.length == 0);
-        address ctrl = winnerIsController ? winnerSigning : other;
+        vm.assume(winner != address(0) && winner != SINK && winner != holder && winner != provider);
+        vm.assume(winner.code.length == 0);
         BondVault vault = new BondVault(address(this), SINK, passport);
         uint256 lock = (principal + 9) / 10;
         _fundBond(vault, holder, SUB_H, lock);
@@ -284,16 +282,10 @@ contract PackagesFuzzTest is Test {
         vault.reserve(SUB_H, address(token), bytes32("d"), principal);
         vault.reserve(SUB_P, address(token), bytes32("d"), principal);
 
-        uint256 winnerBefore = token.balanceOf(winnerSigning);
-        vault.slash(SUB_P, SUB_H, address(token), bytes32("d"), winnerSigning, ctrl);
+        vault.slash(SUB_P, SUB_H, address(token), bytes32("d"), winner);
 
-        if (winnerSigning == ctrl) {
-            assertEq(token.balanceOf(SINK), lock, "controller-as-winner must burn");
-            assertEq(token.balanceOf(winnerSigning), winnerBefore, "controller received a slash");
-        } else {
-            assertEq(token.balanceOf(winnerSigning) - winnerBefore, lock, "winner != loser lock");
-            assertEq(token.balanceOf(SINK), 0);
-        }
+        assertEq(token.balanceOf(winner), lock, "winner != loser lock");
+        assertEq(token.balanceOf(SINK), 0, "slash burned");
         assertEq(vault.deposited(SUB_P, address(token)), 0, "loser keeps slashed deposit");
         assertEq(vault.deposited(SUB_H, address(token)), lock, "winner deposit touched");
         assertEq(vault.available(SUB_H, address(token)), lock, "winner lock not released");
@@ -326,7 +318,7 @@ contract PackagesFuzzTest is Test {
         vm.expectRevert(BondVault.Unauthorized.selector);
         vault.unlock(SUB_H, address(token), bytes32("d"));
         vm.expectRevert(BondVault.Unauthorized.selector);
-        vault.slash(SUB_H, SUB_P, address(token), bytes32("d"), holder, address(0));
+        vault.slash(SUB_H, SUB_P, address(token), bytes32("d"), holder);
         vm.expectRevert(BondVault.Unauthorized.selector);
         vault.burn(SUB_H, SUB_P, address(token), bytes32("d"));
         vm.stopPrank();
@@ -379,7 +371,7 @@ contract PackagesFuzzTest is Test {
         ControllerAcceptance memory ca;
         bytes memory hs = _sign(HOLDER_PK, Consent.hashHolderAuthorization(ha));
         bytes memory ps = _sign(PROVIDER_PK, Consent.hashProviderAgreement(pa));
-        vm.expectRevert(Escrow.UnknownPackage.selector);
+        vm.expectRevert(Packages.UnknownPackage.selector);
         escrow.activate(ha, hs, pa, ps, ca, "", mods);
     }
 

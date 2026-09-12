@@ -18,6 +18,7 @@ contract KlerosAdapter is ICourt {
     error AlreadyRuled();
     error InvalidRuling();
     error InsufficientFee();
+    error ZeroAddress();
 
     uint256 public constant CHOICES = 2;
 
@@ -49,6 +50,7 @@ contract KlerosAdapter is ICourt {
         address kernel_,
         address registry_
     ) {
+        if (arbitrator_ == address(0) || kernel_ == address(0)) revert ZeroAddress();
         arbitrator = IArbitratorV2(arbitrator_);
         extraData = extraData_;
         kernel = kernel_;
@@ -68,16 +70,14 @@ contract KlerosAdapter is ICourt {
         return (address(arbitrator), uint256(keccak256(extraData)));
     }
 
+    /// @dev Only the kernel opens: it already checked status, clock and Controller. `controller` is the opener
+    ///      the kernel vouches for; the adapter does not re-derive it.
     function openCourt(bytes32 dealId, address controller) external payable {
-        if (kernel == address(0)) {
-            if (msg.sender != controller) revert Unauthorized();
-        } else if (msg.sender != kernel) {
-            revert Unauthorized();
-        }
+        if (msg.sender != kernel) revert Unauthorized();
         if (opened[dealId]) revert AlreadyOpen();
         uint256 cost = arbitrator.arbitrationCost(extraData);
         if (msg.value != cost) revert InsufficientFee();
-        opened[dealId] = true; // effects before the arbitrator call (CEI); standalone mode has no kernel guard
+        opened[dealId] = true; // effects before the arbitrator call (CEI)
         uint256 disputeId = arbitrator.createDispute{value: cost}(CHOICES, extraData);
         known[disputeId] = true;
         disputeOf[dealId] = disputeId;

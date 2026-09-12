@@ -5,7 +5,7 @@ export function renderSettlementPanel(deal: DealSnapshot): string {
   return `
     <section class="panel">
       <h2>settlementOf</h2>
-      <p class="hint"><code>CLAIMED</code> no es un <code>Status</code>. CASE-CORE-06 release y CASE-CORE-07 claim comparten <code>RELEASED</code> y no se distinguen en este record. Claim omite completion fee; release no. Línea de invoice: n/a hasta paquetes (PR-8).</p>
+      <p class="hint">Terminales: <code>RELEASED</code> (release / co-sign / ZK), <code>CLAIMED</code> (timeout Provider-positivo), <code>RESOLVED_SPLIT</code>, <code>STALEMATE</code>, <code>CANCELLED</code>, <code>RESOLVED_BY_ARBITRATION</code>. Completion fee: sobre el pot total siempre que el Provider cobre algo; un refund nunca la paga. Línea de invoice: n/a hasta paquetes (PR-8).</p>
       <dl class="eip712">
         <dt>status</dt><dd><code>${statusName(s.status)}</code> (${s.status})</dd>
         <dt>holderAmt</dt><dd><code>${s.holderAmt.toString()}</code></dd>

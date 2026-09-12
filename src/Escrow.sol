@@ -3,10 +3,9 @@ pragma solidity ^0.8.28;
 
 import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {
     Status,
+    Deal,
     DealTerms,
     DealClocks,
     HolderAuthorization,
@@ -15,23 +14,20 @@ import {
     MutualCancel,
     CoSignedRelease,
     MutualSplit,
-    PackageMods
+    PackageMods,
+    BondAction
 } from "./libraries/Types.sol";
 import {IEscrow} from "./interfaces/IEscrow.sol";
 import {Terms} from "./libraries/Terms.sol";
 import {Consent} from "./libraries/Consent.sol";
 import {Settlement} from "./libraries/Settlement.sol";
 import {Clocks} from "./libraries/Clocks.sol";
-import {PackageId} from "./libraries/PackageId.sol";
-import {IPassport} from "./packages/interfaces/IPassport.sol";
+import {Packages} from "./libraries/Packages.sol";
 import {IReputation} from "./packages/interfaces/IReputation.sol";
-import {IBondVault} from "./packages/interfaces/IBondVault.sol";
 import {IPaymentProof} from "./packages/interfaces/IPaymentProof.sol";
 import {ICourt} from "./packages/interfaces/ICourt.sol";
 
 contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
-    using SafeERC20 for IERC20;
-
     error TermsMismatch();
     error DeadlinePassed();
     error InvalidHolderSignature();
@@ -45,48 +41,27 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     error DealIdMismatch();
     error DeadlineMismatch();
     error BpsMismatch();
-    error UnknownPackage();
-    error IncompatiblePackages();
-    error PackageRequired();
     error PackageNotSelected();
     error EdgeOff();
     error NotRuled();
-    error PackageDrift();
-    error PeerMismatch();
 
     event Activated(
         bytes32 dealId, address holder, address provider, address controller, address token, uint256 principal
     );
-
     event Transitioned(bytes32 dealId, Status from, Status to);
     event Settled(bytes32 dealId, Status status, uint256 holderAmt, uint256 providerAmt);
+    event NonceCancelled(address signer, uint256 nonce);
 
-    uint8 internal constant PKG_PASSPORT = 1;
-    uint8 internal constant PKG_REP = 2;
-    uint8 internal constant PKG_BONDS = 4;
-    uint8 internal constant PKG_ZK = 8;
-    uint8 internal constant PKG_ARB = 16;
+    uint16 internal constant ALL = 10_000;
+    uint16 internal constant HALF = 5_000;
 
-    enum BondAction {
-        Unlock,
-        Burn,
-        SlashHolder,
-        SlashProvider
-    }
-
-    struct Deal {
-        Status status;
-        DealTerms terms;
-        uint256 activatedAt;
-        uint256 fiatSentAt;
-        uint256 disputedAt;
-        uint256 arbitrationOpenedAt;
-        bytes32 subjectH;
-        bytes32 subjectP;
-        uint8 pkgs;
-        PackageMods mods;
-        uint256 holderAmt;
-        uint256 providerAmt;
+    /// @dev How a terminal splits the pot and what it tells the packages.
+    struct Outcome {
+        Status next;
+        uint16 providerBps;
+        IReputation.Close closeH;
+        IReputation.Close closeP;
+        BondAction bond;
     }
 
     mapping(address signer => mapping(uint256 nonce => bool consumed)) public used;
@@ -95,6 +70,8 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     Settlement.Store internal settlement;
 
     constructor() EIP712("PluriSwap", "1") {}
+
+    // --- read ------------------------------------------------------------------------------------------
 
     function domainSeparator() external view returns (bytes32) {
         return _domainSeparatorV4();
@@ -139,6 +116,12 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         return deals[dealId].pkgs;
     }
 
+    function creditOf(address token, address beneficiary) external view returns (uint256) {
+        return Settlement.creditOf(settlement, token, beneficiary);
+    }
+
+    // --- activation --------------------------------------------------------------------------------------
+
     function activate(
         HolderAuthorization calldata ha,
         bytes calldata holderSig,
@@ -172,62 +155,62 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         bytes calldata controllerSig,
         PackageMods memory mods
     ) internal returns (bytes32 id) {
-        DealTerms calldata terms = ha.terms;
-        bytes32 termsHash = Terms.hashTerms(terms);
+        DealTerms calldata t = ha.terms;
+        bytes32 termsHash = Terms.hashTerms(t);
         if (termsHash != Terms.hashTerms(pa.terms)) revert TermsMismatch();
 
         if (block.timestamp > ha.deadline || block.timestamp > pa.deadline) revert DeadlinePassed();
 
-        if (!Consent.isValid(terms.holder, _hashTypedDataV4(Consent.hashHolderAuthorization(ha)), holderSig)) {
+        if (!Consent.isValid(t.holder, _hashTypedDataV4(Consent.hashHolderAuthorization(ha)), holderSig)) {
             revert InvalidHolderSignature();
         }
-        if (!Consent.isValid(terms.provider, _hashTypedDataV4(Consent.hashProviderAgreement(pa)), providerSig)) {
+        if (!Consent.isValid(t.provider, _hashTypedDataV4(Consent.hashProviderAgreement(pa)), providerSig)) {
             revert InvalidProviderSignature();
         }
 
         uint256 controllerNonce;
-        if (terms.holder != terms.controller) {
-            if (ca.terms.controller != terms.controller) revert ControllerAcceptanceRequired();
+        if (t.holder != t.controller) {
+            if (ca.terms.controller != t.controller) revert ControllerAcceptanceRequired();
             if (termsHash != Terms.hashTerms(ca.terms)) revert TermsMismatch();
             if (block.timestamp > ca.deadline) revert DeadlinePassed();
-            if (!Consent.isValid(
-                    terms.controller, _hashTypedDataV4(Consent.hashControllerAcceptance(ca)), controllerSig
-                )) {
+            if (!Consent.isValid(t.controller, _hashTypedDataV4(Consent.hashControllerAcceptance(ca)), controllerSig)) {
                 revert InvalidControllerSignature();
             }
-            if (used[terms.controller][ca.nonce]) revert NonceUsed();
+            if (used[t.controller][ca.nonce]) revert NonceUsed();
             controllerNonce = ca.nonce;
         }
 
-        if (used[terms.holder][ha.nonce] || used[terms.provider][pa.nonce]) revert NonceUsed();
+        if (used[t.holder][ha.nonce] || used[t.provider][pa.nonce]) revert NonceUsed();
 
-        uint8 pkgs = _resolve(terms.packageIds, mods);
-        id = Consent.dealId(_domainSeparatorV4(), terms, ha.nonce, pa.nonce, controllerNonce);
+        uint8 pkgs = Packages.resolve(t.packageIds, mods);
+        id = Consent.dealId(_domainSeparatorV4(), t, ha.nonce, pa.nonce, controllerNonce);
         if (deals[id].status != Status.NONE) revert DealExists();
 
-        (bytes32 subjectH, bytes32 subjectP) = _engage(terms, pkgs, id, mods);
-        Settlement.pullExact(terms.token, terms.holder, terms.principal);
+        (bytes32 subjectH, bytes32 subjectP) = Packages.engage(t, pkgs, id, mods);
+        Settlement.pullExact(t.token, t.holder, t.principal);
 
-        used[terms.holder][ha.nonce] = true;
-        used[terms.provider][pa.nonce] = true;
-        dealOf[terms.holder][ha.nonce] = id;
-        dealOf[terms.provider][pa.nonce] = id;
-        if (terms.holder != terms.controller) {
-            used[terms.controller][ca.nonce] = true;
-            dealOf[terms.controller][ca.nonce] = id;
+        used[t.holder][ha.nonce] = true;
+        used[t.provider][pa.nonce] = true;
+        dealOf[t.holder][ha.nonce] = id;
+        dealOf[t.provider][pa.nonce] = id;
+        if (t.holder != t.controller) {
+            used[t.controller][ca.nonce] = true;
+            dealOf[t.controller][ca.nonce] = id;
         }
 
         Deal storage d = deals[id];
         d.status = Status.FUNDED;
-        d.terms = terms;
+        d.terms = t;
         d.activatedAt = block.timestamp;
         d.subjectH = subjectH;
         d.subjectP = subjectP;
         d.pkgs = pkgs;
         d.mods = mods;
         emit Transitioned(id, Status.NONE, Status.FUNDED);
-        emit Activated(id, terms.holder, terms.provider, terms.controller, terms.token, terms.principal);
+        emit Activated(id, t.holder, t.provider, t.controller, t.token, t.principal);
     }
+
+    // --- core verbs ---------------------------------------------------------------------------------------
 
     function markFiat(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
@@ -243,65 +226,35 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         Deal storage d = deals[dealId];
         if (d.status != Status.FIAT_SENT) revert WrongStatus();
         if (msg.sender != d.terms.controller) revert Unauthorized();
-        uint256 left = _takeCompletion(d);
-        _finish(
-            dealId,
-            d,
-            Status.RELEASED,
-            0,
-            left,
-            IReputation.Close.Peaceful,
-            IReputation.Close.Peaceful,
-            BondAction.Unlock
-        );
+        _close(dealId, d, d.terms.principal, _released());
     }
 
     function cancelByProvider(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.FUNDED) revert WrongStatus();
         if (msg.sender != d.terms.provider) revert Unauthorized();
-        _finish(
-            dealId,
-            d,
-            Status.CANCELLED,
-            d.terms.principal,
-            0,
-            IReputation.Close.Silent,
-            IReputation.Close.Silent,
-            BondAction.Unlock
-        );
+        _close(dealId, d, d.terms.principal, _cancelled());
     }
 
     function timeoutFiat(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.FUNDED) revert WrongStatus();
         Clocks.requireDue(d.activatedAt, d.terms.fiatDuration);
-        _finish(
-            dealId,
-            d,
-            Status.CANCELLED,
-            d.terms.principal,
-            0,
-            IReputation.Close.Silent,
-            IReputation.Close.Silent,
-            BondAction.Unlock
-        );
+        _close(dealId, d, d.terms.principal, _cancelled());
     }
 
+    /// @dev Provider-positive timeout: fiat was sent, the Controller never released. The Provider closed the
+    ///      trade and is credited for it; the Holder's side is silent (an absent Controller is not proven fault).
     function claim(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.FIAT_SENT) revert WrongStatus();
         _requireNotZk(d);
         Clocks.requireDue(d.fiatSentAt, d.terms.releaseDuration);
-        _finish(
+        _close(
             dealId,
             d,
-            Status.RELEASED,
-            0,
             d.terms.principal,
-            IReputation.Close.Silent,
-            IReputation.Close.Silent,
-            BondAction.Unlock
+            Outcome(Status.CLAIMED, ALL, IReputation.Close.Silent, IReputation.Close.Peaceful, BondAction.Unlock)
         );
     }
 
@@ -316,21 +269,12 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         d.disputedAt = block.timestamp;
     }
 
+    /// @dev Neither side co-signed nor went to court inside the dispute window: both locks burn.
     function forceStalemate(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.DISPUTED) revert WrongStatus();
         Clocks.requireDue(d.disputedAt, d.terms.disputeDuration);
-        uint256 holderShare = d.terms.principal / 2;
-        _finish(
-            dealId,
-            d,
-            Status.STALEMATE,
-            holderShare,
-            d.terms.principal - holderShare,
-            IReputation.Close.Stalemate,
-            IReputation.Close.Stalemate,
-            BondAction.Burn
-        );
+        _close(dealId, d, d.terms.principal, _stalemate(BondAction.Burn, IReputation.Close.Stalemate));
     }
 
     function mutualCancel(
@@ -352,16 +296,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
             controllerSig,
             controllerMsg.nonce
         );
-        _finish(
-            providerMsg.dealId,
-            d,
-            Status.CANCELLED,
-            d.terms.principal,
-            0,
-            IReputation.Close.Silent,
-            IReputation.Close.Silent,
-            BondAction.Unlock
-        );
+        _close(providerMsg.dealId, d, d.terms.principal, _cancelled());
     }
 
     function coSignedRelease(
@@ -383,17 +318,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
             controllerSig,
             controllerMsg.nonce
         );
-        uint256 left = _takeCompletion(d);
-        _finish(
-            providerMsg.dealId,
-            d,
-            Status.RELEASED,
-            0,
-            left,
-            IReputation.Close.Peaceful,
-            IReputation.Close.Peaceful,
-            BondAction.Unlock
-        );
+        _close(providerMsg.dealId, d, d.terms.principal, _released());
     }
 
     function mutualSplit(
@@ -404,7 +329,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     ) external nonReentrant {
         _assertDualSignEnvelope(providerMsg.dealId, providerMsg.deadline, controllerMsg.dealId, controllerMsg.deadline);
         if (providerMsg.providerBps != controllerMsg.providerBps) revert BpsMismatch();
-        if (providerMsg.providerBps > 10_000) revert BpsMismatch();
+        if (providerMsg.providerBps > ALL) revert BpsMismatch();
         Deal storage d = deals[providerMsg.dealId];
         _assertDualSignFromActive(d.status);
         _consumeDualSign(
@@ -417,46 +342,35 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
             controllerSig,
             controllerMsg.nonce
         );
-        uint256 left = _takeCompletion(d);
-        uint256 providerShare = left * uint256(providerMsg.providerBps) / 10_000;
-        _finish(
+        _close(
             providerMsg.dealId,
             d,
-            Status.RESOLVED_SPLIT,
-            left - providerShare,
-            providerShare,
-            IReputation.Close.Peaceful,
-            IReputation.Close.Peaceful,
-            BondAction.Unlock
+            d.terms.principal,
+            Outcome(
+                Status.RESOLVED_SPLIT,
+                providerMsg.providerBps,
+                IReputation.Close.Peaceful,
+                IReputation.Close.Peaceful,
+                BondAction.Unlock
+            )
         );
     }
+
+    // --- package verbs --------------------------------------------------------------------------------------
 
     function verifyProof(bytes32 dealId, bytes calldata proof) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.FUNDED) revert WrongStatus();
-        if ((d.pkgs & PKG_ZK) == 0) revert PackageNotSelected();
-        IPaymentProof zk = IPaymentProof(d.mods.zk);
-        if (!_named(d, PackageId.zk(address(zk), address(zk.verifier()), zk.feeRecipient(), zk.verifyFee()))) {
-            revert PackageDrift();
-        }
-        zk.verifyProof(dealId, proof);
-        uint256 left = _invoiceFrom(d.terms.principal, zk.verifyFee(), d.terms.token, zk.feeRecipient());
-        left = _takeCompletionFrom(d, left);
-        _finish(
-            dealId,
-            d,
-            Status.RELEASED,
-            0,
-            left,
-            IReputation.Close.Peaceful,
-            IReputation.Close.Peaceful,
-            BondAction.Unlock
-        );
+        if ((d.pkgs & Packages.ZK) == 0) revert PackageNotSelected();
+        (IPaymentProof module, uint256 fee, address to) = Packages.zk(d);
+        module.verifyProof(dealId, proof);
+        uint256 left = _invoice(d.terms.principal, fee, d.terms.token, to);
+        _close(dealId, d, left, _released());
     }
 
     function openCourt(bytes32 dealId) external payable nonReentrant {
         Deal storage d = deals[dealId];
-        if ((d.pkgs & PKG_ARB) == 0) revert PackageNotSelected();
+        if ((d.pkgs & Packages.ARB) == 0) revert PackageNotSelected();
         _requireNotZk(d);
         if (d.status != Status.FIAT_SENT && d.status != Status.DISPUTED) revert WrongStatus();
         if (msg.sender != d.terms.controller) revert Unauthorized();
@@ -465,82 +379,62 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         } else {
             Clocks.requireStrictlyBefore(d.disputedAt, d.terms.disputeDuration);
         }
-        ICourt court = ICourt(d.mods.court);
-        (address partner, uint256 key) = court.packageBinding();
-        if (!_named(d, PackageId.arbitration(address(court), partner, key))) revert PackageDrift();
-        court.openCourt{value: msg.value}(dealId, msg.sender);
+        ICourt c = Packages.court(d);
+        c.openCourt{value: msg.value}(dealId, msg.sender);
         emit Transitioned(dealId, d.status, Status.ARBITRATION_ACTIVE);
         d.status = Status.ARBITRATION_ACTIVE;
         d.arbitrationOpenedAt = block.timestamp;
     }
 
+    /// @dev 1 = Holder wins (refund, Provider's lock to the Holder), 2 = Provider wins (payout, Holder's lock to
+    ///      the Provider), 3 = the court would not decide: half each, no lock moves, both scores record it.
     function readRuling(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.ARBITRATION_ACTIVE) revert WrongStatus();
         uint8 ruling = ICourt(d.mods.court).readRuling(dealId);
-        if (ruling == 0) revert NotRuled();
-        if (ruling == 3) {
-            uint256 holderShare = d.terms.principal / 2;
-            _finish(
-                dealId,
-                d,
-                Status.STALEMATE,
-                holderShare,
-                d.terms.principal - holderShare,
-                IReputation.Close.Stalemate,
-                IReputation.Close.Stalemate,
-                BondAction.Burn
-            );
-            return;
-        }
-        uint256 left = _takeCompletion(d);
         if (ruling == 1) {
-            _finish(
+            _close(
                 dealId,
                 d,
-                Status.RESOLVED_BY_ARBITRATION,
-                left,
-                0,
-                IReputation.Close.ArbWin,
-                IReputation.Close.ArbLoss,
-                BondAction.SlashHolder
+                d.terms.principal,
+                Outcome(
+                    Status.RESOLVED_BY_ARBITRATION,
+                    0,
+                    IReputation.Close.ArbWin,
+                    IReputation.Close.ArbLoss,
+                    BondAction.HolderWins
+                )
             );
         } else if (ruling == 2) {
-            _finish(
+            _close(
                 dealId,
                 d,
-                Status.RESOLVED_BY_ARBITRATION,
-                0,
-                left,
-                IReputation.Close.ArbLoss,
-                IReputation.Close.ArbWin,
-                BondAction.SlashProvider
+                d.terms.principal,
+                Outcome(
+                    Status.RESOLVED_BY_ARBITRATION,
+                    ALL,
+                    IReputation.Close.ArbLoss,
+                    IReputation.Close.ArbWin,
+                    BondAction.ProviderWins
+                )
             );
+        } else if (ruling == 3) {
+            _close(dealId, d, d.terms.principal, _stalemate(BondAction.Unlock, IReputation.Close.Stalemate));
         } else {
             revert NotRuled();
         }
     }
 
+    /// @dev The court never answered: half each, locks back, nobody's score moves. The court's failure is not
+    ///      the parties' fault.
     function forceArbitrationTimeout(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.ARBITRATION_ACTIVE) revert WrongStatus();
         Clocks.requireDue(d.arbitrationOpenedAt, d.terms.arbitrationDuration);
-        uint256 holderShare = d.terms.principal / 2;
-        _finish(
-            dealId,
-            d,
-            Status.STALEMATE,
-            holderShare,
-            d.terms.principal - holderShare,
-            IReputation.Close.Stalemate,
-            IReputation.Close.Stalemate,
-            BondAction.Burn
-        );
+        _close(dealId, d, d.terms.principal, _stalemate(BondAction.Unlock, IReputation.Close.Silent));
     }
 
-    function creditOf(address token, address beneficiary) external view returns (uint256) {
-        return Settlement.creditOf(settlement, token, beneficiary);
-    }
+    // --- settlement --------------------------------------------------------------------------------------------
 
     function withdraw(address token) external nonReentrant {
         Settlement.withdraw(settlement, token, msg.sender);
@@ -548,168 +442,55 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
 
     function cancelNonce(uint256 nonce) external {
         used[msg.sender][nonce] = true;
+        emit NonceCancelled(msg.sender, nonce);
     }
 
-    function _resolve(bytes32[] memory ids, PackageMods memory mods) internal view returns (uint8 pkgs) {
-        uint256 matched;
-        if (mods.passport != address(0)) {
-            _requireNamed(ids, PackageId.passport(mods.passport));
-            pkgs |= PKG_PASSPORT;
-            matched++;
-        }
-        if (mods.reputation != address(0)) {
-            IReputation r = IReputation(mods.reputation);
-            if (address(r.passport()) != mods.passport) revert PeerMismatch();
-            _requireNamed(
-                ids, PackageId.reputation(mods.reputation, r.feeRecipient(), r.activationFee(), r.completionFee())
-            );
-            pkgs |= PKG_REP;
-            matched++;
-        }
-        if (mods.bonds != address(0)) {
-            IBondVault vault = IBondVault(mods.bonds);
-            if (address(vault.passport()) != mods.passport) revert PeerMismatch();
-            _requireNamed(ids, PackageId.bonds(mods.bonds, vault.sink()));
-            pkgs |= PKG_BONDS;
-            matched++;
-        }
-        if (mods.zk != address(0)) {
-            IPaymentProof z = IPaymentProof(mods.zk);
-            _requireNamed(ids, PackageId.zk(address(z), address(z.verifier()), z.feeRecipient(), z.verifyFee()));
-            pkgs |= PKG_ZK;
-            matched++;
-        }
-        if (mods.court != address(0)) {
-            (address partner, uint256 key) = ICourt(mods.court).packageBinding();
-            _requireNamed(ids, PackageId.arbitration(mods.court, partner, key));
-            pkgs |= PKG_ARB;
-            matched++;
-        }
-        if (matched != ids.length) revert UnknownPackage();
-        if ((pkgs & (PKG_ZK | PKG_ARB)) == (PKG_ZK | PKG_ARB)) revert IncompatiblePackages();
-        if ((pkgs & PKG_REP) != 0 && (pkgs & PKG_PASSPORT) == 0) revert PackageRequired();
-        if ((pkgs & PKG_BONDS) != 0 && (pkgs & (PKG_PASSPORT | PKG_REP)) != (PKG_PASSPORT | PKG_REP)) {
-            revert PackageRequired();
-        }
+    // --- internals -------------------------------------------------------------------------------------------------
+
+    function _released() private pure returns (Outcome memory) {
+        return Outcome(Status.RELEASED, ALL, IReputation.Close.Peaceful, IReputation.Close.Peaceful, BondAction.Unlock);
     }
 
-    function _requireNamed(bytes32[] memory ids, bytes32 id) internal pure {
-        for (uint256 i; i < ids.length; i++) {
-            if (ids[i] == id) return;
-        }
-        revert UnknownPackage();
+    function _cancelled() private pure returns (Outcome memory) {
+        return Outcome(Status.CANCELLED, 0, IReputation.Close.Silent, IReputation.Close.Silent, BondAction.Unlock);
     }
 
-    /// @dev TRUST-03: the signed id must still match the module's live policy.
-    function _named(Deal storage d, bytes32 id) internal view returns (bool) {
-        bytes32[] storage ids = d.terms.packageIds;
-        for (uint256 i; i < ids.length; i++) {
-            if (ids[i] == id) return true;
-        }
-        return false;
+    function _stalemate(BondAction bond, IReputation.Close close) private pure returns (Outcome memory) {
+        return Outcome(Status.STALEMATE, HALF, close, close, bond);
     }
 
-    function _engage(DealTerms calldata terms, uint8 pkgs, bytes32 dealId, PackageMods memory mods)
-        internal
-        returns (bytes32 subjectH, bytes32 subjectP)
-    {
-        if ((pkgs & PKG_PASSPORT) != 0) {
-            subjectH = IPassport(mods.passport).identify(terms.holder);
-            subjectP = IPassport(mods.passport).identify(terms.provider);
+    /// @dev One exit for every terminal. The completion fee is invoiced on the whole pot whenever any of it
+    ///      reaches the Provider (a trade happened), before the split; a refund to the Holder is never invoiced.
+    ///      KERNEL-04: a fee that does not fit is skipped, a terminal never reverts on a package.
+    function _close(bytes32 dealId, Deal storage d, uint256 pot, Outcome memory o) internal {
+        uint256 providerAmt = pot * o.providerBps / ALL;
+        if (providerAmt != 0) {
+            (uint256 fee, address to) = Packages.completionInvoice(d);
+            pot = _invoice(pot, fee, d.terms.token, to);
+            providerAmt = pot * o.providerBps / ALL;
         }
-        if ((pkgs & PKG_REP) != 0) {
-            IReputation r = IReputation(mods.reputation);
-            address v = (pkgs & PKG_BONDS) != 0 ? mods.bonds : address(0);
-            r.admit(terms.holder, terms.token, terms.principal, v);
-            r.admit(terms.provider, terms.token, terms.principal, v);
-            uint256 fee = r.activationFee();
-            if (fee != 0) {
-                Settlement.pullExact(terms.token, terms.holder, fee);
-                IERC20(terms.token).safeTransfer(r.feeRecipient(), fee);
-            }
-        }
-        if ((pkgs & PKG_BONDS) != 0) {
-            IBondVault vault = IBondVault(mods.bonds);
-            vault.reserve(subjectH, terms.token, dealId, terms.principal);
-            vault.reserve(subjectP, terms.token, dealId, terms.principal);
-        }
+        uint256 holderAmt = pot - providerAmt;
+
+        emit Transitioned(dealId, d.status, o.next);
+        d.status = o.next;
+        d.holderAmt = holderAmt;
+        d.providerAmt = providerAmt;
+        emit Settled(dealId, o.next, holderAmt, providerAmt);
+        if (holderAmt != 0) Settlement.creditThenTryPush(settlement, d.terms.token, d.terms.holder, holderAmt);
+        if (providerAmt != 0) Settlement.creditThenTryPush(settlement, d.terms.token, d.terms.provider, providerAmt);
+        Packages.disposeBond(d, dealId, o.bond);
+        Packages.notify(d, o.closeH, o.closeP);
     }
 
-    function _takeCompletion(Deal storage d) internal returns (uint256 left) {
-        return _takeCompletionFrom(d, d.terms.principal);
-    }
-
-    function _takeCompletionFrom(Deal storage d, uint256 left) internal returns (uint256) {
-        if ((d.pkgs & PKG_REP) == 0) return left;
-        IReputation r = IReputation(d.mods.reputation);
-        // TRUST-03: a module that drifts its policy loses the invoice; Core exits keep running.
-        if (!_named(d, PackageId.reputation(address(r), r.feeRecipient(), r.activationFee(), r.completionFee()))) {
-            return left;
-        }
-        return _invoiceFrom(left, r.completionFee(), d.terms.token, r.feeRecipient());
-    }
-
-    /// @dev KERNEL-04: a fee that does not fit the leftover is skipped. Never revert a terminal.
-    function _invoiceFrom(uint256 left, uint256 fee, address token, address to) internal returns (uint256) {
+    function _invoice(uint256 left, uint256 fee, address token, address to) internal returns (uint256) {
         if (fee == 0 || fee > left) return left;
         left -= fee;
         Settlement.creditThenTryPush(settlement, token, to, fee);
         return left;
     }
 
-    function _finish(
-        bytes32 dealId,
-        Deal storage d,
-        Status next,
-        uint256 holderAmt,
-        uint256 providerAmt,
-        IReputation.Close closeH,
-        IReputation.Close closeP,
-        BondAction bond
-    ) internal {
-        emit Transitioned(dealId, d.status, next);
-        d.status = next;
-        d.holderAmt = holderAmt;
-        d.providerAmt = providerAmt;
-        emit Settled(dealId, next, holderAmt, providerAmt);
-        if (holderAmt != 0) {
-            Settlement.creditThenTryPush(settlement, d.terms.token, d.terms.holder, holderAmt);
-        }
-        if (providerAmt != 0) {
-            Settlement.creditThenTryPush(settlement, d.terms.token, d.terms.provider, providerAmt);
-        }
-        _disposeBond(dealId, d, bond);
-        _notify(d, closeH, closeP);
-    }
-
-    function _disposeBond(bytes32 dealId, Deal storage d, BondAction bond) internal {
-        if ((d.pkgs & PKG_BONDS) == 0) return;
-        IBondVault vault = IBondVault(d.mods.bonds);
-        // TRUST-03: drift → fail-open, the lock stays in the vault.
-        if (!_named(d, PackageId.bonds(address(vault), vault.sink()))) return;
-        if (bond == BondAction.Unlock) {
-            try vault.unlock(d.subjectH, d.terms.token, dealId) {} catch {}
-            try vault.unlock(d.subjectP, d.terms.token, dealId) {} catch {}
-        } else if (bond == BondAction.Burn) {
-            try vault.burn(d.subjectH, d.subjectP, d.terms.token, dealId) {} catch {}
-        } else if (bond == BondAction.SlashHolder) {
-            address controller = d.terms.controller == d.terms.holder ? address(0) : d.terms.controller;
-            try vault.slash(d.subjectP, d.subjectH, d.terms.token, dealId, d.terms.holder, controller) {} catch {}
-        } else {
-            try vault.slash(d.subjectH, d.subjectP, d.terms.token, dealId, d.terms.provider, d.terms.controller) {}
-                catch {}
-        }
-    }
-
-    function _notify(Deal storage d, IReputation.Close closeH, IReputation.Close closeP) internal {
-        if ((d.pkgs & PKG_REP) == 0) return;
-        IReputation r = IReputation(d.mods.reputation);
-        try r.notifyTerminal(d.subjectH, d.terms.token, d.terms.principal, closeH) {} catch {}
-        try r.notifyTerminal(d.subjectP, d.terms.token, d.terms.principal, closeP) {} catch {}
-    }
-
     function _requireNotZk(Deal storage d) internal view {
-        if ((d.pkgs & PKG_ZK) != 0) revert EdgeOff();
+        if ((d.pkgs & Packages.ZK) != 0) revert EdgeOff();
     }
 
     function _assertDualSignEnvelope(bytes32 dealIdA, uint256 deadlineA, bytes32 dealIdB, uint256 deadlineB)
