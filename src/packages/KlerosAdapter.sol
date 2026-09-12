@@ -56,11 +56,10 @@ contract KlerosAdapter is ICourt {
             templateId = templateId_;
             templateUri = templateUri_;
         } else {
-            templateId = IDisputeTemplateRegistry(registry_).setDisputeTemplate(
-                PluriSwapKlerosTemplate.tag(),
-                PluriSwapKlerosTemplate.json(),
-                PluriSwapKlerosTemplate.mappings()
-            );
+            templateId = IDisputeTemplateRegistry(registry_)
+                .setDisputeTemplate(
+                    PluriSwapKlerosTemplate.tag(), PluriSwapKlerosTemplate.json(), PluriSwapKlerosTemplate.mappings()
+                );
         }
         packageId = PackageId.kleros(address(this), arbitrator_, extraData_);
     }
@@ -78,8 +77,8 @@ contract KlerosAdapter is ICourt {
         if (opened[dealId]) revert AlreadyOpen();
         uint256 cost = arbitrator.arbitrationCost(extraData);
         if (msg.value != cost) revert InsufficientFee();
+        opened[dealId] = true; // effects before the arbitrator call (CEI); standalone mode has no kernel guard
         uint256 disputeId = arbitrator.createDispute{value: cost}(CHOICES, extraData);
-        opened[dealId] = true;
         known[disputeId] = true;
         disputeOf[dealId] = disputeId;
         dealOf[disputeId] = dealId;

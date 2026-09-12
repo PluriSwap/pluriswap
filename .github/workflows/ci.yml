@@ -1,0 +1,155 @@
+name: ci
+
+on:
+  push:
+    branches: [main, "lab/**"]
+  pull_request:
+  schedule:
+    # Nightly heavy campaign (fuzz 2048 / invariants 128 x 512); see [profile.ci] in foundry.toml.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FOUNDRY_VERSION: v1.5.1
+  # Escrow is 22.2 KB of 24.576 KB. Fail early if the kernel creeps within 1 KB of the EIP-170 wall.
+  MIN_RUNTIME_MARGIN_ESCROW: 1024
+
+jobs:
+  forge:
+    name: forge fmt / build / sizes / test
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: forge fmt --check
+        run: forge fmt --check
+
+      - name: forge build --sizes
+        run: forge build --sizes
+
+      - name: bytecode margin gate
+        run: |
+          forge build --sizes --json > sizes.json
+          python3 - <<'EOF'
+          import json, os, sys
+          sizes = json.load(open("sizes.json"))
+          limit = int(os.environ["MIN_RUNTIME_MARGIN_ESCROW"])
+          esc = sizes["Escrow"]
+          print(f"Escrow runtime {esc['runtime_size']} B, margin {esc['runtime_margin']} B (gate {limit} B)")
+          if esc["runtime_margin"] < limit:
+              sys.exit("Escrow runtime margin below gate: extract logic to an external library before adding more")
+          over = [n for n, s in sizes.items() if s["runtime_margin"] < 0 or s["init_margin"] < 0]
+          if over:
+              sys.exit(f"contracts over EIP-170/3860 limits: {over}")
+          EOF
+
+      - name: forge test
+        run: forge test -vvv
+
+  heavy:
+    name: nightly fuzz + invariants (profile ci)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    timeout-minutes: 90
+    env:
+      FOUNDRY_PROFILE: ci
+      # Fork tests (test/fork) run only when this is set; public RPC is enough for read-only checks.
+      ARBITRUM_RPC_URL: https://arb1.arbitrum.io/rpc
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - name: forge test (fuzz 2048, invariants 128 x 512)
+        run: forge test -vv
+
+  slither:
+    name: slither (fail on medium)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: forge build (with build-info for crytic-compile)
+        run: forge build --build-info --skip test script
+
+      # Excluded detectors are triaged in slither.config.json:
+      #   arbitrary-send-erc20   Settlement.pullExact pulls from the Holder who signed the EIP-712 authorization
+      #   arbitrary-send-eth     StargateV2Ramp refunds to the refund address the sender named in the intent
+      #   uninitialized-state    mapping `deals` (false positive)
+      #   uninitialized-local    zero-default locals (false positive)
+      #   incorrect-equality     `== 0` guards (false positive)
+      #   divide-before-multiply ceil(principal/10) * 10 >= principal coverage check (intentional)
+      #   unused-return          settlementOf third value / admit return / zk nullifier intentionally ignored
+      #   reentrancy-no-eth      every kernel entrypoint is nonReentrant (transient guard)
+      #   calls-loop/timestamp   Pool books loop over liveNonces; clocks are timestamp based by design
+      # Remaining Low findings (shadowing-local, missing-zero-check) stay visible in the report.
+      - uses: crytic/slither-action@v0.4.1
+        id: slither
+        with:
+          ignore-compile: true
+          slither-config: slither.config.json
+          fail-on: medium
+          sarif: slither.sarif
+
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always() && steps.slither.outputs.sarif != ''
+        continue-on-error: true
+        with:
+          sarif_file: ${{ steps.slither.outputs.sarif }}
+
+  aderyn:
+    name: aderyn (fail on high)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - run: forge build
+      - uses: Cyfrin/aderyn-ci@v0
+        with:
+          fail-on: high
+
+  lab:
+    name: lab console (vitest + build)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    defaults:
+      run:
+        working-directory: lab
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: lab/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
