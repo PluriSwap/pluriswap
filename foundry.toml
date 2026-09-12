@@ -16,7 +16,21 @@ remappings = [
 ]
 
 [fuzz]
-runs = 64
+runs = 256
+
+# Handlers guard their own preconditions; any revert inside a handler call is a bug.
+[invariant]
+runs = 32
+depth = 256
+fail_on_revert = true
+call_override = false
+
+[profile.ci.fuzz]
+runs = 2048
+
+[profile.ci.invariant]
+runs = 128
+depth = 512
 
 [rpc_endpoints]
 arbitrum_sepolia = "https://sepolia-rollup.arbitrum.io/rpc"
