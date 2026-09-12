@@ -5,7 +5,8 @@ import {Script, console} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {TestToken} from "../src/TestToken.sol";
-import {PassportMock} from "../src/packages/PassportMock.sol";
+import {IPassport} from "../src/packages/interfaces/IPassport.sol";
+import {PassportPicker} from "./PassportPicker.s.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
 import {ZkMock} from "../src/packages/ZkMock.sol";
@@ -13,7 +14,7 @@ import {VerifierMock} from "../src/mocks/VerifierMock.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 
 /// @dev Packaged escrow whose only court is Kleros V2. Does not overwrite sepolia-packages.json.
-contract DeployKlerosPackages is Script {
+contract DeployKlerosPackages is PassportPicker {
     using stdJson for string;
 
     uint256 internal constant ARBITRUM_SEPOLIA = 421614;
@@ -35,7 +36,7 @@ contract DeployKlerosPackages is Script {
         address predicted = vm.computeCreateAddress(deployer, n + 6);
 
         vm.startBroadcast(pk);
-        PassportMock passport = new PassportMock();
+        (IPassport passport, address decoder) = _deployPassport();
         Reputation reputation = new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE, predicted);
         VerifierMock verifier = new VerifierMock();
         ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE, predicted);
@@ -60,6 +61,7 @@ contract DeployKlerosPackages is Script {
         vm.serializeUint(obj, "chainId", block.chainid);
         vm.serializeAddress(obj, "testToken", address(token));
         vm.serializeAddress(obj, "passport", address(passport));
+        vm.serializeAddress(obj, "passportDecoder", decoder);
         vm.serializeAddress(obj, "reputation", address(reputation));
         vm.serializeAddress(obj, "bondVault", address(vault));
         vm.serializeAddress(obj, "verifier", address(verifier));

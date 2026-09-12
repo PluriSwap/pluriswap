@@ -14,7 +14,7 @@ Las rampas de bridge (`RAMPS.md`) no son un paquete de esta lista: no hay `invoi
 
 | Paquete | Para qué | Punto en la máquina | Cobra | Dónde va el fee |
 | --- | --- | --- | --- | --- |
-| Human Passport | Raíz anti-Sybil: el sujeto de reputación es un humano, no una address | Admisión | No | — |
+| Human Passport | Raíz anti-Sybil: sólo wallets con Passport vigente entran al recinto con paquetes | Admisión | No | — |
 | Reputación | Capa de confianza: cap del principal y fee de acceso | Activación (cap + fee); post-terminal (score) | Sí, en activación | Lo que diga el paquete (oficial: DAO) |
 | Bonds | Suben el cap, skin-in-the-game | Activación (reserva); terminal (suelta o slash) | No es un fee: es colateral | Slash: address de firma del ganador (Holder o Provider); **quema** en stalemate |
 | ZK / payment proof | Auto-release autenticado; apaga `DISPUTED` | Arista `FUNDED` → `RELEASED` | Sí, **al verificar** | Lo que diga el paquete (oficial: DAO) |
@@ -55,7 +55,7 @@ No se reusa. Dos amarres, los dos en la misma tx que `verifyProof`:
 1. **`dealId` en los public inputs.** V verifica un proof para *este* escrow. Las mismas bytes en otro deal fallan: el `dealId` no matchea.
 2. **`paymentNullifier` gastado.** V devuelve un id del pago fiat (rail + receipt, o el nullifier del circuito). El paquete lo marca usado. Un segundo proof, aunque tenga otro `dealId`, no puede liquidar el mismo pago.
 
-`used[paymentNullifier] = true` es del paquete ZK, no del Passport. El nullifier de humanidad es otra cosa: identifica al sujeto. Este identifica un receipt.
+`used[paymentNullifier] = true` es del paquete ZK, no del Passport. Passport responde si una wallet es humana; este nullifier identifica un receipt de pago.
 
 Si el nullifier ya está gastado, o el `dealId` no es el del escrow, `verifyProof` rechaza y el deal no cambia. Autenticación, consumo, `RELEASED` y fee ZK commit o revert juntos.
 
@@ -188,7 +188,13 @@ Van **juntos**. Sin Passport no hay sujeto, no hay score, no hay cap que suba. C
 
 ### 9.1 Human Passport
 
-No cobra. Identifica al **sujeto**. El score, el `inFlight` y el bond se keyean por el nullifier del Passport, no por la wallet. Varias wallets del mismo humano comparten cap y reputación.
+No cobra. Identifica al **sujeto**. El adapter oficial es `HumanPassport` sobre el `GitcoinPassportDecoder` de Human Passport (ex Gitcoin Passport; Arbitrum One `0x2050256A91cbABD7C42465aA0d5325115C1dEB43`). El decoder puntúa **addresses**, no humanos: el sujeto es la wallet con Passport vigente (`bytes32(uint160(wallet))`). Score, `inFlight` y bond se keyean por esa wallet. Una segunda wallet del mismo humano es otro sujeto, sin historial.
+
+La anti-Sybil es la de Passport: un stamp cuenta para una sola address a la vez (deduplicación), así que dos wallets sólo son "humanas" a la vez con dos juegos de stamps disjuntos. `isHuman` del decoder es `score >= threshold` (4 decimales, 20.0 = `200000`); el adapter puede fijar su propio `minScore` inmutable. Umbral, decoder y adapter quedan bindeados por `PackageId.passport(adapter)`: otro decoder u otro umbral es otro adapter, otro id, otra firma.
+
+El decoder revierte cuando no hay attestation o expiró (stamps a 90 días, `maxScoreAge`), y es un proxy upgradeable y pausable del equipo de Passport. El adapter traduce cualquier revert a `NoPassport`: la admisión falla cerrada y el kernel no quema nonce. Dependencia de liveness declarada: `BondVault.withdraw` exige `identify` vigente, así que un Passport vencido deja el bond estacionado hasta re-verificar la misma wallet. No es pérdida; es una re-verificación.
+
+En Arbitrum Sepolia y local no hay decoder: los scripts despliegan `PassportMock` (herramienta de laboratorio, `setHuman` sin auth) o, con `PASSPORT_DECODER`, un `HumanPassport` sobre `PassportDecoderMock` (escribible sólo por el deployer).
 
 Sin Passport vigente: este paquete rechaza la activación. En el terminal, `notifyTerminal` usa el sujeto que el kernel snapshotteó en `IEscrow.subjects` — no vuelve a `identify`. Un remap o revoke de Passport no deja `inFlight` huérfano ni fabrica otro humano. Una address nueva no fabrica un historial. Eso es el anti-Sybil y el freno del cap: sin humanidad el máximo de los deals no sube.
 

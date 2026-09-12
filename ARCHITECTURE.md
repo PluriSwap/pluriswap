@@ -125,7 +125,7 @@ Los *kinds* son la superficie cerrada de extensión (EXT-01). Cinco. Un kind nue
 
 | Interfaz | Kind | Verbos | Policy que entra al `packageId` |
 | --- | --- | --- | --- |
-| `IPassport` | PASSPORT | `identify` | address del adapter |
+| `IPassport` | PASSPORT | `identify` | address del adapter (`HumanPassport`: decoder y `minScore` inmutables) |
 | `IReputation` | REPUTATION | `admit`, `invoiceActivation`, `invoiceCompletion`, `notifyTerminal` | module, feeRecipient, activationFee, completionFee |
 | `IBondVault` | BONDS | `reserve`, `unlock`, `slash`, `burn` | vault, sink, lock bps |
 | `IPaymentProof` | ZK | `verifyProof`, `invoiceVerify` | module, verifier V, feeRecipient, verifyFee |
