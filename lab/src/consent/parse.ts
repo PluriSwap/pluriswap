@@ -2,7 +2,7 @@ import { getAddress, isAddress } from "viem";
 import type { HexAddress, HexBytes32 } from "../addressbook/types.ts";
 import { isHexBytes32, type DealTerms } from "../deal/types.ts";
 import type { Envelope } from "./eip712.ts";
-import type { ConsentDraft } from "./ConsentPanel.ts";
+import type { ConsentDraft } from "./draft.ts";
 
 export function parseIdOverride(raw: string): HexBytes32[] | null {
   const trimmed = raw.trim();

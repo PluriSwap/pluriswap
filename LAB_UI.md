@@ -4,10 +4,10 @@
 | --- | --- |
 | Título | IA de la consola de laboratorio del recinto PluriSwap |
 | Autor | TBD |
-| Fecha | 2026-09-10 |
-| Estado | Draft |
+| Fecha | 2026-09-10 (IA) · 2026-09-13 (implementación v1) |
+| Estado | **Implementado** en `lab/` (Vite + Preact + signals + viem). Este documento sigue siendo la IA de referencia; la sección *Estado de implementación* mapea cada espacio a su código. |
 | Audiencia | Autores del protocolo (Arbitrum Sepolia `421614`, Anvil `31337`) |
-| Alcance | Información: objetos, identidad, navegación, affordances. **Sin implementación de UI.** |
+| Alcance | Información: objetos, identidad, navegación, affordances, y el mapa a `lab/src`. |
 | Recinto | Kernel `src/Escrow.sol`, lectura `src/interfaces/IEscrow.sol` |
 
 ---
@@ -82,7 +82,7 @@ El bytecode del kernel es evaluable. La consola no debe nacer como marketplace. 
 - Meter constitución de pool (NAV, shares, Sponsors, runoff) en la vista del deal kernel.
 - Presentar `compose → activate` de rampa como verbo vivo. `StargateV2Ramp` es taxi-only (`RAMPS.md` lo permite; el bytecode no lo implementa; REVIEW.md §3.8).
 - Mainnet, Circle USDC como producto, ETH nativo, subgraph obligatorio, indexer como fuente de verdad.
-- Inventar estado que el kernel no tiene (`CLAIMED` como `Status`, `BRIDGING_*`, perfil `POOL`, `daoFee` en `DealTerms`).
+- Inventar estado que el kernel no tiene (`BRIDGING_*`, perfil `POOL`, `daoFee` en `DealTerms`). `CLAIMED` **sí** es `Status` desde la decisión de kernel de 2026-09 (ver §1.2).
 - Ocultar acciones ilegales. Si el kernel las tiene, se ven; si revertirían, se deshabilitan con la razón.
 
 ---
@@ -148,9 +148,9 @@ settlementOf(dealId) → (status, holderAmt, providerAmt)
 creditOf(token, beneficiary) → uint256
 ```
 
-`Status` (`Types.sol`): `NONE, FUNDED, FIAT_SENT, DISPUTED, RELEASED, RESOLVED_SPLIT, STALEMATE, CANCELLED, ARBITRATION_ACTIVE, RESOLVED_BY_ARBITRATION`.
+`Status` (`Types.sol`): `NONE, FUNDED, FIAT_SENT, DISPUTED, RELEASED, RESOLVED_SPLIT, STALEMATE, CANCELLED, ARBITRATION_ACTIVE, RESOLVED_BY_ARBITRATION, CLAIMED`.
 
-**`CLAIMED` no es un estado.** Es un outcome económico de `RELEASED` (CASE-CORE-07). `settlementOf` no distingue claim vs `release`. La UI no fabrica un badge `CLAIMED` on-chain; puede anotar *hipótesis de origen* a partir del log `Transitioned(FIAT_SENT → RELEASED)` + que el caller no era el Controller, y debe etiquetarla como inferencia, no como `Status`.
+**`CLAIMED` es un `Status` terminal** (decisión de kernel 2026-09; antes era solo un outcome de catálogo). Lo escribe únicamente `claim`: el Provider declaró el fiat, el Controller no respondió dentro de `releaseDuration`, y cualquiera cerró el trade a favor del Provider. Se distingue de `RELEASED` porque nadie *confirmó* el pago: Reputation recibe `Close.Silent` para el Holder (un Controller ausente no es falta probada) y `Close.Peaceful` para el Provider; los bonds se desbloquean. Económicamente es un payout completo al Provider, así que **sí** paga completion fee (§1.11). La consola lo muestra con su nombre de enum, sin inferencias.
 
 Clases derivadas (no storage):
 
@@ -160,7 +160,7 @@ Clases derivadas (no storage):
 | P2P | `terms.holder == terms.controller` |
 | Controller distinto | `terms.holder != terms.controller` |
 | Pool-as-Holder | `terms.holder` es contrato (code size > 0); la UI no asume “es Pool” hasta que el operador abre el espacio Pool o el AddressBook lo etiqueta |
-| Terminal | `RELEASED \| RESOLVED_SPLIT \| STALEMATE \| CANCELLED \| RESOLVED_BY_ARBITRATION` |
+| Terminal | `RELEASED \| CLAIMED \| RESOLVED_SPLIT \| STALEMATE \| CANCELLED \| RESOLVED_BY_ARBITRATION` |
 | Activo | `FUNDED \| FIAT_SENT \| DISPUTED \| ARBITRATION_ACTIVE` |
 | ZK-deal | `kinds & 8 != 0` (`PKG_ZK`) |
 | ARB-deal | `kinds & 16 != 0` (`PKG_ARB`) |
@@ -250,7 +250,9 @@ Contrato detrás de un slot. Permissionless. El kernel no tiene allowlist.
 | **Clave** | `address` del módulo. El `packageId` es *contenido*, no clave de navegación. |
 | **Firmado** | El **id**, no la address suelta. |
 | **Vivo** | Getters de policy: `feeRecipient`, `activationFee`, `completionFee`, `verifier`, `verifyFee`, `sink`, `passport()`, `packageBinding()`. Binding al escrow: ver mapa abajo. **No** entra al `packageId`. |
-| **Lab vs real** | Metadato de AddressBook, no del chain. `PassportMock` / `VerifierMock` / `ArbitrationMock` / `ZkMock` se marcan `lab: true`. `KlerosAdapter` se marca `lab: false` (habla un tribunal externo; sigue siendo opt-in). |
+| **Lab vs real** | Metadato de AddressBook, no del chain. `PassportMock` / `VerifierMock` / `ArbitrationMock` / `ZkMock` se marcan `lab: true`. `KlerosAdapter` y `HumanPassport` se marcan `lab: false`. |
+
+Adaptador de Passport **real**: `HumanPassport` (Human Passport, ex Gitcoin Passport) envuelve el `GitcoinPassportDecoder` on-chain y responde una sola pregunta: *¿esta wallet es humana?* (`score >= minScore`). No identifica a una persona: `identify(wallet)` devuelve la wallet misma como `subject`. En Anvil/Sepolia sin decoder se usa `PassportDecoderMock` detrás del mismo `HumanPassport`, o directamente `PassportMock` (LAB). La consola no cambia por eso: el kernel solo ve `identify`.
 
 El escrow al que el módulo acepta llamadas **no** se llama igual en todos los impls. Mapa de getters (comparar contra el Recinto en foco; no entra al `packageId`):
 
@@ -325,6 +327,20 @@ Caja de skin, no de principal (`PACKAGES.md` §5).
 
 La consola muestra BondPosition en el espacio Paquetes / sujeto, y un resumen por deal (`lockOf[subjectH][dealId]`, `lockOf[subjectP][dealId]`). No mezcla esos números con `principal` ni con `creditOf`.
 
+Disposición del lock por terminal (`Packages.disposeBond`, decisión de kernel 2026-09: *justo y que premie buen comportamiento*):
+
+| Terminal | Bonds | Reputation `Close` (Holder / Provider) |
+| --- | --- | --- |
+| `release`, `coSignedRelease`, `mutualSplit`, `verifyProof` | `Unlock` ambos | Peaceful / Peaceful |
+| `claim` (→ `CLAIMED`) | `Unlock` ambos | Silent / Peaceful |
+| `cancelByProvider`, `timeoutFiat`, `mutualCancel` | `Unlock` ambos | Silent / Silent |
+| `forceStalemate` (DISPUTED vencido sin acuerdo ni tribunal) | **`Burn` ambos** → `sink` | Stalemate / Stalemate |
+| Tribunal: HolderWin | `slash` del Provider → **al Holder** (address firmante) | Peaceful / Faulty |
+| Tribunal: ProviderWin | `slash` del Holder → **al Provider** | Faulty / Peaceful |
+| Tribunal: empate (`Stalemate`) o `forceArbitrationTimeout` | `Unlock` ambos (no hay falta probada) | Silent / Silent |
+
+Solo quema el estancamiento voluntario en `DISPUTED`; una sentencia que no encuentra culpable no castiga. El slash paga al ganador, no al sink.
+
 #### 1.9 Credit
 
 Pasivo maduro del escrow tras terminal (credit-first). También créditos del Pool hacia su Controller (`controllerCredit`).
@@ -376,25 +392,25 @@ Overflow `origin + duration` en Solidity 0.8 **revierte** el timeout (REVIEW.md 
 | **Clave** | `(Recinto, dealId)` |
 | **Vivo** | `settlementOf(dealId) → (status, holderAmt, providerAmt)` |
 | **Evento** | `Settled(dealId, status, holderAmt, providerAmt)` |
-| **No distingue como `Status`** | CASE-CORE-06 vs CASE-CORE-07 (ambos `RELEASED`). |
+| **Distingue** | CASE-CORE-06 (`RELEASED`) vs CASE-CORE-07 (`CLAIMED`) como `Status`. |
 
-**Sí distingue en economía**, y el panel de settlement tiene que mostrarlo. `claim` paga `d.terms.principal` al Provider y **no** llama `_takeCompletion`. `release` / `coSignedRelease` / `mutualSplit` / `verifyProof` / arb-win sí. En un deal con Reputation, CASE-CORE-06 y CASE-CORE-07 comparten `Status.RELEASED` y **no** comparten `providerAmt`.
+**Regla única de completion fee** (decisión de kernel 2026-09, `Escrow._close`): *siempre que algo del pot llegue al Provider, hubo trade y se factura el completion fee sobre el pot completo, antes del split*. Un refund al Holder nunca se factura. KERNEL-04: si el fee no entra (drift, `fee > pot`), se omite; el terminal no revierte.
 
 Líneas derivadas del panel (no son storage; se etiquetan *proyectado* antes del terminal, *observado* después vía `settlementOf` + invoice on-chain):
 
-| Transición | Completion / verify | Principal |
-| --- | --- | --- |
-| `claim` | **omitido** | 100% Provider = `principal` |
-| `release`, `coSignedRelease` | `_takeCompletion` sobre `principal` (fee 0 si drift o `fee > left`, KERNEL-04) | `providerAmt = leftover` |
-| `mutualSplit` | completion **primero** sobre el principal completo; luego `providerShare = leftover * providerBps / 10000` (`ENCODING.md` §5.3) | Holder = leftover − providerShare |
-| `verifyProof` | `verifyFee` luego completion sobre el leftover | resto al Provider |
-| arb holder/provider win | completion sobre principal | 100% del leftover al ganador |
-| `cancelByProvider`, `timeoutFiat`, `mutualCancel` | no hay completion | 100% Holder = `principal` |
-| `forceStalemate` / arb refused / arb timeout | no hay completion | `principal/2` Holder, resto Provider |
+| Transición | `providerBps` | Completion / verify | Reparto |
+| --- | ---: | --- | --- |
+| `release`, `coSignedRelease`, `claim` | 10000 | completion sobre el pot | `providerAmt = pot − fee` |
+| `mutualSplit` | bps firmados | completion sobre el pot completo; luego `providerAmt = (pot − fee) · bps / 10000` (`ENCODING.md` §5.3) | Holder = resto |
+| `verifyProof` | 10000 | `verifyFee` primero, luego completion sobre el pot restante | resto al Provider |
+| Tribunal ProviderWin | 10000 | completion sobre el pot | 100% al Provider |
+| Tribunal HolderWin | 0 | **no** hay completion | 100% Holder |
+| `cancelByProvider`, `timeoutFiat`, `mutualCancel` | 0 | **no** hay completion | 100% Holder |
+| `forceStalemate`, tribunal empate, `forceArbitrationTimeout` | 5000 | completion sobre el pot (el Provider recibe algo) | mitades del resto |
 
-PATH-TRIO se juzga así: activation fee sale en `activate` (pull extra); completion fee sale en `release` (no en un `claim`); score `Peaceful` en ambos sujetos; bonds `unlock`. Un `claim` sobre el mismo trío **no** cobraria completion y `Close` sería `Silent`.
+PATH-TRIO se juzga así: activation fee sale en `activate` (pull extra); completion fee sale en `release` **o** en `claim` (misma factura, distinto `Status` y distinto `Close`); bonds `unlock`.
 
-Outcomes de spec (`STATE_MACHINE.md` §12) son **etiquetas de catálogo**, no storage. La consola puede mostrar OUT-01..13 como hipótesis del Path, contrastadas con `settlementOf`. Si no coinciden, gana la chain. `CLAIMED` (OUT-04) es esa hipótesis, nunca un badge de `Status`.
+Outcomes de spec (`STATE_MACHINE.md` §12) son **etiquetas de catálogo**, no storage. La consola muestra la proyección por verbo y, tras el terminal, `settlementOf` observado. Si no coinciden, gana la chain.
 
 #### 1.12 AddressBook
 
@@ -509,14 +525,14 @@ Objeto en foco: Deal. Si `status == NONE`, no hay Deal: se redirige a Consentimi
 Paneles, en este orden (el operador recorre la máquina de arriba a abajo):
 
 1. **Identidad.** `dealId`, Recinto, `Activated` (holder, provider, controller, token, principal).
-2. **Máquina.** `status` con el nombre del enum. Grafo (Mermaid vivo) con el nodo actual y las aristas *de este deal* (ZK apaga DISPUTED; sin ARB no se dibujan `ARBITRATION_*` como capacidad — `STATE_MACHINE.md` §5: *no stubs muertos presentados como capacidad*). Aristas apagadas se ven en gris con `EdgeOff` / `PackageNotSelected`.
+2. **Máquina.** `status` con el nombre del enum. Grafo (SVG vivo, `lab/src/deal/Machine.tsx`) con el nodo actual y las aristas *de este deal* (ZK apaga DISPUTED; sin ARB no se dibujan `ARBITRATION_*` como capacidad — `STATE_MACHINE.md` §5: *no stubs muertos presentados como capacidad*). Aristas apagadas se ven en gris con `EdgeOff` / `PackageNotSelected`.
 3. **Matriz de elegibilidad.** Ver §4. Ocupa el lugar del “CTA único” de un dapp de consumo. Filas dual-sign leen el DualSignDraft del panel 12.
 4. **Términos firmados.** `DealTerms` campo a campo. `packageIds[]` en hex, orden canónico, cada uno resuelto a kind+impl si el snapshot `modules` lo permite. Badge `Core-only` si vacío.
 5. **Roles.** Holder / Provider / Controller, con igualdad P2P marcada. Relayer no se lista: es cualquiera.
 6. **Clocks.** Orígenes crudos + deadlines derivados + predicado (due / strictly-before / not started) + `TooEarly`/`TooLate` proyectado. Badge si `duration = 0` cierra strictly-before.
 7. **Kinds y módulos.** Bitmap decodificado + `modules` snapshot + recompute vivo vs firmado (badge `DRIFT`). Binding `operator`/`kernel` vs Recinto.
 8. **Sujetos.** `subjects` — bytes32. En Core-only: `0x0`. No se etiquetan “humanos”.
-9. **Settlement.** `settlementOf` (`status`, `holderAmt`, `providerAmt`) **más** línea de invoice derivada (§1.11): completion/verify omitido si drift, `fee > left`, o si el verbo es `claim` / cancel Holder-positivo. Preview de `mutualSplit` = `bps * leftoverAfterCompletion / 10000`. Nota: `CLAIMED` no es `Status`; claim vs release se ve en amounts/invoice.
+9. **Settlement.** `settlementOf` (`status`, `holderAmt`, `providerAmt`) **más** línea de invoice derivada (§1.11): completion se factura sobre el pot siempre que el Provider reciba algo (`release`, `claim`, split, stalemate, arb-win); omitido si drift, `fee > pot`, o si es refund total al Holder. Preview de `mutualSplit` = `bps * (pot − fee) / 10000`. `CLAIMED` vs `RELEASED` se ve en `status`; el invoice es el mismo.
 10. **Locks de bond** (si `kinds & BONDS`). `lockOf` de ambos sujetos.
 11. **Log.** `Transitioned` / `Settled` de *este* `dealId` (query por topic si el operador da fromBlock; si no, “pega el tx hash”).
 12. **Composer dual-sign** (panel del Deal, **no** wizard, **no** Consentimiento). Objeto DualSignDraft (§1.14). Campos: type (`MutualCancel` \| `CoSignedRelease` \| `MutualSplit`), `dealId` (prellenado del foco), `deadline` compartido, `nonceP`, `nonceC`, `providerBps` solo si split, preview de **dos** digests, calldata de Relayer. Asiento Provider firma el envelope P; asiento Controller firma el C; asiento Relayer envía **una** tx. Draft se descarta al cambiar Recinto.
@@ -587,7 +603,7 @@ Verbos (nombres on-chain, nunca eufemismos):
 | `TestToken.mint` | `src/TestToken.sol` | Faucet de lab. | Activo real. |
 | Reloj RPC Anvil | `evm_increaseTime` / `evm_setNextBlockTimestamp` | Avance de `block.timestamp` en `31337`. Default **off**. | Verbo kernel. No se muestra en Sepolia. |
 
-`KlerosAdapter` **no** vive aquí. Es PackageImpl de ARBITRATION que habla `IArbitratorV2`. Sus verbos de lab, si los hay (`KlerosClose.s.sol` / `IKlerosCoreAdvance`), son del tribunal externo, no del kernel; se documentan en el Path `PATH-KLEROS`, no como “submitRuling”.
+`KlerosAdapter` **no** vive aquí. Es PackageImpl de ARBITRATION que habla `IArbitratorV2`. La sentencia la escribe `KlerosCore.rule` después del ciclo de jurados; la consola solo la lee con `readRuling`. Si el court del deal es Kleros, el botón `submitRuling` de este espacio se deshabilita con esa razón. Evidencia: dApp de Kleros (§4.1).
 
 `ArbitrationMock.open(dealId, controller)` (no `openCourt`) lo puede llamar un extraño y deja `AlreadyOpen` para el kernel. No es un verbo de la consola; se documenta como grief en Security. `submitRuling` sigue siendo LAB y sin auth.
 
@@ -694,8 +710,8 @@ Probes de preflight (lecturas, no txs): `holder != provider`, `principal > 0`, c
 | `markFiat` | `WrongStatus` ≠ FUNDED; `EdgeOff` si ZK; `Unauthorized` ≠ provider | FUNDED ∧ ¬ZK ∧ sender=Provider |
 | `cancelByProvider` | `WrongStatus` ≠ FUNDED; `Unauthorized` ≠ provider | FUNDED ∧ sender=Provider |
 | `timeoutFiat` | `WrongStatus` ≠ FUNDED; `Clocks.TooEarly` si `now < activatedAt+fiatDuration` | FUNDED ∧ due. Anyone. Incluye ZK. `duration=0` ⇒ due en el origen. |
-| `release` | `WrongStatus` ≠ FIAT_SENT; `Unauthorized` ≠ controller | FIAT_SENT ∧ sender=Controller. (ZK no llega a FIAT_SENT.) Completion se cobra aquí, no en `claim`. |
-| `claim` | `WrongStatus` ≠ FIAT_SENT; `EdgeOff` si ZK; `Clocks.TooEarly` | FIAT_SENT ∧ ¬ZK ∧ due. Anyone. **Sin** `_takeCompletion`. |
+| `release` | `WrongStatus` ≠ FIAT_SENT; `Unauthorized` ≠ controller | FIAT_SENT ∧ sender=Controller. (ZK no llega a FIAT_SENT.) → `RELEASED`, completion sobre el pot. |
+| `claim` | `WrongStatus` ≠ FIAT_SENT; `EdgeOff` si ZK; `Clocks.TooEarly` | FIAT_SENT ∧ ¬ZK ∧ due. Anyone. → **`CLAIMED`**; completion sobre el pot (el Provider cobra); Holder `Close.Silent`. |
 | `openDisputed` | `WrongStatus` ≠ FIAT_SENT; `EdgeOff` si ZK; `Unauthorized` ≠ controller; `Clocks.TooLate` si `now >= fiatSentAt+releaseDuration` | FIAT_SENT ∧ ¬ZK ∧ sender=Controller ∧ strictly-before. Si `releaseDuration=0` ⇒ `TooLate` inmediato. |
 | `forceStalemate` | `WrongStatus` ≠ DISPUTED; `Clocks.TooEarly` | DISPUTED ∧ due. Anyone. |
 | `mutualCancel` | `DealIdMismatch`; `DeadlineMismatch`; `DeadlinePassed`; `WrongStatus` si no `FUNDED\|FIAT_SENT\|DISPUTED\|ARBITRATION_ACTIVE`; `Invalid*Signature`; `NonceUsed` | DualSignDraft coincidente + deal vivo + firmas P+C + nonces libres. Relayer anyone. |
@@ -730,6 +746,8 @@ Preflight **por impl** (después de que el kernel pasaría):
 | `KlerosAdapter` | ETH nativo | **igualdad exacta** `msg.value == arbitrator.arbitrationCost(extraData)`. `extraData` = `KlerosAdapter.extraData()` (no un campo del deal). Quote vivo en cada render. Balance nativo del asiento que envía (Controller). | `Unauthorized` (`msg.sender` debe ser `kernel`); `AlreadyOpen`; `InsufficientFee` si `msg.value != cost` |
 
 PATH-ARB-MOCK: approve court token **antes** de `openCourt`; si no, la matriz no está ENABLED. PATH-KLEROS: mostrar `cost` y el `msg.value` que se va a mandar. `ArbitrationMock.open()` (entry distinto, no el kernel) puede grief `AlreadyOpen` — no es verbo de la consola.
+
+**Contrato con Kleros V2 (decisión 2026-09):** PluriSwap solo hace dos cosas: `openCourt` abre el caso (`KlerosCore.createDispute` con `extraData`, `msg.value == arbitrationCost`) y `readRuling` lee la sentencia que `KlerosCore.rule` dejó en el adapter. **Toda la evidencia se sube en la dApp de Kleros**, no en PluriSwap: el adapter expone `caseOf(externalDisputeId)` (holder, provider, token, monto formateado) y un template KIP-99 con `policyURI` para que la Court UI muestre el caso. La consola no tiene formulario de evidencia y no lo va a tener. Direcciones de `KlerosCore` / `DisputeTemplateRegistry` son parámetros de deploy (`script/KlerosConfig.s.sol`). Arbitrum One exige que el adapter esté en la whitelist de arbitrables.
 
 #### 4.2 Dual-sign: dos envelopes, una tx
 
@@ -843,8 +861,8 @@ Plantillas que `script/*.s.sol` recorren en lote. Un paso = una tx (dual-sign = 
 | `CASE-CORE-03` | core | `(3600, 1800, 7200)` | no | cancelByProvider | `CANCELLED`, holderAmt=principal |
 | `CASE-CORE-04` | core | **`(0, 1800, 7200)`** | no | timeoutFiat due inmediato | `CANCELLED` |
 | `CASE-CORE-05` | core | `(3600, 1800, 7200)` | no | composer `mutualCancel` FUNDED | `CANCELLED` |
-| `CASE-CORE-06` | core | `(3600, 1800, 7200)` | no | markFiat → release | `RELEASED`; Core-only: providerAmt=principal. Con Rep: providerAmt=principal−completion (no es `claim`) |
-| `CASE-CORE-07` | core | **`(3600, 0, 7200)`** | no | markFiat → claim due inmediato | `RELEASED` (no status `CLAIMED`); **sin** completion fee |
+| `CASE-CORE-06` | core | `(3600, 1800, 7200)` | no | markFiat → release | `RELEASED`; Core-only: providerAmt=principal. Con Rep: providerAmt=principal−completion |
+| `CASE-CORE-07` | core | **`(3600, 0, 7200)`** | no | markFiat → claim due inmediato | **`CLAIMED`**; con Rep: misma completion que release; Holder `Close.Silent` |
 | `CASE-CORE-08` | core | `(3600, 1800, 7200)` | no | composer mutualCancel FIAT_SENT | `CANCELLED` |
 | `CASE-CORE-09` | core | `(3600, 1800, 7200)` | no | composer split bps=2500 | `RESOLVED_SPLIT`; preview `bps*leftover/10000` |
 | `CASE-CORE-10` | core | `(3600, 1800, 7200)` | no | composer coSignedRelease | `RELEASED` |
@@ -905,7 +923,7 @@ Indexer: **no** es fuente de verdad. Si existe (fuera de v1), es un acelerador d
 - Chrome de la consola: Open Question (es/en). Este documento está en español; no decide el locale de la app.
 - Nunca: “Verify humanity”, “Submit ZK proof” (como si fuera circuito), “Official packages required”, “Next step”, “Your order”.
 - Sí: `PassportMock.setHuman`, `VerifierMock` payload, `PackageNotSelected`, `Core-only`, `Recinto`, `asiento Provider`.
-- `CLAIMED`: solo como nombre de Path/outcome (OUT-04), con nota *no es `Status`*.
+- `CLAIMED`: nombre del enum `Status` (terminal de `claim`). Se muestra como cualquier otro estado.
 
 ---
 
@@ -1134,18 +1152,44 @@ Un autor recorre `CASE-CORE-01..15` a mano, un trío, un ZK proof-or-timeout (pa
 
 ## Open Questions
 
-Decisiones que el usuario debe tomar antes o durante la implementación. Este documento **no** las cierra con un default de producto de consumo.
+Estado al cierre de v1 (2026-09-13). Las cerradas quedan como registro; las abiertas siguen siendo del usuario.
 
-1. **Dónde vive la app.** Recomendación de este texto: `lab/` en el repo. Alternativas: paquete hermano, repo aparte. ¿Se acepta `lab/`?
-2. **Modelo de wallet.** ¿Browser wallets distintas por asiento (Holder/Provider/Controller/Relayer) vs importar claves de test (las de `script/` / env Foundry) vs híbrido? Importar PKs es ergonómico en Anvil y peligroso si se filtra. No se persisten en AddressBook.
+1. **Dónde vive la app.** **Cerrada:** `lab/` en el repo.
+2. **Modelo de wallet.** **Cerrada para v1:** cada asiento tiene `address` + *pk de sesión* (Anvil / claves de test) que vive solo en memoria; el botón *cargar cuentas Anvil* llena los cuatro asientos. Nada se persiste. Conector de browser wallet por asiento queda para v1.1 (no bloquea ningún Path en Anvil/Sepolia).
 3. **Corte de alcance v1 (packaged / pool / ramp).** El primer slice mergeable **ya está cerrado**: PR-1..3 read-only. El primer slice de escritura **ya está cerrado**: PR-4+5 Core P2P. Q3 decide si v1 *también* incluye PR-8..12, no si existe un primer merge.
-4. **¿Lab verbs en v1?** `PassportMock.setHuman`, ensamblar `VerifierMock` proof, `ArbitrationMock.submitRuling`, `TestToken.mint`, reloj Anvil. Sin ellos no se recorre trío/ZK/arb-mock en Sepolia. Recomendación de IA: sí, **en jaula LAB**, nunca como CTA del Deal. Flag `labVerbs`.
-5. **Idioma del chrome.** Documento en español; identifiers on-chain en inglés. ¿Chrome `es`, `en`, o bilingüe (labels ES + identificadores EN)?
-6. **¿Portar `PackageId` a TS a mano o generar bindings desde ABI + bytecode de la library?** La library es `public` (DELEGATECALL). Llamarla on-chain es posible pero innecesario si el port es 1:1 y testeado contra vectores de `PackageId.sol`.
-7. **Duraciones default vs warp.** Las plantillas de Path **ya** traen tuplas (§7): `0` solo en el reloj `requireDue` de ese Path; strictly-before usa `releaseDuration = 100`, nunca `0`. Q7 ya no es “¿default 0 en todos los relojes?”. Queda: ¿el operador puede editar duraciones fuera de la plantilla? (sí: Consentimiento es un borrador). ¿Reloj LAB Anvil (`evm_increaseTime`) en v1? Recomendación: sí, flag `labVerbs`, oculto en Sepolia. Sepolia no tiene warp; los Paths due usan `duration=0` en **ese** reloj.
+4. **¿Lab verbs en v1?** **Cerrada:** sí, en jaula LAB (espacio Laboratorio, flag `labVerbs`), nunca como CTA del Deal.
+5. **Idioma del chrome.** **Cerrada:** chrome en español, identificadores on-chain en inglés (`FUNDED`, `markFiat`, `WrongStatus`).
+6. **Port de `PackageId`.** **Cerrada:** port TS a mano (`lab/src/packageid/hash.ts`) con vectores contra `PackageId.sol` en `hash.test.ts`.
+7. **Duraciones default vs warp.** **Cerrada:** las plantillas traen la 4-tupla; Consentimiento es editable; el reloj LAB (`evm_increaseTime`) existe solo en `31337` y no aparece en Sepolia.
 8. **¿Multicall para leer un Deal?** Un lote `status+terms+clocks+…` reduce RPC. No cambia IA. ¿v1 lo exige?
 9. **Soporte Safe / EIP-1271 más allá de Pool.** El kernel ya lo habla. ¿v1 muestra un asiento “Holder contrato genérico” o solo Pool oficial?
 10. **Kleros live vs ArbitrationMock en v1.** Kleros exige `msg.value = arbitrationCost` y un ciclo de tribunal externo (`KlerosOpen`/`KlerosClose`). ¿v1 se queda en mock + matriz `openCourt`, y Kleros es v1.1?
+
+---
+
+## Estado de implementación (v1, `lab/`)
+
+Stack: Vite 8, Preact + `@preact/signals`, viem, vitest. `npm run dev` en `lab/` (ver `lab/README.md`). Sin backend: todo habla RPC.
+
+| Espacio (§2) | Código | Qué hace hoy |
+| --- | --- | --- |
+| Chrome | `src/chrome/{RecintoBar,SeatStrip,PathTray,AddressBookDrawer}.tsx` | Recinto en foco (chain + RPC + escrow pegado, `domainSeparator`), cuatro asientos con pk de sesión, bandeja del Path activo, AddressBook por sets |
+| Guía | `src/spaces/GuideSpace.tsx` + `src/content/{states,verbs,reverts}.ts` | Explica roles, máquina (SVG), relojes, consentimiento, dual-sign, settlement y paquetes con el vocabulario del kernel |
+| Recinto | `src/spaces/RecintoSpace.tsx`, `src/recinto/probe.ts` | Identidad EIP-712, sets del AddressBook, lookup `dealId` / `dealOf(signer, nonce)` |
+| Deal | `src/spaces/DealSpace.tsx`, `src/deal/Machine.tsx`, `src/eligibility/*` | Máquina viva, **matriz de elegibilidad** (todas las filas, primer revert, envío desde el asiento), términos, relojes, kinds + drift, settlement proyectado/observado, composer dual-sign |
+| Consentimiento | `src/spaces/ConsentSpace.tsx`, `src/consent/*`, `src/verbs/activate*.ts` | Borrador de `DealTerms`, P2P/Controller distinto, firmas HA/PA/CA, preflight en el orden de `_activate`, overload 6/7 args, envío |
+| Paquetes | `src/spaces/PackagesSpace.tsx`, `src/slots/*`, `src/packageid/hash.ts` | Slots, recompute de `PackageId`, peers, binding `operator`/`kernel`, fees vivos, presets del set (trío / ZK / court) |
+| Pool | `src/spaces/PoolSpace.tsx`, `src/pool/*` | Snapshot del pool, `deposit` / `authorize(ha)` / `unlock` / `reconcile` |
+| Créditos | `src/spaces/CreditsSpace.tsx` | `creditOf` por asiento, `withdraw` con `no-op` |
+| Catálogo | `src/spaces/CatalogSpace.tsx`, `src/catalog/paths.ts` | Paths con pasos (verbo, asiento, espacio), *arrancar* prellena Consentimiento y muestra la bandeja |
+| Laboratorio | `src/spaces/LabSpace.tsx`, `src/lab/*` | `mint`, `approve`, `PassportMock.setHuman`, `BondVault.deposit`, payload `VerifierMock`, `ArbitrationMock.submitRuling`, reloj Anvil |
+| Rampa | `src/spaces/RampSpace.tsx`, `src/ramp/*` | `quote` / `send` taxi-only |
+
+Estado y acciones: `src/app/store.ts` (signals) y `src/app/actions.ts` (toda escritura y lectura RPC). Los módulos puros (`eip712`, `preflight`, `predicates`, `clocks`, `kinds`, `hash`, `paths`, `DualSignDraft`) tienen tests en vitest.
+
+Recorridos verificados contra Anvil con la consola (sin scripts): `CASE-CORE-01-P2P → 02 → 06` (Core-only, 6 args) y `PATH-TRIO` (Passport+Reputation+Bonds vía LAB, 7 args, `kinds = 7`, completion fee observado en `settlementOf`).
+
+Flags de app (§Rollout): existen todos y arrancan **on** en v1 porque los doce PRs están integrados; apagar uno deja las filas visibles y quita el botón de enviar.
 
 ---
 
@@ -1162,7 +1206,7 @@ Decisiones que el usuario debe tomar antes o durante la implementación. Este do
 9. **Pool fuera de la vista kernel.** NAV/idle/locked/credits/authorize/1271/reconcile/kick/runoff viven en el espacio Pool. El Deal muestra `Holder = pool`.
 10. **Lab adapters en jaula visual.** `PassportMock.setHuman`, `VerifierMock` (`abi.encode(dealId, nullifier)`), `ArbitrationMock.submitRuling` nunca se copian como “humanity” o “zk proof”. Lo que se evalúa: resolución, recompute, peers, operator/`kernel`, snapshot, drift, KERNEL-04, ZK EdgeOff.
 11. **Rampa taxi-only.** `quote`/`send` existen. Compose→activate no se presenta como verbo vivo.
-12. **`CLAIMED` no se inventa como `Status`.** `settlementOf` no distingue claim vs release como enum; el panel **sí** distingue economía (claim omite completion). Inferencias de origen se etiquetan como tales.
+12. **`CLAIMED` es `Status` (kernel 2026-09).** `claim` cierra en `CLAIMED`, no en `RELEASED`; el completion fee se factura sobre el pot siempre que el Provider reciba algo (incluido claim y split); refunds no se facturan. Bonds: quema solo en `forceStalemate`; el slash de tribunal paga al ganador; empates desbloquean.
 13. **v1 = RPC + dealId/nonce del operador.** Sin subgraph como verdad. Eventos `Activated`/`Transitioned`/`Settled` bastan.
 14. **Código futuro en `lab/`**, incremental, cada PR demoable, flags de app no de kernel. Orden congelado: Decision 17 / PR Plan.
 15. **Idioma del documento: español; identificadores on-chain: inglés.** Locale del chrome queda abierto.

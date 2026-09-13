@@ -1,126 +1,86 @@
-# PluriSwap lab (PR-1)
+# PluriSwap lab — consola de laboratorio
 
-Consola de laboratorio de **solo lectura** para un Recinto (`chainId` + `escrow`). No es un marketplace. El JSON de `deployments/` es un AddressBook: atajo, no registry. Pegar un escrow compatible está al mismo nivel que elegir una fila.
+Una vista del recinto, no un segundo protocolo. Cada widget mapea a un getter, evento o entrypoint de `Escrow.sol`. La arquitectura de información está en [`../LAB_UI.md`](../LAB_UI.md); este README explica cómo correrla y cómo recorrer un deal a mano.
 
-Chrome: español. Identifiers on-chain: inglés (`escrow`, `domainSeparator`, `Holder`).
+Chrome en español; identificadores on-chain en inglés (`FUNDED`, `markFiat`, `WrongStatus`).
 
 ## Correr
 
-Desde `lab/`:
-
 ```bash
+cd lab
 npm install
-npm test
-npm run dev
+npm test        # vitest: eip712, preflight, predicados, relojes, PackageId, paths
+npm run dev     # http://localhost:5173
 ```
 
-RPC por defecto:
+Stack: Vite + Preact + `@preact/signals` + viem. Sin backend: todo habla RPC.
 
-- `421614` → `https://sepolia-rollup.arbitrum.io/rpc`
-- `31337` → `http://127.0.0.1:8545`
-
-El constructor del escrow no bindea paquetes. Core-only vs packaged es **por deal** (PR-2).
-
-## Demo: tres Recintos Sepolia, dos `testToken`
-
-Conmutar las chips del chrome (o “Usar este escrow” en el drawer). Cada JSON es un **set** bound a su `escrow`. Archivos que comparten `(chainId, escrow)` son el mismo Recinto.
-
-| sourceFile | Recinto | `testToken` de *ese* archivo |
-| --- | --- | --- |
-| `sepolia.json` | `0x9b00…0499E` | `0x3E9a…2d667` |
-| `sepolia-packages.json` | `0xed09…071F8` | `0x3E9a…2d667` |
-| `sepolia-paths.json` | `0x1Ab0…0325E` | `0x2F97…5b265` |
-
-Esperar **tres** `domainSeparator` distintos (el dominio bindea `verifyingContract`). `sepolia-paths.json` no usa el token de `sepolia.json`.
-
-No hay botón “usar oficiales”. `sepolia-kleros.json` y `*-pool-factory.json` no son Recintos (no tienen `escrow`): viven como sets auxiliares.
-
-## Asientos
-
-Holder / Provider / Controller / Relayer empiezan **desconectados**. Pegar una address es sesión, no una clave. No se persisten secretos. Si Holder y Controller son la misma address aparece `Holder=Controller`.
-
-## Demo PR-2: Deal explorer (`IEscrow`)
-
-En el Recinto `sepolia.json` (`0x9b00…`), atajo `releasedDealId` → `status = RELEASED`, `packageIds = []` (Core-only).
-
-Cambiar al Recinto `sepolia-packages.json` (`0xed09…`) y abrir `zkDealId`. Kinds debe incluir ZK. No mezclar esos dealId entre recintos: el dominio es otro `verifyingContract`.
-
-Si `releaseDuration = 0` y el deal ya está `FIAT_SENT` (o el origen `fiatSentAt` está escrito), `openDisputed` aparece como `TooLate` en el panel de clocks. `claim` aparece `due`.
-
-Lookup también acepta `dealOf(signer, nonce)`. Cambiar de Recinto descarta el Deal en foco.
-
-## Demo PR-3: matriz (primer revert)
-
-Pegar la address del **Provider** en el asiento Provider y activarlo. En un deal `FUNDED` Core, `markFiat` = ENABLED. Mismo deal, asiento Holder → `Escrow.Unauthorized`.
-
-Deal ZK `FUNDED`: `markFiat` = `Escrow.EdgeOff`; `timeoutFiat` sigue (anyone, due si `fiatDuration=0`).
-
-Deal `FIAT_SENT` con `releaseDuration=0`: `openDisputed` = `Clocks.TooLate`; `claim` = ENABLED.
-
-Filas dual-sign = `draft-empty` hasta el composer (PR-6). CASE-CORE-16/17 (`release`/`claim` en `DISPUTED`, verbos en terminal) siguen visibles con `WrongStatus`.
-
-## Demo PR-4: `activate` P2P Core-only (6 args)
-
-Anvil (`31337`). Cuentas Foundry 0 (Holder=Relayer) y 1 (Provider). PK solo en el asiento, nunca en el AddressBook.
+### Anvil en un minuto
 
 ```bash
-# mint + approve al escrow del Recinto 31337
-cast send $TOKEN "mint(address,uint256)" $HOLDER 1000000 --private-key $PK0 --rpc-url http://127.0.0.1:8545
-cast send $TOKEN "approve(address,uint256)" $ESCROW 1000000 --private-key $PK0 --rpc-url http://127.0.0.1:8545
+anvil                                             # terminal 1
+export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+forge script script/Deploy.s.sol            --rpc-url http://127.0.0.1:8545 --broadcast --private-key $PRIVATE_KEY
+forge script script/DeployPackages.s.sol    --rpc-url http://127.0.0.1:8545 --broadcast --private-key $PRIVATE_KEY
+forge script script/DeployPoolFactory.s.sol --rpc-url http://127.0.0.1:8545 --broadcast --private-key $PRIVATE_KEY
 ```
 
-En Consentimiento: copiar asientos, testToken del set, nonces libres, deadline unix futuro, (3600, 1800, 7200, 0), `packageIds=[]`. Firmar HA y PA. Relayer envía overload **6** con CA dummy + `bytes("")`. `status == FUNDED`. El inspector muestra 6 args.
+Eso escribe `deployments/31337*.json`. La consola los carga como **sets** del AddressBook (un set = un JSON, anclado al `escrow` que declara). `31337.json` y `31337-packages.json` son **dos recintos distintos** con su propio `testToken`.
 
-Si hay `packageIds` corta con PR-8.
+## Cómo se navega
 
-## Demo PR-5: verbos Core de asiento
+```
+Recinto en foco ─ Asientos (Holder · Provider · Controller · Relayer) ─ Path activo
+├─ Guía            qué es cada rol, estado, reloj y verbo
+├─ Recinto         dominio EIP-712, sets, abrir un deal por dealId o (signer, nonce)
+├─ Catálogo        Paths (CASE-CORE-01..17, trío, ZK, arb, pool, ramp) → "arrancar"
+├─ Consentimiento  componer DealTerms, firmar HA/PA(/CA), preflight, activate
+├─ Paquetes        slots de PackageMods, recompute de PackageId, peers, binding
+├─ Deal            máquina viva + matriz de elegibilidad + términos, relojes, settlement, dual-sign
+├─ Créditos        creditOf por asiento, withdraw
+├─ Pool            deposit / authorize / unlock / reconcile
+├─ Rampa           quote / send (taxi-only)
+└─ Laboratorio     LAB: mint, approve, setHuman, bond deposit, payload mock, submitRuling, reloj Anvil
+```
 
-Tras `FUNDED`, asiento Provider + pk → `markFiat`. Asiento Controller (P2P = Holder) → `release`. `timeoutFiat` con `fiatDuration=0` (anyone). `openDisputed` exige `releaseDuration=100` (no 0). `claim` con `releaseDuration=0`. `withdraw` con crédito 0 = `no-op` (no se envía). Flag `coreWrites` (default on). Filas dual-sign/ZK/ARB siguen visibles sin botón Enviar.
+**Asientos.** El asiento activo es `msg.sender` de la próxima tx. Cada asiento tiene una address y, opcionalmente, una *pk de sesión* (solo memoria; pensada para Anvil y claves de test). En Anvil, *cargar cuentas Anvil* llena los cuatro. P2P = Holder y Controller comparten address.
 
-## Demo PR-6: dual-sign
+**Matriz.** En Deal, todos los entrypoints del kernel están siempre listados. Los legales para el asiento activo tienen botón de enviar; los ilegales muestran el **primer revert** que el bytecode lanzaría (`WrongStatus`, `Unauthorized`, `TooEarly`, `EdgeOff`, `PackageNotSelected`, …). Click en una fila explica quién, desde/hacia qué estado, qué plata se mueve y para qué sirve.
 
-En un deal `FUNDED`, panel Dual-sign: type `MutualCancel`, deadline unix futuro, nonceP/nonceC distintos de los de activate. Firmar Provider y Controller (P2P: Controller = Holder pk). Relayer una tx. Flag `dualSign`.
+## Recorrido 1: Core-only P2P (CASE-CORE-01 → 02 → 06)
 
-Draft vacío → las tres filas `draft-empty` (no `DeadlinePassed` por deadline 0). `providerBps=10000` no se relabela a `CoSignedRelease`. CASE-CORE-08–10 desde `FIAT_SENT`; 12–14 desde `DISPUTED`.
+1. Asientos → *cargar cuentas Anvil*.
+2. Laboratorio → `mint(to = Holder)`; con el asiento **Holder** activo, `approve(spender = escrow)`.
+3. Consentimiento → *copiar de los asientos*, *usar testToken del set*, elegir nonces libres, *firmar como Holder*, *firmar como Provider*. El preflight debe quedar todo en verde (overload de 6 args, CA dummy).
+4. Asiento **Relayer** → *enviar activate*. La consola salta a Deal en `FUNDED`.
+5. Asiento **Provider** → fila `markFiat` → enviar. `FIAT_SENT`.
+6. Asiento **Holder** (= Controller) → fila `release` → enviar. `RELEASED`; Settlement muestra `providerAmt = principal`.
 
-## Demo PR-7: Controller distinto (`ControllerAcceptance`)
+Variantes: `cancelByProvider` en FUNDED; `timeoutFiat` con `fiatDuration = 0`; `claim` con `releaseDuration = 0` (termina en `CLAIMED`, no en `RELEASED`); `openDisputed` con `releaseDuration = 100` y luego el composer dual-sign o `forceStalemate`.
 
-Tres addresses distintas. Flag `distinctController`. Desmarcar P2P. Copiar asientos (Holder, Provider, Controller). Firmar HA, PA y CA. Relayer envía el mismo overload de 6 args con CA hashed (no dummy). `dealId` incluye `controllerNonce`. Tres `used` y tres `dealOf` apuntan al mismo id. CASE-CORE-01-CTRL: (3600, 1800, 7200, 0).
+## Recorrido 2: trío Passport + Reputation + Bonds (PATH-TRIO)
 
-P2P sigue dummy: si `holder == controller` el inspector muestra `dummyCA=true` y `controllerSig 0x`. Flag off + `holder != controller` → preflight `distinctController off`.
+Recinto en foco: el de `31337-packages.json`.
 
-## Demo PR-8: PackageId + PackageMods (overload 7)
+1. Paquetes → *set: trío P+R+B*. Verificar `∈ packageIds = match`, peers y `operator() = escrow`. `identify(holder)` todavía dice `NoPassport`: eso es lo que el LAB va a arreglar.
+2. Laboratorio, por cada uno de Holder y Provider (con **ese** asiento activo): `setHuman(wallet, subject)` (derivar subject de la wallet), `approve(vault)`, `BondVault.deposit`.
+3. Asiento Holder: `approve(escrow, principal + activationFee)`.
+4. Consentimiento → firmar HA/PA → preflight: `_resolve ok`, `_engage ok`, `pullExact ok` → activate (7 args).
+5. Deal: `kinds = 7`; `markFiat` → `release`. Settlement observado: `providerAmt = principal − completionFee`, invoice al `feeRecipient`.
 
-Flag `packages`. Default Core-only: slots nulos, overload 6. Pegar addresses (o “Pegar slots del set” como atajo, no registry). La tabla recomputa `PackageId.*` y marca match/miss, peer passport, `operator`/`kernel` vs Recinto.
+Todo lo que dice **LAB** es mock: `PassportMock.setHuman` no verifica humanidad; en producción el adapter es `HumanPassport` (Human Passport, ex Gitcoin) y responde solo si una wallet es humana.
 
-PATH-NEGATIVE-ZK-ARB: slots zk + court. Si ambos ids están en `packageIds` → preflight `Escrow.IncompatiblePackages`. Si falta un id (override) → `Escrow.UnknownPackage` **antes**. PATH-NEGATIVE-UNSORTED: override no canónico → `Terms.UnsortedPackageIds` antes de `TermsMismatch`.
+## Recorrido 3: tribunal
 
-Trío sin `setHuman` (PR-9): `_engage` muestra `IPassport.NoPassport` (DISABLED), no ENABLED. Relayer envía overload 7; `PackageMods` no entra al digest.
+- **ArbitrationMock** (`PATH-ARB-MOCK`): Controller `approve(court, courtFee)` → `markFiat` → `openCourt` → Laboratorio `submitRuling` → `readRuling`.
+- **Kleros** (`PATH-KLEROS`, Sepolia/One): `openCourt` con `msg.value == arbitrationCost(extraData)`; la evidencia se sube en la dApp de Kleros; PluriSwap solo hace `readRuling` cuando `KlerosCore.rule` dejó la sentencia. `submitRuling` se deshabilita si el court es Kleros.
 
-## Demo PR-9: jaula LAB
+## Flags
 
-Flag `labVerbs`. El panel Laboratorio está marcado visualmente distinto de los verbos kernel. Copy: **no es humanidad ni un proof de circuito**. No hay botón “Verify humanity”. `ArbitrationMock.open()` no aparece.
+Todos los flags de app (`coreActivate`, `coreWrites`, `dualSign`, `distinctController`, `packages`, `labVerbs`, `zkArb`, `pool`, `ramp`) arrancan **on** y se apagan desde Catálogo → *Flags de app*. Apagar un flag nunca oculta una fila kernel: solo quita el botón de enviar.
 
-PATH-TRIO: `setHuman` ×2 (Holder y Provider), `mint`, `approve` vault, `vault.deposit` del lock `(principal+9)/10`, `approve` escrow, activate 7-arg, `markFiat`, **release** (no claim). Reloj Anvil visible solo si `chainId == 31337`; warp 100s para CASE-CORE-11.
+## Qué no hace
 
-El payload mock se ensambla aquí y se pega en `verifyProof` (PR-10).
-
-## Demo PR-10: ZK/ARB + drift
-
-Flag `zkArb`. `verifyProof` exige el payload LAB (no es un circuito). Deal ZK `FUNDED`: `markFiat`/`openDisputed`/`claim` = `EdgeOff`; `timeoutFiat` sigue. PATH-ZK-PROOF `(3600,1800,7200,0)`: ensamblar proof mock → `verifyProof` → `RELEASED`. PATH-ZK-TIMEOUT `(0,1800,7200,0)`: `timeoutFiat` due inmediato.
-
-PATH-ARB-MOCK `(3600,1800,7200, 1 days)`: `arbitrationDuration = 1 days`, **no** meter 1 days en `disputeDuration`. Controller approve **court** ≥ `courtFee`; `msg.value = 0`. Sin approve: matriz `Settlement.InexactPull`, no ENABLED. Luego `openCourt`, LAB `submitRuling`, `readRuling`. `forceArbitrationTimeout` no está due al abrir.
-
-PATH-KLEROS `(3600,1800,7200,7 days)`: `kernel()` vs Recinto; `msg.value == arbitrationCost(extraData)`. Drift no deshabilita Core (KERNEL-04).
-
-## Demo PR-11: espacio Pool
-
-Flag `pool`. PATH-POOL-HOLDER `(3600,1800,7200,0)` contra el JSON cuyo `escrow` es el Recinto. Banner si `pool.escrow() ≠ Recinto`.
-
-Tres envelopes: HA vía EIP-1271 (`holderSig = ""`), PA del Provider, **CA hashed** (dummy revierte). `holder = pool`, `controller = agente`. `authorize(ha)` en el vault **antes** de activate. Constitución (NAV, shares, deposit) no entra en la matriz del deal. Kick futuro-only: no hay botón.
-
-## Demo PR-12: rampa taxi + catálogo
-
-Catálogo de Paths on. Arrancar `CASE-CORE-07` prellena `(3600, 0, 7200)`: tras `markFiat`, la matriz muestra `claim` due y `openDisputed` `TooLate`. `CASE-CORE-11` prellena `releaseDuration=100`, nunca 0. Plantillas `PATH-TRIO` / ZK / pool / ramp se deshabilitan si su flag está off. Arrancar un Path **no** esconde la matriz.
-
-Rampa: flag `ramp`. `quote` / `send` contra `sepolia-ramp.json` (USDC `0x3253…`, no TestToken). Copy taxi-only: no hay compose.
+- No es un dapp de consumo: no hay wizard, no hay "siguiente paso" que esconda `openDisputed`.
+- No trata `deployments/*.json` como registry: pegar cualquier escrow o módulo compatible es un camino de primera clase.
+- No persiste claves. No hay telemetría.
