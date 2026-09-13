@@ -81,6 +81,23 @@ Si el paquete no declara completion fee, el fee es cero. Si el fee declarado no 
 
 Timeout de `DISPUTED` sin abrir arbitraje: cualquiera, tras `disputeDeadline`, fuerza `STALEMATE`. Principal 50/50. Bonds, si hay, se queman. No es un veredicto; es el costo de no cerrar en paz a tiempo. El split dual-firmado es la salida pacífica *antes* de ese reloj.
 
+### 4.1 Tribunal: Kleros V2
+
+El tribunal oficial es `KlerosAdapter` sobre Kleros V2 (Arbitrum). PluriSwap toca a Kleros **dos veces** por deal y nada más:
+
+1. **Abrir.** El Controller llama `Escrow.openCourt{value: arbitrationCost}(dealId)` desde `FIAT_SENT` o `DISPUTED`. El kernel valida estado, reloj y rol, y sólo él llama `KlerosAdapter.openCourt`: `createDispute` en `KlerosCore` (2 opciones) y evento `DisputeRequest` con `externalDisputeID = uint256(dealId)` y el `templateId` registrado.
+2. **Recibir.** Cuando los jurados votan y se agotan las apelaciones, `KlerosCore` llama `KlerosAdapter.rule(disputeId, ruling)`. El adapter guarda 0 → 3 (rehúsa), 1 → Holder, 2 → Provider. Cualquiera llama `Escrow.readRuling(dealId)` y el kernel cierra.
+
+**La evidencia no pasa por PluriSwap.** Las partes la suben en la Court dapp de Kleros, en el caso que abrió el paso 1; el dapp la liga al caso por el `externalDisputeID` del evento. Apelaciones, votos y períodos son de Kleros. Si el tribunal nunca contesta, `arbitrationDuration` del deal permite cerrar por timeout (unlock, silencio).
+
+**Lo que ve el jurado.** El adapter registra al construirse un *dispute template* (KIP-99) en el `DisputeTemplateRegistry` de la chain: título, pregunta, las tres respuestas, `arbitratorChainID`/`arbitratorAddress` de esa chain y `policyURI` (obligatorio; sin él la Court UI no renderiza el caso). El template lleva placeholders que el dapp llena con **una** llamada `abi/call` a `KlerosAdapter.caseOf(externalDisputeID)`: `dealId`, Holder, Provider, token y monto legible (`"1250.5 USDC"`), leídos de `IEscrow.terms`. Los alias `Holder`/`Provider` etiquetan la evidencia que sube cada parte. La política que leen los jurados está en `KLEROS_POLICY.md`: se pinea en IPFS y su multiaddr es `KLEROS_POLICY_URI`.
+
+**Direcciones y parámetros.** `script/KlerosConfig.s.sol` fija por chain el `KlerosCore` y el `DisputeTemplateRegistry` (Arbitrum One `0x991d…22ea` / `0x0cFB…a5A2`; Arbitrum Sepolia `0xE844…3479` / `0xe763…ebcb`) y admite override por env: `KLEROS_CORE`, `KLEROS_TEMPLATE_REGISTRY`, `KLEROS_COURT` (1), `KLEROS_JURORS` (3), `KLEROS_DISPUTE_KIT` (1, Classic), `KLEROS_POLICY_URI`. Otra corte u otro `extraData` es otro adapter y otro `packageId`: la firma de las partes fija ante qué tribunal van.
+
+**Whitelist en Arbitrum One.** El `KlerosCore` de mainnet sólo acepta `createDispute` de arbitrables listados por la gobernanza de Kleros (`ArbitrableNotWhitelisted()` si no). El deploy registra el template igual y loguea el estado; hasta que Kleros liste la address del adapter, `openCourt` revierte y el paquete ARB no es usable en mainnet. Sepolia no tiene whitelist. `test/fork/KlerosAdapter.fork.t.sol` fija ambos hechos contra las chains reales.
+
+**Compatibilidad.** El evento `DisputeRequest` en producción tiene cinco argumentos (subgraph `master`); la rama `dev` de Kleros lo reduce a tres y deja de usar `externalDisputeID`. El adapter emite ambas formas, así el mismo adapter (y su whitelist) sobrevive a la actualización.
+
 ---
 
 ## 5. Bonds: vault global y locks

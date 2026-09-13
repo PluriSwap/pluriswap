@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Script} from "forge-std/Script.sol";
+import {ChainIds} from "./ChainIds.s.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {IGitcoinPassportDecoder} from "../src/packages/interfaces/IGitcoinPassportDecoder.sol";
 import {HumanPassport} from "../src/packages/HumanPassport.sol";
@@ -12,8 +12,7 @@ import {PassportMock} from "../src/packages/PassportMock.sol";
 ///        Human Passport decoder (`PASSPORT_MIN_SCORE`, 4 decimals, 0 = decoder's own threshold).
 ///      - Otherwise (Arbitrum Sepolia, anvil): `PassportMock`, the lab tool; never a production identity.
 ///      Exactly one CREATE either way, so callers' nonce predictions hold.
-abstract contract PassportPicker is Script {
-    uint256 internal constant ARBITRUM_ONE = 42161;
+abstract contract PassportPicker is ChainIds {
     address internal constant HUMAN_PASSPORT_DECODER_ARBITRUM = 0x2050256A91cbABD7C42465aA0d5325115C1dEB43;
 
     function _deployPassport() internal returns (IPassport passport, address decoder) {

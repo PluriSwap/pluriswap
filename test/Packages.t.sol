@@ -62,7 +62,7 @@ contract PackagesTest is BaseTest {
         zkMod = new ZkMock(verifier, feeRecipient, ZK_FEE, predicted);
         arbitrator = new MockArbitratorV2(COURT_ETH);
         vault = new BondVault(predicted, sink, passport);
-        court = new KlerosAdapter(address(arbitrator), extraData, 0, "", predicted, address(0));
+        court = new KlerosAdapter(address(arbitrator), extraData, 0, "", predicted, address(0), "");
         escrow = new Escrow();
         assertEq(address(escrow), predicted);
         assertEq(reputation.operator(), address(escrow));
@@ -329,6 +329,15 @@ contract PackagesTest is BaseTest {
         vm.prank(holder);
         escrow.openCourt{value: COURT_ETH}(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.ARBITRATION_ACTIVE));
+
+        // What the Kleros Court dapp reads (template mapping) while the parties argue there.
+        (bytes32 dealId, address h, address p, address t, string memory amount) = court.caseOf(uint256(id));
+        assertEq(dealId, id);
+        assertEq(h, holder);
+        assertEq(p, provider);
+        assertEq(t, address(token));
+        assertEq(amount, "1 TUSD");
+
         arbitrator.giveRuling(court.disputeOf(id), 1);
         escrow.readRuling(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));

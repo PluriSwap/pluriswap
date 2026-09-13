@@ -7,6 +7,7 @@ import {Escrow} from "../src/Escrow.sol";
 import {TestToken} from "../src/TestToken.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {PassportPicker} from "./PassportPicker.s.sol";
+import {KlerosConfig} from "./KlerosConfig.s.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
 import {ZkMock} from "../src/packages/ZkMock.sol";
@@ -14,23 +15,22 @@ import {VerifierMock} from "../src/mocks/VerifierMock.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 
 /// @dev Packaged escrow whose only court is Kleros V2. Does not overwrite sepolia-packages.json.
-contract DeployKlerosPackages is PassportPicker {
+///      Kleros wiring comes from `KlerosConfig` (chain defaults + `KLEROS_*` env). On Arbitrum One the adapter
+///      still needs Kleros governance to whitelist it before `openCourt` works; the script logs the status.
+contract DeployKlerosPackages is PassportPicker, KlerosConfig {
     using stdJson for string;
 
-    uint256 internal constant ARBITRUM_SEPOLIA = 421614;
     uint256 internal constant ACT_FEE = 100_000;
     uint256 internal constant COMP_FEE = 50_000;
     uint256 internal constant ZK_FEE = 10_000;
     address internal constant FEE_RECIPIENT = address(0xFEE);
     address internal constant SINK = address(0xdeaD);
-    address internal constant KLEROS_CORE = 0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479;
-    address internal constant TEMPLATE_REGISTRY = 0xe763d31Cb096B4bc7294012B78FC7F148324ebcb;
 
     function run() external {
         uint256 pk = _key();
         address deployer = vm.addr(pk);
         TestToken token = _token();
-        bytes memory extraData = abi.encode(uint256(1), uint256(3), uint256(1));
+        Kleros memory k = _kleros();
 
         uint64 n = vm.getNonce(deployer);
         address predicted = vm.computeCreateAddress(deployer, n + 6);
@@ -41,7 +41,7 @@ contract DeployKlerosPackages is PassportPicker {
         VerifierMock verifier = new VerifierMock();
         ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE, predicted);
         BondVault vault = new BondVault(predicted, SINK, passport);
-        KlerosAdapter court = new KlerosAdapter(KLEROS_CORE, extraData, 0, "", predicted, TEMPLATE_REGISTRY);
+        KlerosAdapter court = new KlerosAdapter(k.core, k.extraData, 0, "", predicted, k.registry, k.policyUri);
         Escrow escrow = new Escrow();
         vm.stopBroadcast();
 
@@ -56,6 +56,9 @@ contract DeployKlerosPackages is PassportPicker {
         console.log("KlerosAdapter", address(court));
         console.log("templateId", court.templateId());
         console.log("arbId", vm.toString(court.packageId()));
+        console.log("policyUri", k.policyUri);
+        _logWhitelist(k.core, address(court));
+        (, bool whitelisted) = _whitelisted(k.core, address(court));
 
         string memory obj = "kleros";
         vm.serializeUint(obj, "chainId", block.chainid);
@@ -66,8 +69,11 @@ contract DeployKlerosPackages is PassportPicker {
         vm.serializeAddress(obj, "bondVault", address(vault));
         vm.serializeAddress(obj, "verifier", address(verifier));
         vm.serializeAddress(obj, "zk", address(zk));
-        vm.serializeAddress(obj, "klerosCore", KLEROS_CORE);
-        vm.serializeAddress(obj, "templateRegistry", TEMPLATE_REGISTRY);
+        vm.serializeAddress(obj, "klerosCore", k.core);
+        vm.serializeAddress(obj, "templateRegistry", k.registry);
+        vm.serializeBytes(obj, "klerosExtraData", k.extraData);
+        vm.serializeString(obj, "klerosPolicyUri", k.policyUri);
+        vm.serializeBool(obj, "klerosWhitelisted", whitelisted);
         vm.serializeUint(obj, "templateId", court.templateId());
         vm.serializeAddress(obj, "arbitration", address(court));
         vm.serializeAddress(obj, "feeRecipient", FEE_RECIPIENT);

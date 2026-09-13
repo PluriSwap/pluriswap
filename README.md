@@ -57,7 +57,7 @@ deployments/                addresses, no secrets
 test/                       one catalog area per file
 test/fuzz/                  stateless properties (kernel, packages, pool)
 test/invariant/             stateful handlers + invariants (solvency, conservation, immutability, books)
-test/fork/                  Arbitrum One checks against the live Human Passport decoder (opt-in)
+test/fork/                  Live-chain checks: Human Passport decoder, Kleros core + registry (opt-in via *_RPC_URL)
 ```
 
 ## Identity: Human Passport
@@ -65,6 +65,10 @@ test/fork/                  Arbitrum One checks against the live Human Passport 
 The PASSPORT slot ships with `src/packages/HumanPassport.sol`, an adapter over Human Passport's (ex Gitcoin Passport) `GitcoinPassportDecoder`. The decoder scores addresses, so the subject is the wallet with a live passing score (`bytes32(uint160(wallet))`); Sybil resistance is Passport's stamp deduplication. Decoder address and `minScore` (4 decimals, `0` defers to the decoder threshold) are immutable and therefore bound by `PackageId.passport(adapter)`. Any decoder revert (no attestation, expired, paused) reads as `NoPassport`: admission fails closed, live deals are untouched (subjects are snapshotted at activation).
 
 Deploy scripts pick the adapter per chain (`script/PassportPicker.s.sol`): Arbitrum One → `HumanPassport` over `0x2050256A91cbABD7C42465aA0d5325115C1dEB43`; any chain with `PASSPORT_DECODER=<address>` → `HumanPassport` over that decoder (`PASSPORT_MIN_SCORE` optional); otherwise `PassportMock`, a lab tool with an unauthenticated `setHuman`, never a production identity. `src/mocks/PassportDecoderMock.sol` reproduces the decoder's revert surface for tests and test nets (deployer-only writes).
+
+## Court: Kleros V2
+
+The ARB slot ships with `src/packages/KlerosAdapter.sol`. PluriSwap opens the case (`Escrow.openCourt`, Controller pays `arbitrationCost`) and receives the verdict (`KlerosCore` → `rule`, then anyone calls `Escrow.readRuling`); evidence, appeals and votes live in the Kleros Court dapp, which finds the case via `DisputeRequest(externalDisputeID = uint256(dealId))` and fills the dispute template by calling `KlerosAdapter.caseOf`. `script/KlerosConfig.s.sol` holds the per-chain `KlerosCore` / `DisputeTemplateRegistry` addresses with `KLEROS_*` env overrides; `KLEROS_POLICY_URI` (IPFS multiaddr of `KLEROS_POLICY.md`) is required on Arbitrum One. Arbitrum One's core enforces an arbitrable whitelist: the adapter must be listed by Kleros governance before `openCourt` works there. Details in `PACKAGES.md` §4.1.
 
 ## Deployments
 

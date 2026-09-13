@@ -1,27 +1,29 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Script, console} from "forge-std/Script.sol";
+import {console} from "forge-std/Script.sol";
 import {IArbitratorV2} from "../src/packages/interfaces/IKlerosV2.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
+import {KlerosConfig} from "./KlerosConfig.s.sol";
 
-/// @dev Isolated open against live KlerosCore. Does not touch the packaged escrow.
-contract KlerosOpen is Script {
-    uint256 internal constant ARBITRUM_SEPOLIA = 421614;
-    address internal constant KLEROS_CORE = 0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479;
-    bytes32 internal constant DEAL = keccak256("sepolia-kleros-open");
+/// @dev Isolated open against the live KlerosCore of the chain. Does not touch the packaged escrow: the
+///      broadcaster plays kernel, so `caseOf` (and the Court UI template) will not resolve for this case.
+///      Smoke test for "does this core accept our arbitrable?" — on Arbitrum One it answers the whitelist question.
+contract KlerosOpen is KlerosConfig {
+    bytes32 internal constant DEAL = keccak256("kleros-open-smoke");
 
     function run() external {
         uint256 holderPk = _holderKey();
         address holder = vm.addr(holderPk);
-        bytes memory extraData = abi.encode(uint256(1), uint256(3), uint256(1));
-        IArbitratorV2 core = IArbitratorV2(KLEROS_CORE);
-        uint256 cost = core.arbitrationCost(extraData);
+        Kleros memory k = _kleros();
+        IArbitratorV2 core = IArbitratorV2(k.core);
+        uint256 cost = core.arbitrationCost(k.extraData);
         require(cost > 0, "cost");
         require(holder.balance >= cost, "eth");
 
         vm.startBroadcast(holderPk);
-        KlerosAdapter adapter = new KlerosAdapter(KLEROS_CORE, extraData, 0, "", address(0), address(0));
+        KlerosAdapter adapter = new KlerosAdapter(k.core, k.extraData, 0, "", holder, k.registry, k.policyUri);
+        _logWhitelist(k.core, address(adapter));
         adapter.openCourt{value: cost}(DEAL, holder);
         vm.stopBroadcast();
 
@@ -31,22 +33,30 @@ contract KlerosOpen is Script {
 
         console.log("adapter", address(adapter));
         console.log("disputeId", disputeId);
+        console.log("templateId", adapter.templateId());
         console.log("cost", cost);
         console.log("dealId", vm.toString(DEAL));
 
         string memory obj = "kleros";
-        vm.serializeUint(obj, "chainId", ARBITRUM_SEPOLIA);
-        vm.serializeAddress(obj, "klerosCore", KLEROS_CORE);
+        vm.serializeUint(obj, "chainId", block.chainid);
+        vm.serializeAddress(obj, "klerosCore", k.core);
+        vm.serializeAddress(obj, "templateRegistry", k.registry);
+        vm.serializeUint(obj, "templateId", adapter.templateId());
         vm.serializeAddress(obj, "adapter", address(adapter));
         vm.serializeUint(obj, "disputeId", disputeId);
         vm.serializeUint(obj, "cost", cost);
         string memory json = vm.serializeBytes32(obj, "dealId", DEAL);
-        vm.writeJson(json, "deployments/sepolia-kleros.json");
-        console.log("wrote deployments/sepolia-kleros.json");
+        vm.writeJson(json, _out());
+        console.log("wrote", _out());
+    }
+
+    function _out() internal view returns (string memory) {
+        if (block.chainid == ARBITRUM_SEPOLIA) return "deployments/sepolia-kleros.json";
+        return string.concat("deployments/", vm.toString(block.chainid), "-kleros.json");
     }
 
     function _holderKey() internal view returns (uint256 pk) {
-        if (block.chainid == 31337) {
+        if (block.chainid == ANVIL) {
             return 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
         }
         pk = vm.envUint("HOLDER_PRIVATE_KEY");

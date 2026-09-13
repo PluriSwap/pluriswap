@@ -17,7 +17,6 @@ import {ArbitrationMock} from "../src/packages/ArbitrationMock.sol";
 contract DeployPackages is PassportPicker {
     using stdJson for string;
 
-    uint256 internal constant ARBITRUM_SEPOLIA = 421614;
     uint256 internal constant ACT_FEE = 100_000;
     uint256 internal constant COMP_FEE = 50_000;
     uint256 internal constant ZK_FEE = 10_000;

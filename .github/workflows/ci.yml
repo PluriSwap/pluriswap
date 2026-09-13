@@ -64,8 +64,9 @@ jobs:
     timeout-minutes: 90
     env:
       FOUNDRY_PROFILE: ci
-      # Fork tests (test/fork) run only when this is set; public RPC is enough for read-only checks.
+      # Fork tests (test/fork) run only when these are set; public RPCs are enough (reads + local simulation).
       ARBITRUM_RPC_URL: https://arb1.arbitrum.io/rpc
+      ARBITRUM_SEPOLIA_RPC_URL: https://sepolia-rollup.arbitrum.io/rpc
     steps:
       - uses: actions/checkout@v4
         with:
