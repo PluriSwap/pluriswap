@@ -22,7 +22,7 @@ abstract contract KlerosConfig is ChainIds {
     address internal constant KLEROS_CORE_SEPOLIA = 0xE8442307d36e9bf6aB27F1A009F95CE8E11C3479;
     address internal constant TEMPLATE_REGISTRY_SEPOLIA = 0xe763d31Cb096B4bc7294012B78FC7F148324ebcb;
 
-    /// @dev Valid multiaddr so the Court UI still renders on testnets. Pin KLEROS_POLICY.md and override.
+    /// @dev Valid multiaddr so the Court UI still renders on testnets. Pin docs/KLEROS_POLICY.md and override.
     string internal constant POLICY_PLACEHOLDER = "/ipfs/PLACEHOLDER-pin-KLEROS_POLICY.md-and-set-KLEROS_POLICY_URI";
 
     struct Kleros {

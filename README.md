@@ -2,23 +2,29 @@
 
 Escrow de principal cripto contra fiat offchain. El kernel es una máquina de estados cerrada con tres roles (Holder, Provider, Controller). Paquetes, pools y rampas son opt-in y viven fuera de esa máquina.
 
-## Architecture
+Peer-to-peer crypto↔fiat escrow: permissionless, trustless Core; optional packages; no protocol KYC.
 
-Read `ARCHITECTURE.md` first. It is the map of layers, package binding, and what a given escrow instance can resolve.
+## Documentation
+
+**Protocol docs live in [`docs/`](docs/).** Start at [`docs/README.md`](docs/README.md) for what PluriSwap is, a reading order, and the full table of contents.
+
+Normative specs (architecture, state machine, encoding, packages, …) and historical/ops notes are indexed there. Root-level `ARCHITECTURE.md`, `STATE_MACHINE.md`, and the other former top-level specs are short stubs that redirect into `docs/` so existing links keep working.
+
+Read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) first. It is the map of layers, package binding, and what a given escrow instance can resolve.
 
 | Doc | What it freezes |
 | --- | --- |
-| `ARCHITECTURE.md` | Layers, interfaces, `packageId` resolution, observability |
-| `STATE_MACHINE.md` | States, transitions, outcomes, clocks |
-| `ENCODING.md` | EIP-712 typed data, nonces, `dealId` |
-| `PACKAGES.md` | Reputation, bonds, ZK, arbitration formulas |
-| `PROTECTION.md` | Kernel → package verbs, fees, DAO as recipient |
-| `POOLS.md` | Vault as Holder (EIP-1271), shares, sponsors |
-| `RAMPS.md` | Bridge composers, zero protocol bps |
-| `IMPLEMENTATION.md` | Libraries, OpenZeppelin, bytecode split |
-| `PLAN.md` | TDD order (historical) |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Layers, interfaces, `packageId` resolution, observability |
+| [`docs/STATE_MACHINE.md`](docs/STATE_MACHINE.md) | States, transitions, outcomes, clocks |
+| [`docs/ENCODING.md`](docs/ENCODING.md) | EIP-712 typed data, nonces, `dealId` |
+| [`docs/PACKAGES.md`](docs/PACKAGES.md) | Reputation, bonds, ZK, arbitration formulas |
+| [`docs/PROTECTION.md`](docs/PROTECTION.md) | Kernel → package verbs, fees, DAO as recipient |
+| [`docs/POOLS.md`](docs/POOLS.md) | Vault as Holder (EIP-1271), shares, sponsors |
+| [`docs/RAMPS.md`](docs/RAMPS.md) | Bridge composers, zero protocol bps |
+| [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md) | Libraries, OpenZeppelin, bytecode split |
+| [`docs/PLAN.md`](docs/PLAN.md) | TDD order (historical) |
 
-Conflict: states/economy → `STATE_MACHINE.md` / `PACKAGES.md`. Layering/binding → `ARCHITECTURE.md`.
+Conflict: states/economy → `docs/STATE_MACHINE.md` / `docs/PACKAGES.md`. Layering/binding → `docs/ARCHITECTURE.md`.
 
 ## Stack
 
@@ -40,11 +46,12 @@ Fork tests (`test/fork/`) run only when `ARBITRUM_RPC_URL` is set and check the 
 
 Invariant handlers run with `fail_on_revert = true`: they guard every precondition themselves, so any revert inside a campaign is a kernel finding. Properties live in `test/fuzz/` (stateless) and `test/invariant/` (stateful: Core with a token that rejects pushes, packaged recinto with hostile modules and a Kleros mock, share pool as Holder).
 
-Core-only deals use `packageIds = []`. A packaged deal names `packageId`s and the relayer passes module addresses at `activate`. The same escrow resolves any compatible impl (`ARCHITECTURE.md` §5).
+Core-only deals use `packageIds = []`. A packaged deal names `packageId`s and the relayer passes module addresses at `activate`. The same escrow resolves any compatible impl ([`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §5).
 
 ## Layout
 
 ```
+docs/                       protocol documentation (start at docs/README.md)
 src/Escrow.sol              kernel
 src/interfaces/IEscrow.sol  read surface for packages, pools, ramps
 src/libraries/              Consent, Terms, Settlement, Clocks, Types, PackageId, Packages (external: the kernel's package edge)
@@ -68,7 +75,7 @@ Deploy scripts pick the adapter per chain (`script/PassportPicker.s.sol`): Arbit
 
 ## Court: Kleros V2
 
-The ARB slot ships with `src/packages/KlerosAdapter.sol`. PluriSwap opens the case (`Escrow.openCourt`, Controller pays `arbitrationCost`) and receives the verdict (`KlerosCore` → `rule`, then anyone calls `Escrow.readRuling`); evidence, appeals and votes live in the Kleros Court dapp, which finds the case via `DisputeRequest(externalDisputeID = uint256(dealId))` and fills the dispute template by calling `KlerosAdapter.caseOf`. `script/KlerosConfig.s.sol` holds the per-chain `KlerosCore` / `DisputeTemplateRegistry` addresses with `KLEROS_*` env overrides; `KLEROS_POLICY_URI` (IPFS multiaddr of `KLEROS_POLICY.md`) is required on Arbitrum One. Arbitrum One's core enforces an arbitrable whitelist: the adapter must be listed by Kleros governance before `openCourt` works there. Details in `PACKAGES.md` §4.1.
+The ARB slot ships with `src/packages/KlerosAdapter.sol`. PluriSwap opens the case (`Escrow.openCourt`, Controller pays `arbitrationCost`) and receives the verdict (`KlerosCore` → `rule`, then anyone calls `Escrow.readRuling`); evidence, appeals and votes live in the Kleros Court dapp, which finds the case via `DisputeRequest(externalDisputeID = uint256(dealId))` and fills the dispute template by calling `KlerosAdapter.caseOf`. `script/KlerosConfig.s.sol` holds the per-chain `KlerosCore` / `DisputeTemplateRegistry` addresses with `KLEROS_*` env overrides; `KLEROS_POLICY_URI` (IPFS multiaddr of [`docs/KLEROS_POLICY.md`](docs/KLEROS_POLICY.md)) is required on Arbitrum One. Arbitrum One's core enforces an arbitrable whitelist: the adapter must be listed by Kleros governance before `openCourt` works there. Details in [`docs/PACKAGES.md`](docs/PACKAGES.md) §4.1.
 
 ## Deployments
 
