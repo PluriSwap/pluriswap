@@ -261,9 +261,13 @@ contract PackagesHandler is HandlerBase {
             if (!ok) return;
             arbitrator.giveRuling(court.disputeOf(id), seed % 3);
         }
+        // Ghost the mapped ruling: it is the only way to tell a Holder win from a Provider win afterwards,
+        // since both can leave `providerAmt == 0` once the completion fee has been invoiced on the pot.
+        uint8 ruled = court.readRuling(id);
         vm.prank(relayer);
         escrow.readRuling(id);
         _recordTerminal(id);
+        ghosts[id].ruling = ruled;
     }
 
     function forceArbitrationTimeout(uint256 seed) external count("forceArbitrationTimeout") {
@@ -376,13 +380,17 @@ contract EscrowPackagesInvariantTest is Test {
         for (uint256 i; i < n; i++) {
             bytes32 id = h.ids(i);
             (Status s, uint256 hAmt, uint256 pAmt) = escrow.settlementOf(id);
-            uint256 principal = h.ghostOf(id).principal;
+            HandlerBase.Ghost memory g = h.ghostOf(id);
+            uint256 principal = g.principal;
             if (!_terminal(s)) continue;
             assertLe(hAmt + pAmt, principal, "terminal paid out more than principal");
             uint8 kinds = escrow.kinds(id);
             if ((kinds & (K_REP | K_ZK)) == 0) assertEq(hAmt + pAmt, principal, "fee taken without a fee package");
             // A refund is never invoiced: cancel, or the Holder winning in court, returns the whole principal.
-            if (s == Status.CANCELLED || (s == Status.RESOLVED_BY_ARBITRATION && pAmt == 0)) {
+            // `pAmt == 0` cannot stand in for "the Holder won": when the Provider wins and the completion fee
+            // equals the pot exactly, `_close` recomputes `providerAmt` after `_invoice` and both sides land on
+            // zero -- pinned by test_providerWin_feeEqualsPrincipal_bothSidesNetZero. Use the ghosted ruling.
+            if (s == Status.CANCELLED || (s == Status.RESOLVED_BY_ARBITRATION && g.ruling == 1)) {
                 assertEq(hAmt, principal, "refund charged a fee");
             }
             terminalFees += principal - hAmt - pAmt;

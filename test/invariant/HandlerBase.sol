@@ -78,6 +78,9 @@ abstract contract HandlerBase is Test {
         Status terminalStatus;
         uint256 holderAmt;
         uint256 providerAmt;
+        /// Mapped court ruling of an arbitration terminal (1 Holder wins, 2 Provider wins). Zero when the deal
+        /// never went to court. Not derivable from settlement amounts: see `invariant_feesAccounted`.
+        uint8 ruling;
     }
 
     bytes32[] public ids;

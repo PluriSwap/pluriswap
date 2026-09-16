@@ -279,6 +279,65 @@ contract PackagesTest is BaseTest {
         return _activateWith(terms, mods, 1, 1);
     }
 
+    /// The completion fee is invoiced on the whole pot before the split, and `_invoice` skips only when
+    /// `fee > left`. At the knife edge `fee == principal` the fee consumes the entire pot, so a Provider who
+    /// *won* in court nets zero: `_close` recomputes `providerAmt` from the reduced pot and `holderAmt` is
+    /// what is left of it. Both sides land on zero and the fee recipient takes everything.
+    ///
+    /// This is consented, not a leak: `completionFee` is inside the signed `packageId` and `principal` is
+    /// signed too, so both parties agreed to a fee equal to the whole deal. Pinned here because the fee
+    /// invariant used to read `providerAmt == 0` as "the Holder won" and misfired on this exact shape.
+    function test_providerWin_feeEqualsPrincipal_bothSidesNetZero() public {
+        _fundBonds();
+        DealTerms memory terms = _p2pTerms();
+        terms.principal = COMP_FEE;
+        terms.packageIds = _sorted4(passport.packageId(), reputation.packageId(), vault.packageId(), court.packageId());
+        terms.arbitrationDuration = 1 days;
+        PackageMods memory mods = _trioMods();
+        mods.court = address(court);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE, "activation fee");
+
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.openCourt{value: COURT_ETH}(id);
+        arbitrator.giveRuling(court.disputeOf(id), 2);
+        escrow.readRuling(id);
+
+        (Status s, uint256 hAmt, uint256 pAmt) = escrow.settlementOf(id);
+        assertEq(uint8(s), uint8(Status.RESOLVED_BY_ARBITRATION));
+        assertEq(hAmt, 0, "holder side");
+        assertEq(pAmt, 0, "provider won and still nets zero");
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE, "the whole pot went to the fee");
+        assertEq(escrow.creditOf(address(token), holder), 0, "no unaccounted holder credit");
+    }
+
+    /// The same knife edge on the plain Provider-positive timeout. `claim` pays `providerBps = ALL`, so with
+    /// `completionFee == principal` the invoice consumes the whole pot and the Provider who closed the trade
+    /// nets zero. Pinned separately from the arbitration case to record that this is not court-specific: every
+    /// provider-positive terminal (release, claim, co-sign, split, 50/50 stalemate) routes through one `_close`.
+    function test_claim_feeEqualsPrincipal_bothSidesNetZero() public {
+        DealTerms memory terms = _p2pTerms();
+        terms.principal = COMP_FEE;
+        terms.releaseDuration = 0;
+        terms.packageIds = _sorted2(passport.packageId(), reputation.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(reputation);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE, "activation fee");
+
+        _markFiat(id);
+        escrow.claim(id);
+
+        (Status s, uint256 hAmt, uint256 pAmt) = escrow.settlementOf(id);
+        assertEq(uint8(s), uint8(Status.CLAIMED));
+        assertEq(hAmt, 0, "holder side");
+        assertEq(pAmt, 0, "provider closed the trade and still nets zero");
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE, "the whole pot went to the fee");
+        assertEq(escrow.creditOf(address(token), provider), 0, "no unaccounted provider credit");
+    }
+
     function test_notify_usesSnapshottedSubject() public {
         _fundBonds();
         bytes32 id = _activateTrio(1, 1);
