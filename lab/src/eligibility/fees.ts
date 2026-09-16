@@ -9,6 +9,10 @@ export type FeeProjection = {
   stop: FeeStop | null;
   /// What the Provider receives on a Provider-positive terminal, or null when no fee-bearing package is bound.
   netToProvider: bigint | null;
+  /// What the Holder must have approved *on top of* the principal. `Packages.engage` pulls it before the
+  /// principal pull, so an allowance sized to the principal alone reverts inside the token -- not with
+  /// `Settlement.InexactPull`, which only fires when a transfer succeeds and the delta comes up short.
+  activationFee: bigint;
 };
 
 /// Mirrors `Escrow._invoice`. A fee is collected only while it is strictly below what is left to split, so a
@@ -19,6 +23,7 @@ export type FeeProjection = {
 /// signature: nothing on-chain will stop a Provider from signing a deal whose fee eats the whole trade.
 export function projectFees(principal: bigint, policy: LivePolicy | null): FeeProjection {
   const completionFee = policy?.reputation?.completionFee ?? null;
+  const activationFee = policy?.reputation?.activationFee ?? 0n;
   const verifyFee = policy?.zk?.verifyFee ?? null;
 
   if (completionFee !== null && completionFee >= principal) {
@@ -28,6 +33,7 @@ export function projectFees(principal: bigint, policy: LivePolicy | null): FeePr
         eval: disabled("completionFee >= principal: el fee nunca se cobra", "ui-policy"),
       },
       netToProvider: null,
+      activationFee,
     };
   }
   if (verifyFee !== null && verifyFee >= principal) {
@@ -37,12 +43,15 @@ export function projectFees(principal: bigint, policy: LivePolicy | null): FeePr
         eval: disabled("verifyFee >= principal: el fee nunca se cobra", "ui-policy"),
       },
       netToProvider: null,
+      activationFee,
     };
   }
-  if (completionFee === null && verifyFee === null) return { stop: null, netToProvider: null };
+  if (completionFee === null && verifyFee === null) {
+    return { stop: null, netToProvider: null, activationFee };
+  }
 
   let net = principal;
   if (verifyFee !== null && verifyFee > 0n) net -= verifyFee;
   if (completionFee !== null && completionFee > 0n && completionFee < net) net -= completionFee;
-  return { stop: null, netToProvider: net };
+  return { stop: null, netToProvider: net, activationFee };
 }

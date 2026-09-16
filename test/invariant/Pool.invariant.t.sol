@@ -135,7 +135,7 @@ contract PoolHandler is HandlerBase {
         uint256 deadline = block.timestamp + AUTH_TTL;
         HolderAuthorization memory ha = HolderAuthorization({terms: t, nonce: n, deadline: deadline});
         vm.prank(controller);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         auths.push(
             Auth({nonce: n, terms: t, deadline: deadline, dealId: bytes32(0), unlocked: false, reconciled: false})
         );

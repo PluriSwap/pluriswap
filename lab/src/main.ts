@@ -1045,7 +1045,10 @@ async function runPool(kind: "deposit" | "authorize" | "unlock" | "reconcile"): 
     } else if (kind === "authorize") {
       const parsed = tryParsed();
       if (!parsed) throw new Error("DealTerms inválidos");
-      await poolAuthorize({ ...common, ha: parsed.ha });
+      // `Pool.authorize` no longer defaults the REPUTATION module, so name it from the same draft the
+      // activation uses. With packages off the draft is empty and `parseModsDraft` yields the zero address.
+      const mods = parseModsDraft(state.packages ? state.modsDraft : emptyModsDraft());
+      await poolAuthorize({ ...common, ha: parsed.ha, reputation: mods.reputation });
     } else if (kind === "unlock") {
       await poolUnlock({ ...common, nonce: BigInt(state.poolUnlockNonce || "0") });
     } else {

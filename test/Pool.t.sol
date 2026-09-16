@@ -157,7 +157,7 @@ contract PoolTest is BaseTest {
         HolderAuthorization memory ha = _holderAuth(terms, 1);
         vm.prank(address(0xBEEF));
         vm.expectRevert(Pool.Unauthorized.selector);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
     }
 
     function test_authorize_rejectsWhenIdleShort() public {
@@ -166,7 +166,7 @@ contract PoolTest is BaseTest {
         HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
         vm.prank(controller);
         vm.expectRevert(Pool.InsufficientIdle.selector);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
     }
 
     function test_authorize_sponsorCanBeController() public {
@@ -189,7 +189,7 @@ contract PoolTest is BaseTest {
         ProviderAgreement memory pa = _providerAuth(terms, 1);
         ControllerAcceptance memory ca = _controllerAuth(terms, 1);
         vm.prank(holder);
-        p.authorize(ha);
+        p.authorize(ha, address(0));
         bytes32 id = escrow.activate(ha, "", pa, _signProvider(pa), ca, _signHolderAsController(ca));
         assertEq(uint8(escrow.status(id)), uint8(Status.FUNDED));
     }
@@ -208,13 +208,13 @@ contract PoolTest is BaseTest {
         HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 3);
         vm.prank(controller);
         vm.expectRevert(Pool.InsufficientIdle.selector);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
     }
 
     function test_kickController_pendingAuth_1271Rejects() public {
         HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
         vm.prank(controller);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         bytes32 digest = _typed(Consent.hashHolderAuthorization(ha));
         assertEq(pool.isValidSignature(digest, ""), bytes4(0x1626ba7e));
 
@@ -233,7 +233,7 @@ contract PoolTest is BaseTest {
     function test_runoff_pendingAuth_1271Rejects() public {
         HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
         vm.prank(controller);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         vm.prank(holder);
         pool.startRunoff();
         assertEq(pool.isValidSignature(_typed(Consent.hashHolderAuthorization(ha)), ""), bytes4(0));
@@ -247,7 +247,7 @@ contract PoolTest is BaseTest {
         HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 2);
         vm.prank(controller);
         vm.expectRevert(Pool.Unauthorized.selector);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
 
         vm.prank(provider);
         escrow.cancelByProvider(id);
@@ -258,7 +258,7 @@ contract PoolTest is BaseTest {
     function test_unlock_afterDeadlineIfNonceUnused() public {
         HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
         vm.prank(controller);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         assertEq(pool.locked(), PRINCIPAL);
 
         vm.expectRevert(Pool.DeadlineActive.selector);
@@ -319,7 +319,7 @@ contract PoolTest is BaseTest {
         ProviderAgreement memory pa = _providerAuth(terms, 1);
         ControllerAcceptance memory ca = _controllerAuth(terms, 1);
         vm.prank(controller);
-        p.authorize(ha);
+        p.authorize(ha, address(0));
         assertEq(p.locked(), PRINCIPAL + fee);
         assertEq(p.idle(), 0);
         assertEq(token.balanceOf(address(p)), PRINCIPAL + fee);
@@ -356,7 +356,7 @@ contract PoolTest is BaseTest {
         ProviderAgreement memory pa = _providerAuth(terms, 1);
         ControllerAcceptance memory ca = _controllerAuth(terms, 1);
         vm.prank(controller);
-        p.authorize(ha);
+        p.authorize(ha, address(0));
         bytes32 id = escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
         vm.prank(provider);
         escrow.cancelByProvider(id);
@@ -381,7 +381,7 @@ contract PoolTest is BaseTest {
         terms.controller = controller;
         HolderAuthorization memory ha = _holderAuth(terms, 1);
         vm.prank(controller);
-        p.authorize(ha);
+        p.authorize(ha, address(0));
         vm.prank(holder);
         p.setControllerFeeBps(500);
         vm.warp(ha.deadline + 1);
@@ -396,7 +396,7 @@ contract PoolTest is BaseTest {
         HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
         vm.prank(controller);
         vm.expectRevert(Pool.WrongLife.selector);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
     }
 
     function test_windDown_liveDealThenRedeemCloses() public {
@@ -421,7 +421,7 @@ contract PoolTest is BaseTest {
         HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
         vm.prank(controller);
         vm.expectRevert(Pool.WrongLife.selector);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         vm.prank(holder);
         pool.endRunoff();
         assertEq(uint8(pool.life()), uint8(Pool.Life.ACTIVE));
@@ -549,7 +549,7 @@ contract PoolTest is BaseTest {
         ProviderAgreement memory pa = _providerAuth(terms, 1);
         ControllerAcceptance memory ca = _controllerAuth(terms, 1);
         vm.prank(extra);
-        p.authorize(ha);
+        p.authorize(ha, address(0));
         bytes32 id = escrow.activate(
             ha, "", pa, _signProvider(pa), ca, _sign(_typed(Consent.hashControllerAcceptance(ca)), extraPk)
         );
@@ -615,7 +615,7 @@ contract PoolTest is BaseTest {
         vm.warp(ha.deadline + 1);
         vm.prank(controller);
         vm.expectRevert(Pool.DeadlineActive.selector);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
     }
 
     function test_runoff_blocksDeposit_endRunoffWhileLockedReverts() public {
@@ -648,7 +648,7 @@ contract PoolTest is BaseTest {
         terms.controller = controller;
         vm.prank(controller);
         vm.expectRevert(Pool.InsufficientIdle.selector);
-        p.authorize(_holderAuth(terms, 1));
+        p.authorize(_holderAuth(terms, 1), address(0));
     }
 
     function test_fee_zeroBps_controllerUnpaid() public {
@@ -804,7 +804,7 @@ contract PoolTest is BaseTest {
         HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
         vm.prank(controller);
         vm.expectRevert(Pool.WrongLife.selector);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
     }
 
     function _privatePool(uint16 feeBps) internal returns (Pool) {
@@ -845,7 +845,7 @@ contract PoolTest is BaseTest {
         ProviderAgreement memory pa = _providerAuth(terms, providerNonce);
         ControllerAcceptance memory ca = _controllerAuth(terms, controllerNonce);
         vm.prank(controller);
-        p.authorize(ha);
+        p.authorize(ha, address(0));
         id = escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
     }
 
@@ -864,7 +864,7 @@ contract PoolTest is BaseTest {
         ProviderAgreement memory pa = _providerAuth(terms, providerNonce);
         ControllerAcceptance memory ca = _controllerAuth(terms, controllerNonce);
         vm.prank(controller);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         return escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
     }
 
@@ -927,7 +927,7 @@ contract PoolTest is BaseTest {
     function test_authorize_approvesExactOutstanding() public {
         HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
         vm.prank(controller);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         assertEq(token.allowance(address(pool), address(escrow)), PRINCIPAL);
 
         token.mint(holder, PRINCIPAL);
@@ -935,7 +935,7 @@ contract PoolTest is BaseTest {
         pool.deposit(PRINCIPAL);
         HolderAuthorization memory ha2 = _holderAuth(_poolHolderTerms(), 2);
         vm.prank(controller);
-        pool.authorize(ha2);
+        pool.authorize(ha2, address(0));
         assertEq(token.allowance(address(pool), address(escrow)), PRINCIPAL * 2);
 
         DealTerms memory terms = _poolHolderTerms();

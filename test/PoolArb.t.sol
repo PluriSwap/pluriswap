@@ -117,7 +117,7 @@ contract PoolArbTest is BaseTest {
         PackageMods memory mods;
         mods.court = address(court);
         vm.prank(controller);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         return escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca), mods);
     }
 }

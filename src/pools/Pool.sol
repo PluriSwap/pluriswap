@@ -238,10 +238,15 @@ contract Pool is ReentrancyGuardTransient {
         _maybeClose();
     }
 
-    function authorize(HolderAuthorization calldata ha) external nonReentrant {
-        _authorize(ha, address(0));
-    }
-
+    /// @dev Reserve pool capital for a deal the Controller is about to activate. `reputation` MUST be the
+    ///      REPUTATION module named by `ha.terms.packageIds`, or `address(0)` when the deal has none. There is
+    ///      deliberately no overload that defaults it: `Packages.engage` pulls the activation fee from the
+    ///      Holder -- this pool -- on top of the principal, and `_refreshApprove` sizes the escrow allowance as
+    ///      the exact sum of `principal + activationFee` over live auths. A deal whose fee was not reserved
+    ///      either fails to activate, or is paid out of another authorization's share of that aggregate
+    ///      allowance and then never booked, because `_recognizeLive` skips a zero `activationFee`.
+    ///      The pool cannot infer the module from the signed ids: they are keccak hashes, and nothing in a
+    ///      `DealTerms` says which kind each one is. Naming it is the caller's assertion, so it is explicit.
     function authorize(HolderAuthorization calldata ha, address reputation) external nonReentrant {
         _authorize(ha, reputation);
     }

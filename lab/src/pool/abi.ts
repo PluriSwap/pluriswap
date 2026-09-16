@@ -54,6 +54,7 @@ export const poolAbi = [
           { name: "deadline", type: "uint256" },
         ],
       },
+      { name: "reputation", type: "address" },
     ],
     outputs: [],
   },

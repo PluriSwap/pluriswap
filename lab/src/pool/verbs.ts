@@ -45,13 +45,17 @@ export async function poolAuthorize(args: {
   pool: HexAddress;
   pk: string;
   ha: Envelope;
+  /// The REPUTATION module named by `ha.terms.packageIds`, or the zero address for a deal that has none.
+  /// `Pool.authorize` has no overload that defaults it: an unreserved activation fee either fails the
+  /// activation or is paid out of another authorization's share of the aggregate allowance and never booked.
+  reputation: HexAddress;
 }): Promise<Hex> {
   return writeContractTx({
     ...args,
     address: args.pool,
     abi: poolAbi,
     functionName: "authorize",
-    functionArgs: [toHa(args.ha)],
+    functionArgs: [toHa(args.ha), args.reputation],
   });
 }
 

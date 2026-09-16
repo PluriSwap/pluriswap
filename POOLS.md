@@ -184,7 +184,7 @@ Deficiencia: `onHand < idle + credits`. Un `deposit` tapa primero el agujero (si
 
 Cualquier Sponsor designa o saca wallets extra (`setController`). No se designa ni se destituye un Sponsor. Kick de designado es futuro-only: el deal ya snapshotado sigue.
 
-`authorize` acepta `C` solo si `C` es Sponsor o designado. Caller = ese `C` o un Sponsor. El kernel solo ve `Holder = pool` y `ControllerAcceptance` de `C`. Si el deal incluye REPUTATION, `authorize(ha, reputation)` recomputa el `packageId` y reserva `activationFee` de idle: el kernel hace un segundo pull al Holder. Sin esa reserva el activate deja un agujero o revierte.
+`authorize` acepta `C` solo si `C` es Sponsor o designado. Caller = ese `C` o un Sponsor. El kernel solo ve `Holder = pool` y `ControllerAcceptance` de `C`. La única firma es `authorize(ha, reputation)`: `reputation` es el módulo REPUTATION que nombran los `packageIds` firmados, o `address(0)` si el deal no trae ninguno. No hay overload que lo asuma en cero — el pool no puede derivarlo de los ids (son keccak), así que nombrarlo es una afirmación explícita del caller. Si el deal incluye REPUTATION, `authorize` recomputa el `packageId` y reserva `activationFee` de idle: el kernel hace un segundo pull al Holder. Sin esa reserva el activate deja un agujero o revierte.
 
 ---
 

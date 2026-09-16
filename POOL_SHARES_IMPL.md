@@ -276,8 +276,7 @@ deposit(uint256 amount)           // gate
 redeem(uint256 shares)            // assetsOut <= idle
 setController(address, bool)      // solo Sponsor; no sobre Sponsors
 setControllerFeeBps(uint16)       // solo Sponsor; deals futuros
-authorize(HolderAuthorization)
-authorize(HolderAuthorization, address reputation)  // reserva invoiceActivation
+authorize(HolderAuthorization, address reputation)  // reserva invoiceActivation; reputation = 0 si el deal no trae REP
 isValidSignature(bytes32, bytes) view
 unlock(uint256 nonce)
 reconcile(uint256 nonce, uint256 providerNonce, uint256 controllerNonce)

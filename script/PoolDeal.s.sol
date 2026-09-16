@@ -69,7 +69,7 @@ contract PoolDeal is Script {
         ControllerAcceptance memory ca =
             ControllerAcceptance({terms: terms, nonce: CONTROLLER_NONCE, deadline: block.timestamp + 1 days});
 
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         bytes32 id = escrow.activate(
             ha,
             "",

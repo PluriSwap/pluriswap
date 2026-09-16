@@ -6,16 +6,16 @@ import { projectFees } from "./fees.ts";
 const mod = "0x00000000000000000000000000000000000000a1";
 const feeRecipient = "0x0000000000000000000000000000000000000FEE";
 
-/// `completionFee` / `verifyFee` are the only fields `projectFees` reads; the rest of the policy is inert here.
-function policy(completionFee: bigint | null, verifyFee: bigint | null): LivePolicy {
+/// Only the fee fields matter to `projectFees`; the rest of the policy is inert here.
+function policy(completionFee: bigint | null, verifyFee: bigint | null, activationFee = 0n): LivePolicy {
   const p = emptyPolicy();
-  if (completionFee !== null) {
+  if (completionFee !== null || activationFee !== 0n) {
     p.reputation = {
       address: mod,
       passport: ZERO_ADDRESS,
       feeRecipient,
-      activationFee: 0n,
-      completionFee,
+      activationFee,
+      completionFee: completionFee ?? 0n,
       operator: ZERO_ADDRESS,
     };
   }
@@ -27,9 +27,13 @@ function policy(completionFee: bigint | null, verifyFee: bigint | null): LivePol
 
 describe("projectFees", () => {
   it("projects nothing when no fee-bearing package is bound", () => {
-    expect(projectFees(1_000n, null)).toEqual({ stop: null, netToProvider: null });
-    expect(projectFees(1_000n, emptyPolicy())).toEqual({ stop: null, netToProvider: null });
-    expect(projectFees(1_000n, policy(null, null))).toEqual({ stop: null, netToProvider: null });
+    expect(projectFees(1_000n, null)).toEqual({ stop: null, netToProvider: null, activationFee: 0n });
+    expect(projectFees(1_000n, emptyPolicy())).toEqual({ stop: null, netToProvider: null, activationFee: 0n });
+    expect(projectFees(1_000n, policy(null, null))).toEqual({
+      stop: null,
+      netToProvider: null,
+      activationFee: 0n,
+    });
   });
 
   it("a zero completion fee leaves the whole principal", () => {
@@ -85,5 +89,31 @@ describe("projectFees", () => {
 
   it("still stops when the completion fee alone is under the principal but the verify fee is not", () => {
     expect(projectFees(1_000n, policy(10n, 1_000n)).stop?.step).toBe("verifyFee < principal");
+  });
+
+  /// The activation fee is the Holder's extra outlay, pulled by `Packages.engage` *before* the principal
+  /// pull, so it belongs in the allowance check rather than in the Provider's net. It is reported even when
+  /// the projection stops, and even with no completion fee at all.
+  describe("activationFee", () => {
+    it("is zero without a reputation package", () => {
+      expect(projectFees(1_000n, null).activationFee).toBe(0n);
+      expect(projectFees(1_000n, policy(null, 10n)).activationFee).toBe(0n);
+    });
+
+    it("is reported alongside the Provider net", () => {
+      const f = projectFees(1_000n, policy(50n, null, 100n));
+      expect(f.activationFee).toBe(100n);
+      expect(f.netToProvider).toBe(950n);
+    });
+
+    it("is reported even when the projection stops on a degenerate completion fee", () => {
+      const f = projectFees(1_000n, policy(1_000n, null, 100n));
+      expect(f.stop).not.toBeNull();
+      expect(f.activationFee).toBe(100n);
+    });
+
+    it("is not capped by the principal: the Holder funds it on top", () => {
+      expect(projectFees(1_000n, policy(0n, null, 5_000n)).activationFee).toBe(5_000n);
+    });
   });
 });

@@ -216,11 +216,15 @@ export async function preflightActivateCore(input: CorePreflightInput): Promise<
     push("pullExact", disabled("allowance desconocido", "ui-policy"));
     return steps;
   }
-  if (input.allowance < input.terms.principal) {
-    push("pullExact", disabled("Settlement.InexactPull"));
+  // `Packages.engage` pulls the activation fee from the Holder *before* the principal pull, so the allowance
+  // has to cover both. The revert comes from the token, not from `Settlement.InexactPull` -- that one only
+  // fires when a transfer succeeds and the delta comes up short (fee-on-transfer).
+  const holderNeeds = input.terms.principal + fees.activationFee;
+  if (input.allowance < holderNeeds) {
+    push("pullExact", disabled(`allowance < principal + activationFee (${holderNeeds})`, "ui-policy"));
     return steps;
   }
-  push("pullExact allowance >= principal", enabled());
+  push(`pullExact allowance >= principal + activationFee (${holderNeeds})`, enabled());
   return steps;
 }
 

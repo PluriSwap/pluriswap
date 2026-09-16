@@ -79,10 +79,10 @@ contract PoolFuzzTest is BaseTest {
         vm.prank(controller);
         if (principal + fee > deposit) {
             vm.expectRevert(Pool.InsufficientIdle.selector);
-            pool.authorize(ha);
+            pool.authorize(ha, address(0));
             return;
         }
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         assertEq(pool.idle(), deposit - principal - fee, "idle not reduced by principal + fee");
         assertEq(pool.locked(), principal + fee, "locked != principal + fee");
         assertEq(pool.nav(), deposit, "authorize changed NAV");
@@ -99,7 +99,7 @@ contract PoolFuzzTest is BaseTest {
         DealTerms memory t = _terms(pool, principal);
         HolderAuthorization memory ha = _holderAuth(t, 1);
         vm.prank(controller);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
 
         sharesIn = bound(sharesIn, 1, pool.sharesOf(lpA));
         uint256 out = sharesIn * pool.nav() / pool.totalShares();
@@ -138,7 +138,7 @@ contract PoolFuzzTest is BaseTest {
         ProviderAgreement memory pa = _providerAuth(t, 1);
         ControllerAcceptance memory ca = _controllerAuth(t, 1);
         vm.prank(controller);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
         bytes32 id = escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
         assertEq(pool.nav(), deposit, "NAV moved on activation");
 
@@ -171,7 +171,7 @@ contract PoolFuzzTest is BaseTest {
         DealTerms memory t = _terms(pool, principal);
         HolderAuthorization memory ha = _holderAuth(t, 1);
         vm.prank(controller);
-        pool.authorize(ha);
+        pool.authorize(ha, address(0));
 
         elapsed = bound(elapsed, 0, 3 days);
         vm.warp(block.timestamp + elapsed);

@@ -308,7 +308,7 @@ Servicio Holder-contrato (`POOLS.md`). **No** es un perfil del kernel.
 | **Firmado** | El mismo `HolderAuthorization`. El pool responde EIP-1271 `isValidSignature(digest, bytes) == 0x1626ba7e`. Bytes vacías. |
 | **Vivo (espacio propio)** | `life` (`NONE, ACTIVE, DEFICIENT, RUNOFF, WINDING_DOWN, CLOSED`), `idle`, `locked`, `credits`, `consumed`, `nav()`, `totalShares`, `sharesOf`, `sponsors`, `designated`, `auths[nonce]`, `controllerFeeBps`, `escrow`, `token`. |
 
-Verbos de *este* objeto, no del Deal: `deposit`, `redeem`, `authorize` / `authorize(ha, reputation)`, `unlock(nonce)`, `reconcile(nonce, providerNonce, controllerNonce)`, `setController` (kick de designated, futuro-only), `startRunoff`, `endRunoff`, `windDown`, `withdrawCredit`, `sync`.
+Verbos de *este* objeto, no del Deal: `deposit`, `redeem`, `authorize(ha, reputation)`, `unlock(nonce)`, `reconcile(nonce, providerNonce, controllerNonce)`, `setController` (kick de designated, futuro-only), `startRunoff`, `endRunoff`, `windDown`, `withdrawCredit`, `sync`.
 
 La vista kernel del deal sigue mostrando `Holder = 0xpool…`. No se inyectan NAV ni Sponsors en el panel de términos.
 
@@ -562,7 +562,7 @@ Paneles: `life`, libros (`idle` / `locked` / `credits` / `consumed` / `nav`), `e
 
 Kick = `setController(addr, false)`. Copy: *futuro-only; el Controller snapshotado de un deal vivo no se silencia* (`POOLS.md` §4).
 
-`authorize` reserva idle. Si el deal trae Rep, overload `authorize(ha, reputation)` para reservar `activationFee` — si no, el segundo `pullExact` del kernel deja agujero (`REVIEW.md` §3.6). La consola lo muestra en preflight del Path pool, **en este espacio**, no apagando slots en el kernel (el kernel no apaga paquetes porque el Holder sea pool; REVIEW.md describe un bug de *otra* UI). Esta IA no reproduce ese apagado: un pool *puede* firmar un deal con paquetes; el operador debe reservar el fee.
+`authorize(ha, reputation)` reserva idle: `principal + controllerFee + activationFee`. Es la única firma. El overload que asumía `reputation = address(0)` se eliminó: dejaba el segundo `pullExact` del kernel sin reserva, y como `_refreshApprove` fija **un** allowance agregado sobre los auths vivos, el fee podía pagarse con la reserva de otro auth y no quedar anotado en ningún libro — `_recognizeLive` saltea un `activationFee` cero, así que `locked` y `nav` quedaban inflados y el agujero lo tapaba el siguiente `deposit` sin mintear shares (`REVIEW.md` §3.6). El pool no puede derivar el módulo de los `packageIds` (son keccak), así que nombrarlo es una afirmación explícita del caller; la consola lo toma del mismo draft de `PackageMods` que usa la activación, y con paquetes apagados el draft está vacío y viaja `address(0)`, que es lo correcto para un deal Core-only. Nada de esto apaga slots en el kernel: un pool *puede* firmar un deal con paquetes (el apagado que describe REVIEW.md era un bug de *otra* UI).
 
 #### 2.7 Espacio Créditos
 
