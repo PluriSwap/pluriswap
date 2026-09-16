@@ -482,8 +482,18 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         Packages.notify(d, o.closeH, o.closeP);
     }
 
+    /// @dev KERNEL-04: a fee that does not fit is skipped and the terminal never reverts on a package.
+    ///      "Does not fit" is `fee >= left`, not `fee > left`. The completion fee is consideration for a
+    ///      settlement that succeeded, so a fee that consumes the whole pot is self-defeating: it would leave
+    ///      the side that just closed the trade, won the ruling or outlasted the clock with nothing, and turn
+    ///      the terminal into a pure transfer to the fee recipient. Skipping at equality keeps the invariant
+    ///      that a package can reduce a Core outcome but never annul it.
+    ///      The payout is still not monotone in the fee at the boundary -- `fee == left - 1` leaves the winner
+    ///      one unit while `fee == left` leaves them the whole pot -- so no fee can now confiscate a win, but a
+    ///      fee just under the principal still nearly does. That residual is a consent-disclosure problem: the
+    ///      fee is inside the signed `packageId`, and clients are expected to show net proceeds before signing.
     function _invoice(uint256 left, uint256 fee, address token, address to) internal returns (uint256) {
-        if (fee == 0 || fee > left) return left;
+        if (fee == 0 || fee >= left) return left;
         left -= fee;
         Settlement.creditThenTryPush(settlement, token, to, fee);
         return left;

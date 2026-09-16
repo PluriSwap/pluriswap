@@ -1,0 +1,89 @@
+import { describe, expect, it } from "vitest";
+import { ZERO_ADDRESS } from "../deal/types.ts";
+import { emptyPolicy, type LivePolicy } from "../slots/types.ts";
+import { projectFees } from "./fees.ts";
+
+const mod = "0x00000000000000000000000000000000000000a1";
+const feeRecipient = "0x0000000000000000000000000000000000000FEE";
+
+/// `completionFee` / `verifyFee` are the only fields `projectFees` reads; the rest of the policy is inert here.
+function policy(completionFee: bigint | null, verifyFee: bigint | null): LivePolicy {
+  const p = emptyPolicy();
+  if (completionFee !== null) {
+    p.reputation = {
+      address: mod,
+      passport: ZERO_ADDRESS,
+      feeRecipient,
+      activationFee: 0n,
+      completionFee,
+      operator: ZERO_ADDRESS,
+    };
+  }
+  if (verifyFee !== null) {
+    p.zk = { address: mod, verifier: mod, feeRecipient, verifyFee, operator: ZERO_ADDRESS };
+  }
+  return p;
+}
+
+describe("projectFees", () => {
+  it("projects nothing when no fee-bearing package is bound", () => {
+    expect(projectFees(1_000n, null)).toEqual({ stop: null, netToProvider: null });
+    expect(projectFees(1_000n, emptyPolicy())).toEqual({ stop: null, netToProvider: null });
+    expect(projectFees(1_000n, policy(null, null))).toEqual({ stop: null, netToProvider: null });
+  });
+
+  it("a zero completion fee leaves the whole principal", () => {
+    expect(projectFees(1_000n, policy(0n, null)).netToProvider).toBe(1_000n);
+  });
+
+  it("subtracts a completion fee that fits", () => {
+    expect(projectFees(1_000n, policy(1n, null)).netToProvider).toBe(999n);
+    expect(projectFees(1_000n, policy(250n, null)).netToProvider).toBe(750n);
+  });
+
+  /// The boundary that the invariant suite used to misread: one unit below the principal the fee still fits,
+  /// so it is collected and the winner nets a single unit.
+  it("a fee one below the principal leaves the winner one unit", () => {
+    expect(projectFees(1_000n, policy(999n, null)).netToProvider).toBe(1n);
+  });
+
+  /// `_invoice` skips at `fee >= left`, so a fee equal to the principal collects nothing at all. The client
+  /// stops instead of signing a packageId whose declared fee can never be charged.
+  it("stops when the completion fee equals the principal", () => {
+    const { stop, netToProvider } = projectFees(1_000n, policy(1_000n, null));
+    expect(netToProvider).toBeNull();
+    expect(stop?.step).toBe("completionFee < principal");
+    expect(stop?.eval.enabled).toBe(false);
+    expect(stop?.eval.reasonKind).toBe("ui-policy");
+  });
+
+  it("stops when the completion fee exceeds the principal", () => {
+    expect(projectFees(1_000n, policy(1_001n, null)).stop?.step).toBe("completionFee < principal");
+    expect(projectFees(1_000n, policy(1n << 128n, null)).stop?.step).toBe("completionFee < principal");
+  });
+
+  it("stops when the ZK verify fee reaches the principal", () => {
+    expect(projectFees(1_000n, policy(null, 1_000n)).stop?.step).toBe("verifyFee < principal");
+    expect(projectFees(1_000n, policy(null, 1_001n)).stop?.step).toBe("verifyFee < principal");
+  });
+
+  it("reports the completion fee first when both are degenerate", () => {
+    expect(projectFees(1_000n, policy(1_000n, 5_000n)).stop?.step).toBe("completionFee < principal");
+  });
+
+  it("stacks verify then completion, in the order the kernel invoices them", () => {
+    expect(projectFees(1_000n, policy(50n, 100n)).netToProvider).toBe(850n);
+  });
+
+  /// The completion fee is measured against the leftover after the verify fee, not against the principal.
+  it("measures the completion fee against the leftover", () => {
+    // verify 100 -> leftover 900; completion 900 does not fit, so it is skipped and the winner keeps 900.
+    expect(projectFees(1_000n, policy(900n, 100n)).netToProvider).toBe(900n);
+    // completion 899 does fit, leaving one unit.
+    expect(projectFees(1_000n, policy(899n, 100n)).netToProvider).toBe(1n);
+  });
+
+  it("still stops when the completion fee alone is under the principal but the verify fee is not", () => {
+    expect(projectFees(1_000n, policy(10n, 1_000n)).stop?.step).toBe("verifyFee < principal");
+  });
+});

@@ -384,8 +384,7 @@ Líneas derivadas del panel (no son storage; se etiquetan *proyectado* antes del
 
 | Transición | Completion / verify | Principal |
 | --- | --- | --- |
-| `claim` | **omitido** | 100% Provider = `principal` |
-| `release`, `coSignedRelease` | `_takeCompletion` sobre `principal` (fee 0 si drift o `fee > left`, KERNEL-04) | `providerAmt = leftover` |
+| `claim`, `release`, `coSignedRelease` | completion sobre `principal` (fee 0 si drift o `fee >= left`, KERNEL-04). Los tres son Provider-positivos con `providerBps = ALL`; difieren en `status` (`CLAIMED` vs `RELEASED`) y en los `Close` de reputación, no en la economía | `providerAmt = leftover` |
 | `mutualSplit` | completion **primero** sobre el principal completo; luego `providerShare = leftover * providerBps / 10000` (`ENCODING.md` §5.3) | Holder = leftover − providerShare |
 | `verifyProof` | `verifyFee` luego completion sobre el leftover | resto al Provider |
 | arb holder/provider win | completion sobre principal | 100% del leftover al ganador |
@@ -516,7 +515,7 @@ Paneles, en este orden (el operador recorre la máquina de arriba a abajo):
 6. **Clocks.** Orígenes crudos + deadlines derivados + predicado (due / strictly-before / not started) + `TooEarly`/`TooLate` proyectado. Badge si `duration = 0` cierra strictly-before.
 7. **Kinds y módulos.** Bitmap decodificado + `modules` snapshot + recompute vivo vs firmado (badge `DRIFT`). Binding `operator`/`kernel` vs Recinto.
 8. **Sujetos.** `subjects` — bytes32. En Core-only: `0x0`. No se etiquetan “humanos”.
-9. **Settlement.** `settlementOf` (`status`, `holderAmt`, `providerAmt`) **más** línea de invoice derivada (§1.11): completion/verify omitido si drift, `fee > left`, o si el verbo es `claim` / cancel Holder-positivo. Preview de `mutualSplit` = `bps * leftoverAfterCompletion / 10000`. Nota: `CLAIMED` no es `Status`; claim vs release se ve en amounts/invoice.
+9. **Settlement.** `settlementOf` (`status`, `holderAmt`, `providerAmt`) **más** línea de invoice derivada (§1.11): completion/verify omitido si drift o `fee >= left`, o si el verbo es un refund Holder-positivo (cancel, fiat timeout, arb win del Holder). `claim` **sí** cobra completion: es Provider-positivo. Preview de `mutualSplit` = `bps * leftoverAfterCompletion / 10000`. `CLAIMED` es un `Status` propio (valor 10), no un alias de `RELEASED`: misma economía, distinto origen y distinta lectura de reputación.
 10. **Locks de bond** (si `kinds & BONDS`). `lockOf` de ambos sujetos.
 11. **Log.** `Transitioned` / `Settled` de *este* `dealId` (query por topic si el operador da fromBlock; si no, “pega el tx hash”).
 12. **Composer dual-sign** (panel del Deal, **no** wizard, **no** Consentimiento). Objeto DualSignDraft (§1.14). Campos: type (`MutualCancel` \| `CoSignedRelease` \| `MutualSplit`), `dealId` (prellenado del foco), `deadline` compartido, `nonceP`, `nonceC`, `providerBps` solo si split, preview de **dos** digests, calldata de Relayer. Asiento Provider firma el envelope P; asiento Controller firma el C; asiento Relayer envía **una** tx. Draft se descarta al cambiar Recinto.
@@ -553,7 +552,7 @@ No es un storefront. Es un banco de trabajo de resolución.
 - Peer: `passport()` de Rep y Bonds vs slot passport.
 - Binding al Recinto: mapa `operator` | `kernel` | none (§1.6). `KlerosAdapter` → `kernel()`.
 - Fees declarados (`activationFee`, `completionFee`, `verifyFee`, `courtFee` / `arbitrationCost`) como **policy del módulo**, no campos del deal.
-- Invoices vivos vs leftover proyectado (KERNEL-04: si `fee > left`, se omite; el terminal no revierte).
+- Invoices vivos vs leftover proyectado (KERNEL-04: si `fee >= left`, se omite; el terminal no revierte).
 
 #### 2.6 Espacio Pool
 

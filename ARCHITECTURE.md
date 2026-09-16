@@ -179,7 +179,7 @@ Un relayer no puede colar otro módulo: el ID firmado bindea la address. Un mód
 | PERM-05 / PERM-08 | Endoso, frontend o registry no son gate de `activate` |
 | TRUST-02 | Usarlo exige que las tres partes firmen ese `packageId` |
 | EXT-10 | El kernel snapshottea address (+ kinds) en activación. Drift posterior no muta el deal vivo |
-| KERNEL-04 | Sin paquete, o paquete hostil: las salidas Core de *ese* deal siguen; un deal Core-only no se entera. Un fee que no cabe en el leftover se omite; el terminal no revierte |
+| KERNEL-04 | Sin paquete, o paquete hostil: las salidas Core de *ese* deal siguen; un deal Core-only no se entera. Un fee que no cabe en el leftover (`fee >= left`, igualdad incluida) se omite; el terminal no revierte y el ganador nunca queda en cero por el fee |
 
 Publicar y usar pasan por el **mismo** escrow. No hace falta otro deployment de kernel para un paquete nuevo.
 

@@ -2,6 +2,7 @@ import { recoverTypedDataAddress } from "viem";
 import type { HexAddress } from "../addressbook/types.ts";
 import { Status, type DealTerms, type PackageMods } from "../deal/types.ts";
 import { R, disabled, enabled, type Eval } from "../eligibility/errors.ts";
+import { projectFees } from "../eligibility/fees.ts";
 import { firstTermsRevert } from "../eligibility/terms.ts";
 import { firstEngageRevert, firstResolveRevert } from "../slots/resolve.ts";
 import { ZERO_MODS, type LivePolicy } from "../slots/types.ts";
@@ -195,6 +196,20 @@ export async function preflightActivateCore(input: CorePreflightInput): Promise<
     const engaged = firstEngageRevert(mods, input.policy);
     push("_engage", engaged);
     if (!engaged.enabled) return steps;
+  }
+
+  // Economic sanity, not a kernel revert: a fee at or above the principal never collects, and a fee just under
+  // it leaves the Provider with almost nothing. See `eligibility/fees.ts`.
+  const fees = projectFees(input.terms.principal, input.policy);
+  if (fees.stop) {
+    push(fees.stop.step, fees.stop.eval);
+    return steps;
+  }
+  if (fees.netToProvider !== null) {
+    push(
+      "neto Provider en terminal Provider-positivo",
+      enabled(`${fees.netToProvider} de ${input.terms.principal}`),
+    );
   }
 
   if (input.allowance === null) {

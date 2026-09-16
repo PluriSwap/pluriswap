@@ -77,7 +77,7 @@ El split no es un veredicto. Es un acuerdo parcial.
 
 Ejemplo: principal 1000, fee de paquete 10, split 30% Provider → fee 10, restan 990 → Provider 297, Holder 693. Un split 1% no reduce el fee a 0,1.
 
-Si el paquete no declara completion fee, el fee es cero. Si el fee declarado no cabe en el leftover, el kernel lo omite: el outcome Core se commitea igual.
+Si el paquete no declara completion fee, el fee es cero. Si el fee declarado no cabe en el leftover (`fee >= left`, igualdad incluida), el kernel lo omite y el ganador conserva todo el pot: el outcome Core se commitea igual. Un fee igual al principal no se cobra, porque cobrarlo dejaría en cero a la parte que acaba de ganar.
 
 Timeout de `DISPUTED` sin abrir arbitraje: cualquiera, tras `disputeDeadline`, fuerza `STALEMATE`. Principal 50/50. Bonds, si hay, se queman. No es un veredicto; es el costo de no cerrar en paz a tiempo. El split dual-firmado es la salida pacífica *antes* de ese reloj.
 
@@ -185,7 +185,7 @@ Lista cerrada. Un paquete no inventa un cuarto momento.
 
 Refund al Holder (cancel, fiat timeout, split que deja al Provider en cero, arb win del Holder): no hay completion fee. No hubo operación. Lo de activación, si se cobró, ya se consumió.
 
-Varios paquetes: cada uno cobra lo suyo. Si en activación no alcanza, no hay deal. En el terminal, si verify/completion no cabe en el leftover, ese fee se omite; el escrow no revierte.
+Varios paquetes: cada uno cobra lo suyo. Si en activación no alcanza, no hay deal. En el terminal, si verify/completion no cabe en el leftover (`fee >= left`), ese fee se omite; el escrow no revierte.
 
 ---
 

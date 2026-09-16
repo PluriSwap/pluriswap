@@ -84,9 +84,10 @@ contract PackagesFuzzTest is Test {
 
         (Status s, uint256 h, uint256 p) = escrow.settlementOf(id);
         // Invoiced iff the Provider's share is non-zero and the fee fits; a split that rounds the Provider
-        // to zero is a refund and is never invoiced.
+        // to zero is a refund and is never invoiced. "Fits" is strict -- `_invoice` skips at `fee >= left`,
+        // so a fee equal to the whole pot is not collected and the winner keeps it all.
         bool providerPaid = path != 2 || principal * bps / 10_000 != 0;
-        uint256 expectedFee = providerPaid && completionFee <= principal ? completionFee : 0;
+        uint256 expectedFee = providerPaid && completionFee < principal ? completionFee : 0;
         uint256 left = principal - expectedFee;
         assertEq(token.balanceOf(FEE_RECIPIENT), expectedFee, "fee != hashed completion fee (or 0 if it does not fit)");
         assertEq(h + p + expectedFee, principal, "fee + payouts != principal");
@@ -122,13 +123,15 @@ contract PackagesFuzzTest is Test {
 
         escrow.verifyProof(id, abi.encode(id, keccak256("receipt")));
 
+        // Mirrors `_invoice`, which skips at `fee >= left`: a fee equal to the remaining pot does not fit and
+        // is not collected, so the winner keeps it all. The comparison here must stay strict in lockstep.
         uint256 left = principal;
         uint256 fees;
-        if (verifyFee != 0 && verifyFee <= left) {
+        if (verifyFee != 0 && verifyFee < left) {
             left -= verifyFee;
             fees += verifyFee;
         }
-        if (completionFee != 0 && completionFee <= left) {
+        if (completionFee != 0 && completionFee < left) {
             left -= completionFee;
             fees += completionFee;
         }
