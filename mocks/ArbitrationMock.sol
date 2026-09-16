@@ -3,9 +3,9 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {PackageId} from "../libraries/PackageId.sol";
-import {ICourt} from "./interfaces/ICourt.sol";
-import {Settlement} from "../libraries/Settlement.sol";
+import {PackageId} from "../src/libraries/PackageId.sol";
+import {ICourt} from "../src/packages/interfaces/ICourt.sol";
+import {Settlement} from "../src/libraries/Settlement.sol";
 
 contract ArbitrationMock is ICourt {
     using SafeERC20 for IERC20;

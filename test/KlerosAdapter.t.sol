@@ -6,8 +6,8 @@ import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 import {PackageId} from "../src/libraries/PackageId.sol";
 import {PluriSwapKlerosTemplate} from "../src/packages/PluriSwapKlerosTemplate.sol";
 import {IArbitrableV2, IArbitratorV2} from "../src/packages/interfaces/IKlerosV2.sol";
-import {MockArbitratorV2} from "../src/mocks/MockArbitratorV2.sol";
-import {MockTemplateRegistry} from "../src/mocks/MockTemplateRegistry.sol";
+import {MockArbitratorV2} from "../mocks/MockArbitratorV2.sol";
+import {MockTemplateRegistry} from "../mocks/MockTemplateRegistry.sol";
 import {DealTerms} from "../src/libraries/Types.sol";
 import {Strings} from "@openzeppelin/contracts/utils/Strings.sol";
 

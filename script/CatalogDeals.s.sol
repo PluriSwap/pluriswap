@@ -14,8 +14,8 @@ import {
 } from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
-import {TestToken} from "../src/TestToken.sol";
-import {ArbitrationMock} from "../src/packages/ArbitrationMock.sol";
+import {TestToken} from "../mocks/TestToken.sol";
+import {ArbitrationMock} from "../mocks/ArbitrationMock.sol";
 
 /// @dev Sepolia catalog: ZK FUNDED→verifyProof→RELEASED, then arb markFiat→openCourt→holder win.
 contract CatalogDeals is Script {

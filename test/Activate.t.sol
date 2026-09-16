@@ -11,7 +11,7 @@ import {
 import {Consent} from "../src/libraries/Consent.sol";
 import {Terms} from "../src/libraries/Terms.sol";
 import {Settlement} from "../src/libraries/Settlement.sol";
-import {FeeOnTransferToken} from "../src/mocks/FeeOnTransferToken.sol";
+import {FeeOnTransferToken} from "../mocks/FeeOnTransferToken.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {Vm} from "forge-std/Vm.sol";
 import {BaseTest} from "./Base.t.sol";

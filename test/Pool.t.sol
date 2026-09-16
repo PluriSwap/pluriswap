@@ -15,7 +15,7 @@ import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {Pool} from "../src/pools/Pool.sol";
 import {PoolFactory} from "../src/pools/PoolFactory.sol";
-import {PassportMock} from "../src/packages/PassportMock.sol";
+import {PassportMock} from "../mocks/PassportMock.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BaseTest} from "./Base.t.sol";
 

@@ -15,7 +15,7 @@ import {
 } from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
-import {TestToken} from "../src/TestToken.sol";
+import {TestToken} from "../mocks/TestToken.sol";
 import {IArbitratorV2} from "../src/packages/interfaces/IKlerosV2.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 

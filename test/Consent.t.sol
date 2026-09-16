@@ -6,7 +6,7 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
 import {DealTerms, HolderAuthorization, ProviderAgreement, ControllerAcceptance} from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
-import {Mock1271} from "../src/mocks/Mock1271.sol";
+import {Mock1271} from "../mocks/Mock1271.sol";
 
 contract ConsentHarness is EIP712 {
     constructor() EIP712("PluriSwap", "1") {}

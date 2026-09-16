@@ -13,7 +13,7 @@ import {Consent} from "../../src/libraries/Consent.sol";
 import {Terms} from "../../src/libraries/Terms.sol";
 import {Clocks} from "../../src/libraries/Clocks.sol";
 import {Escrow} from "../../src/Escrow.sol";
-import {TokenThatRejectsReceiver} from "../../src/mocks/RevertingReceiver.sol";
+import {TokenThatRejectsReceiver} from "../../mocks/RevertingReceiver.sol";
 import {BaseTest} from "../Base.t.sol";
 
 /// @dev Property tests over the Core kernel: conservation, clock boundaries, nonce binding, typed-data injectivity.

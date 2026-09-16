@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {Pool} from "../src/pools/Pool.sol";
 import {PoolFactory} from "../src/pools/PoolFactory.sol";
-import {TestToken} from "../src/TestToken.sol";
+import {TestToken} from "../mocks/TestToken.sol";
 import {Escrow} from "../src/Escrow.sol";
 
 contract PoolFactoryTest is Test {

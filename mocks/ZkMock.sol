@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {PackageId} from "../libraries/PackageId.sol";
-import {IVerifier} from "./interfaces/IVerifier.sol";
-import {IPaymentProof} from "./interfaces/IPaymentProof.sol";
+import {PackageId} from "../src/libraries/PackageId.sol";
+import {IVerifier} from "../src/packages/interfaces/IVerifier.sol";
+import {IPaymentProof} from "../src/packages/interfaces/IPaymentProof.sol";
 
 /// @dev Isolated payment-proof package. Does not move escrow principal.
 ///      Only this V; another verifier is another packageId.

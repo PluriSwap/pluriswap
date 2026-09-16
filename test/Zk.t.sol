@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {ZkMock} from "../src/packages/ZkMock.sol";
-import {VerifierMock} from "../src/mocks/VerifierMock.sol";
+import {ZkMock} from "../mocks/ZkMock.sol";
+import {VerifierMock} from "../mocks/VerifierMock.sol";
 import {PackageId} from "../src/libraries/PackageId.sol";
 
 contract ZkMockTest is Test {

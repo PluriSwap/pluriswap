@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IArbitrableV2, IArbitratorV2} from "../packages/interfaces/IKlerosV2.sol";
+import {IArbitrableV2, IArbitratorV2} from "../src/packages/interfaces/IKlerosV2.sol";
 
 /// @dev Local stand-in for KlerosCore. Tests call `giveRuling`; they never wait on jurors.
 contract MockArbitratorV2 is IArbitratorV2 {

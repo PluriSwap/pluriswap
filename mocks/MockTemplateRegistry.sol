@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IDisputeTemplateRegistry} from "../packages/interfaces/IDisputeTemplateRegistry.sol";
+import {IDisputeTemplateRegistry} from "../src/packages/interfaces/IDisputeTemplateRegistry.sol";
 
 contract MockTemplateRegistry is IDisputeTemplateRegistry {
     uint256 public nextId = 1;

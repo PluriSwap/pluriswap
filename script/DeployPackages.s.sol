@@ -4,16 +4,18 @@ pragma solidity ^0.8.28;
 import {Script, console} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {Escrow} from "../src/Escrow.sol";
-import {TestToken} from "../src/TestToken.sol";
+import {TestToken} from "../mocks/TestToken.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {PassportPicker} from "./PassportPicker.s.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
-import {ZkMock} from "../src/packages/ZkMock.sol";
-import {VerifierMock} from "../src/mocks/VerifierMock.sol";
-import {ArbitrationMock} from "../src/packages/ArbitrationMock.sol";
+import {ZkMock} from "../mocks/ZkMock.sol";
+import {VerifierMock} from "../mocks/VerifierMock.sol";
+import {ArbitrationMock} from "../mocks/ArbitrationMock.sol";
 
 /// @dev New Sepolia escrow with the full verb list. Does not overwrite deployments/sepolia.json.
+///      Test chains only: this stack ships `mocks/` stand-ins for ZK and arbitration and hardcodes placeholder
+///      fee/sink/tribunal addresses, so it can never produce a production identity.
 contract DeployPackages is PassportPicker {
     using stdJson for string;
 
@@ -26,6 +28,7 @@ contract DeployPackages is PassportPicker {
     address internal constant TRIBUNAL = address(0x71B);
 
     function run() external {
+        _requireMockChain("DeployPackages");
         uint256 pk = _key();
         address deployer = vm.addr(pk);
         TestToken token = _token();

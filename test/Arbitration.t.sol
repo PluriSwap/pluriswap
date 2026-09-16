@@ -2,8 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {TestToken} from "../src/TestToken.sol";
-import {ArbitrationMock} from "../src/packages/ArbitrationMock.sol";
+import {TestToken} from "../mocks/TestToken.sol";
+import {ArbitrationMock} from "../mocks/ArbitrationMock.sol";
 import {PackageId} from "../src/libraries/PackageId.sol";
 
 contract ArbitrationMockTest is Test {

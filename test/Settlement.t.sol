@@ -3,9 +3,9 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {TestToken} from "../src/TestToken.sol";
-import {FeeOnTransferToken} from "../src/mocks/FeeOnTransferToken.sol";
-import {RevertingReceiver, TokenThatRejectsReceiver} from "../src/mocks/RevertingReceiver.sol";
+import {TestToken} from "../mocks/TestToken.sol";
+import {FeeOnTransferToken} from "../mocks/FeeOnTransferToken.sol";
+import {RevertingReceiver, TokenThatRejectsReceiver} from "../mocks/RevertingReceiver.sol";
 import {Settlement} from "../src/libraries/Settlement.sol";
 
 contract SettlementHarness {

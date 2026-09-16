@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Script, console} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
-import {TestToken} from "../src/TestToken.sol";
+import {TestToken} from "../mocks/TestToken.sol";
 
 /// @dev Mints TUSD (6 decimals) to a wallet. Default 1_000_000 = 1 TUSD.
 /// TO=0x... [AMOUNT=1000000] forge script script/Mint.s.sol --rpc-url arbitrum_sepolia --broadcast --sender <holder>

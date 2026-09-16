@@ -14,8 +14,8 @@ import {
 } from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
-import {TestToken} from "../src/TestToken.sol";
-import {PassportMock} from "../src/packages/PassportMock.sol";
+import {TestToken} from "../mocks/TestToken.sol";
+import {PassportMock} from "../mocks/PassportMock.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
 

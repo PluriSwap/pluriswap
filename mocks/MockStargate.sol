@@ -12,7 +12,7 @@ import {
     OFTReceipt,
     MessagingReceipt,
     Ticket
-} from "../ramps/interfaces/IStargate.sol";
+} from "../src/ramps/interfaces/IStargate.sol";
 
 /// @dev Isolated Stargate V2 pool stand-in. Haircut and nativeFee are infra.
 contract MockStargate is IStargate {

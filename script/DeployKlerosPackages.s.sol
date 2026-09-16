@@ -4,19 +4,22 @@ pragma solidity ^0.8.28;
 import {Script, console} from "forge-std/Script.sol";
 import {stdJson} from "forge-std/StdJson.sol";
 import {Escrow} from "../src/Escrow.sol";
-import {TestToken} from "../src/TestToken.sol";
+import {TestToken} from "../mocks/TestToken.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {PassportPicker} from "./PassportPicker.s.sol";
 import {KlerosConfig} from "./KlerosConfig.s.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
-import {ZkMock} from "../src/packages/ZkMock.sol";
-import {VerifierMock} from "../src/mocks/VerifierMock.sol";
+import {ZkMock} from "../mocks/ZkMock.sol";
+import {VerifierMock} from "../mocks/VerifierMock.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 
 /// @dev Packaged escrow whose only court is Kleros V2. Does not overwrite sepolia-packages.json.
 ///      Kleros wiring comes from `KlerosConfig` (chain defaults + `KLEROS_*` env). On Arbitrum One the adapter
 ///      still needs Kleros governance to whitelist it before `openCourt` works; the script logs the status.
+///      Test chains only for now: the ZK slot is still `VerifierMock`/`ZkMock`, whose `verify` accepts any
+///      64 bytes, so publishing that `zkId` on a value-bearing chain would make every ZK deal drainable.
+///      Replace the two mock CREATEs with a real verifier picker before relaxing `_requireMockChain`.
 contract DeployKlerosPackages is PassportPicker, KlerosConfig {
     using stdJson for string;
 
@@ -27,6 +30,7 @@ contract DeployKlerosPackages is PassportPicker, KlerosConfig {
     address internal constant SINK = address(0xdeaD);
 
     function run() external {
+        _requireMockChain("DeployKlerosPackages");
         uint256 pk = _key();
         address deployer = vm.addr(pk);
         TestToken token = _token();

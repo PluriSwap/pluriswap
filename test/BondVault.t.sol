@@ -2,9 +2,9 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {TestToken} from "../src/TestToken.sol";
+import {TestToken} from "../mocks/TestToken.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
-import {PassportMock} from "../src/packages/PassportMock.sol";
+import {PassportMock} from "../mocks/PassportMock.sol";
 import {PackageId} from "../src/libraries/PackageId.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 

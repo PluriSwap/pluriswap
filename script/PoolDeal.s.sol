@@ -13,7 +13,7 @@ import {
 } from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
-import {TestToken} from "../src/TestToken.sol";
+import {TestToken} from "../mocks/TestToken.sol";
 import {Pool} from "../src/pools/Pool.sol";
 import {PoolFactory} from "../src/pools/PoolFactory.sol";
 

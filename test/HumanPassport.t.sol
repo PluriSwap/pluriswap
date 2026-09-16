@@ -11,7 +11,7 @@ import {
 } from "../src/libraries/Types.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {HumanPassport} from "../src/packages/HumanPassport.sol";
-import {PassportDecoderMock} from "../src/mocks/PassportDecoderMock.sol";
+import {PassportDecoderMock} from "../mocks/PassportDecoderMock.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {IGitcoinPassportDecoder} from "../src/packages/interfaces/IGitcoinPassportDecoder.sol";
 import {Reputation} from "../src/packages/Reputation.sol";

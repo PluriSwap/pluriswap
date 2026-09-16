@@ -10,7 +10,7 @@ import {
 } from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
-import {Mock1271} from "../src/mocks/Mock1271.sol";
+import {Mock1271} from "../mocks/Mock1271.sol";
 import {BaseTest} from "./Base.t.sol";
 
 /// @dev Holder-contrato + Controller distinct, Core-only (no packageIds). Not a pool service.

@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import {RampIntent, RampQuote, IRamp} from "./interfaces/IRamp.sol";
+import {RampIntent, RampQuote, IRamp} from "../src/ramps/interfaces/IRamp.sol";
 
 /// @dev Same-chain stand-in for IRamp. Haircut (if any) is infra, never kept here.
 contract MockRamp is IRamp {

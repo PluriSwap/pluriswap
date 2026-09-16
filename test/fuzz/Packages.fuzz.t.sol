@@ -17,12 +17,12 @@ import {Consent} from "../../src/libraries/Consent.sol";
 import {PackageId} from "../../src/libraries/PackageId.sol";
 import {Escrow} from "../../src/Escrow.sol";
 import {Packages} from "../../src/libraries/Packages.sol";
-import {TestToken} from "../../src/TestToken.sol";
-import {PassportMock} from "../../src/packages/PassportMock.sol";
+import {TestToken} from "../../mocks/TestToken.sol";
+import {PassportMock} from "../../mocks/PassportMock.sol";
 import {Reputation} from "../../src/packages/Reputation.sol";
 import {BondVault} from "../../src/packages/BondVault.sol";
-import {ZkMock} from "../../src/packages/ZkMock.sol";
-import {VerifierMock} from "../../src/mocks/VerifierMock.sol";
+import {ZkMock} from "../../mocks/ZkMock.sol";
+import {VerifierMock} from "../../mocks/VerifierMock.sol";
 import {IReputation} from "../../src/packages/interfaces/IReputation.sol";
 
 /// @dev Property tests over the extension surface: KERNEL-04 (fees never block a terminal), fee arithmetic,

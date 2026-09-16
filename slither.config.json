@@ -1,5 +1,5 @@
 {
-  "filter_paths": "lib/|test/|script/|src/mocks/|src/packages/ArbitrationMock.sol|src/packages/PassportMock.sol|src/packages/ZkMock.sol|src/TestToken.sol|src/ramps/MockRamp.sol",
+  "filter_paths": "lib/|test/|script/|mocks/",
   "foundry_out_directory": "out",
   "exclude_informational": true,
   "exclude_optimization": true,

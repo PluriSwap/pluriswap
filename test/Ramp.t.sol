@@ -3,11 +3,11 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {RampIntent, RampQuote} from "../src/ramps/interfaces/IRamp.sol";
-import {MockRamp} from "../src/ramps/MockRamp.sol";
-import {MockStargate} from "../src/mocks/MockStargate.sol";
+import {MockRamp} from "../mocks/MockRamp.sol";
+import {MockStargate} from "../mocks/MockStargate.sol";
 import {StargateV2Ramp} from "../src/ramps/StargateV2Ramp.sol";
 import {StargateSepolia} from "../src/ramps/StargateSepolia.sol";
-import {TestToken} from "../src/TestToken.sol";
+import {TestToken} from "../mocks/TestToken.sol";
 
 contract RampTest is Test {
     uint256 internal constant AMOUNT = 1_000_000;

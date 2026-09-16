@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {IGitcoinPassportDecoder} from "../packages/interfaces/IGitcoinPassportDecoder.sol";
+import {IGitcoinPassportDecoder} from "../src/packages/interfaces/IGitcoinPassportDecoder.sol";
 
 /// @dev Stand-in for Human Passport's `GitcoinPassportDecoder` where the real one is not deployed
 ///      (Arbitrum Sepolia, local). Same revert surface: no attestation and expiry revert, they do not return 0.
