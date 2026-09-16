@@ -456,6 +456,46 @@ contract PackagesTest is BaseTest {
         assertTrue(driftVault.lockOf(SUB_H, id) != 0);
     }
 
+    /// @dev KERNEL-04: a reputation module whose policy getters revert is unreadable drift. It loses the invoice;
+    ///      the Core terminal still runs and the principal still reaches the Provider.
+    function test_reputationGettersRevert_terminalStillRuns() public {
+        RevertingGettersReputation hostile =
+            new RevertingGettersReputation(passport, feeRecipient, 0, COMP_FEE, address(escrow));
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted2(passport.packageId(), hostile.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(hostile);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        hostile.setRevertGetters(true);
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.release(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(token.balanceOf(provider), PRINCIPAL + BOND);
+        assertEq(token.balanceOf(feeRecipient), 0);
+    }
+
+    /// @dev KERNEL-04, the load-bearing case: `_close` calls `disposeBond` on *every* terminal, so a vault whose
+    ///      `sink` getter reverts used to brick all eleven exits including `CANCELLED` — the one with
+    ///      `providerBps == 0`, which never reaches `completionInvoice`. The Holder must still get its refund.
+    function test_vaultSinkReverts_cancelStillRefundsHolder() public {
+        RevertingSinkVault hostile = new RevertingSinkVault(address(escrow), sink, passport);
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted3(passport.packageId(), reputation.packageId(), hostile.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(reputation);
+        mods.bonds = address(hostile);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        hostile.setRevertSink(true);
+        vm.prank(provider);
+        escrow.cancelByProvider(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.CANCELLED));
+        assertEq(token.balanceOf(holder), PRINCIPAL + BOND);
+        assertTrue(hostile.lockOf(SUB_H, id) != 0);
+    }
+
     function _fundBonds() internal {
         vm.prank(holder);
         vault.deposit(SUB_H, address(token), BOND);
@@ -900,4 +940,126 @@ contract LyingReputation is IReputation {
     function notifyTerminal(bytes32, address, uint256, IReputation.Close) external {
         if (msg.sender != operator) revert Unauthorized();
     }
+}
+
+contract RevertingGettersReputation is IReputation {
+    /// @dev Simulates a proxy whose implementation was upgraded, paused or self-destructed after activation: the
+    ///      policy getters the kernel needs to evaluate drift stop answering. `passport` and `packageId` stay live
+    ///      so resolution and peer binding still succeed and the fault is isolated to the invoice reads.
+    error Unauthorized();
+    error Unavailable();
+
+    IPassport public immutable passport;
+    address public immutable operator;
+    bytes32 public immutable packageId;
+    address internal _feeRecipient;
+    uint256 internal _activationFee;
+    uint256 internal _completionFee;
+    bool public revertGetters;
+
+    constructor(
+        IPassport passport_,
+        address feeRecipient_,
+        uint256 activationFee_,
+        uint256 completionFee_,
+        address operator_
+    ) {
+        passport = passport_;
+        operator = operator_;
+        _feeRecipient = feeRecipient_;
+        _activationFee = activationFee_;
+        _completionFee = completionFee_;
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_);
+    }
+
+    function setRevertGetters(bool on) external {
+        revertGetters = on;
+    }
+
+    function feeRecipient() external view returns (address) {
+        if (revertGetters) revert Unavailable();
+        return _feeRecipient;
+    }
+
+    function activationFee() external view returns (uint256) {
+        if (revertGetters) revert Unavailable();
+        return _activationFee;
+    }
+
+    function completionFee() external view returns (uint256) {
+        if (revertGetters) revert Unavailable();
+        return _completionFee;
+    }
+
+    function invoiceActivation() external view returns (uint256 amount, address recipient) {
+        if (revertGetters) revert Unavailable();
+        return (_activationFee, _feeRecipient);
+    }
+
+    function invoiceCompletion() external view returns (uint256 amount, address recipient) {
+        if (revertGetters) revert Unavailable();
+        return (_completionFee, _feeRecipient);
+    }
+
+    function admit(address wallet, address, uint256, address) external returns (bytes32 subject) {
+        if (msg.sender != operator) revert Unauthorized();
+        subject = passport.identify(wallet);
+    }
+
+    function notifyTerminal(bytes32, address, uint256, IReputation.Close) external {
+        if (msg.sender != operator) revert Unauthorized();
+    }
+}
+
+contract RevertingSinkVault is IBondVault {
+    /// @dev Simulates a vault behind a proxy that stops answering `sink()`. `disposeBond` reads it on every
+    ///      terminal to evaluate drift, so this is the getter that used to be able to brick all eleven exits.
+    error Hostile();
+    error Unavailable();
+
+    address public immutable operator;
+    IPassport public immutable passport;
+    bytes32 public immutable packageId;
+    address internal _sink;
+    bool public revertSink;
+
+    mapping(bytes32 subject => mapping(bytes32 dealId => uint256)) public lockOf;
+
+    constructor(address operator_, address sink_, IPassport passport_) {
+        operator = operator_;
+        passport = passport_;
+        _sink = sink_;
+        packageId = PackageId.bonds(address(this), sink_);
+    }
+
+    function setRevertSink(bool on) external {
+        revertSink = on;
+    }
+
+    function sink() external view returns (address) {
+        if (revertSink) revert Unavailable();
+        return _sink;
+    }
+
+    function available(bytes32, address) external pure returns (uint256) {
+        return type(uint256).max;
+    }
+
+    function locked(bytes32, address) external pure returns (uint256) {
+        return 0;
+    }
+
+    function reserve(bytes32 subject, address, bytes32 dealId, uint256 principal) external {
+        if (msg.sender != operator) revert Hostile();
+        lockOf[subject][dealId] = (principal + 9) / 10;
+    }
+
+    function unlock(bytes32 subject, address, bytes32 dealId) external {
+        if (msg.sender != operator) revert Hostile();
+        delete lockOf[subject][dealId];
+    }
+
+    function slash(bytes32, bytes32, address, bytes32, address) external pure {}
+
+    function burn(bytes32, bytes32, address, bytes32) external pure {}
 }

@@ -123,21 +123,44 @@ library Packages {
 
     // --- terminals --------------------------------------------------------------------------------------
 
-    /// @dev Completion invoice of this deal: `(0, 0)` without reputation or when the module drifted its policy.
-    ///      TRUST-03: a module that drifts loses the invoice; Core exits keep running.
+    /// @dev Completion invoice of this deal: `(0, 0)` without reputation, when the module drifted its policy, or
+    ///      when any policy getter reverts. TRUST-03: a module that drifts loses the invoice; Core exits keep
+    ///      running. A reverting getter is drift the kernel cannot read, so it loses the invoice the same way.
     function completionInvoice(Deal storage d) public view returns (uint256 fee, address to) {
         if ((d.pkgs & REP) == 0) return (0, address(0));
         IReputation r = IReputation(d.mods.reputation);
-        to = r.feeRecipient();
-        fee = r.completionFee();
-        if (!named(d, PackageId.reputation(address(r), to, r.activationFee(), fee))) return (0, address(0));
+        uint256 activation;
+        try r.feeRecipient() returns (address recipient) {
+            to = recipient;
+        } catch {
+            return (0, address(0));
+        }
+        try r.completionFee() returns (uint256 completion) {
+            fee = completion;
+        } catch {
+            return (0, address(0));
+        }
+        try r.activationFee() returns (uint256 amount) {
+            activation = amount;
+        } catch {
+            return (0, address(0));
+        }
+        if (!named(d, PackageId.reputation(address(r), to, activation, fee))) return (0, address(0));
     }
 
-    /// @dev Unlock, burn, or move the loser's lock to the winner's signing address. Drift → fail-open.
+    /// @dev Unlock, burn, or move the loser's lock to the winner's signing address. Drift → fail-open, and so is a
+    ///      vault whose `sink` getter reverts: `_close` calls this on every terminal, so a reverting read here
+    ///      would otherwise hold the principal hostage with no exit left, not even `CANCELLED`.
     function disposeBond(Deal storage d, bytes32 dealId, BondAction bond) public {
         if ((d.pkgs & BONDS) == 0) return;
         IBondVault vault = IBondVault(d.mods.bonds);
-        if (!named(d, PackageId.bonds(address(vault), vault.sink()))) return;
+        address sink;
+        try vault.sink() returns (address s) {
+            sink = s;
+        } catch {
+            return;
+        }
+        if (!named(d, PackageId.bonds(address(vault), sink))) return;
         DealTerms storage t = d.terms;
         if (bond == BondAction.Unlock) {
             try vault.unlock(d.subjectH, t.token, dealId) {} catch {}
