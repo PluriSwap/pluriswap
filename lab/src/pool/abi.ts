@@ -1,3 +1,5 @@
+import { modsComponents } from "../verbs/activateAbi.ts";
+
 export const LIFE = ["NONE", "ACTIVE", "DEFICIENT", "RUNOFF", "WINDING_DOWN", "CLOSED"] as const;
 
 export const poolAbi = [
@@ -54,7 +56,7 @@ export const poolAbi = [
           { name: "deadline", type: "uint256" },
         ],
       },
-      { name: "reputation", type: "address" },
+      { name: "mods", type: "tuple", components: modsComponents },
     ],
     outputs: [],
   },

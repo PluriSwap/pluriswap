@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test, console2} from "forge-std/Test.sol";
 import {
     Status,
+    PackageMods,
     DealTerms,
     HolderAuthorization,
     ProviderAgreement,
@@ -25,6 +26,10 @@ contract PoolHandler is HandlerBase {
     uint256 internal constant MAX_DEPOSIT = 5_000_000e6;
     uint256 internal constant MIN_DEPOSIT = 1e6;
     uint256 internal constant MAX_PRINCIPAL = 500_000e6;
+
+    /// Core-only package slots. The handler never authorizes a packaged deal, and `Packages.resolve` now
+    /// rejects an all-zero `PackageMods` against any signed id, so this cannot silently under-reserve.
+    function _noMods() internal pure returns (PackageMods memory m) {}
 
     TestToken public token;
     Pool public pool;
@@ -135,7 +140,7 @@ contract PoolHandler is HandlerBase {
         uint256 deadline = block.timestamp + AUTH_TTL;
         HolderAuthorization memory ha = HolderAuthorization({terms: t, nonce: n, deadline: deadline});
         vm.prank(controller);
-        pool.authorize(ha, address(0));
+        pool.authorize(ha, _noMods());
         auths.push(
             Auth({nonce: n, terms: t, deadline: deadline, dealId: bytes32(0), unlocked: false, reconciled: false})
         );

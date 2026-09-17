@@ -10,7 +10,8 @@ import {
     ControllerAcceptance,
     MutualCancel,
     CoSignedRelease,
-    MutualSplit
+    MutualSplit,
+    PackageMods
 } from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
 import {Escrow} from "../src/Escrow.sol";
@@ -50,6 +51,16 @@ contract BaseTest is Test {
         t.releaseDuration = 1800;
         t.disputeDuration = 7200;
         t.packageIds = new bytes32[](0);
+    }
+
+    /// All-zero package slots, for Core-only `Pool.authorize`. `Packages.resolve` accepts it against empty
+    /// `packageIds`, and rejects it against any signed id -- which is the point of passing mods at all.
+    function _noMods() internal pure returns (PackageMods memory m) {}
+
+    /// PASSPORT + REPUTATION slots only, for the pool authorization tests that bind a reputation module.
+    function _mods(address passport_, address reputation_) internal pure returns (PackageMods memory m) {
+        m.passport = passport_;
+        m.reputation = reputation_;
     }
 
     function _typed(bytes32 structHash) internal view returns (bytes32) {

@@ -17,7 +17,7 @@ const envelopeComponents = [
   { name: "deadline", type: "uint256" },
 ] as const;
 
-const modsComponents = [
+export const modsComponents = [
   { name: "passport", type: "address" },
   { name: "reputation", type: "address" },
   { name: "bonds", type: "address" },

@@ -5,12 +5,13 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import {DealTerms, HolderAuthorization, Status} from "../libraries/Types.sol";
+import {DealTerms, HolderAuthorization, PackageMods, Status} from "../libraries/Types.sol";
 import {Consent} from "../libraries/Consent.sol";
 import {Settlement} from "../libraries/Settlement.sol";
 import {IEscrow} from "../interfaces/IEscrow.sol";
 import {IReputation} from "../packages/interfaces/IReputation.sol";
 import {PackageId} from "../libraries/PackageId.sol";
+import {Packages} from "../libraries/Packages.sol";
 
 contract Pool is ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
@@ -238,17 +239,17 @@ contract Pool is ReentrancyGuardTransient {
         _maybeClose();
     }
 
-    /// @dev Reserve pool capital for a deal the Controller is about to activate. `reputation` MUST be the
-    ///      REPUTATION module named by `ha.terms.packageIds`, or `address(0)` when the deal has none. There is
-    ///      deliberately no overload that defaults it: `Packages.engage` pulls the activation fee from the
-    ///      Holder -- this pool -- on top of the principal, and `_refreshApprove` sizes the escrow allowance as
-    ///      the exact sum of `principal + activationFee` over live auths. A deal whose fee was not reserved
-    ///      either fails to activate, or is paid out of another authorization's share of that aggregate
-    ///      allowance and then never booked, because `_recognizeLive` skips a zero `activationFee`.
-    ///      The pool cannot infer the module from the signed ids: they are keccak hashes, and nothing in a
-    ///      `DealTerms` says which kind each one is. Naming it is the caller's assertion, so it is explicit.
-    function authorize(HolderAuthorization calldata ha, address reputation) external nonReentrant {
-        _authorize(ha, reputation);
+    /// @dev Reserve pool capital for a deal the Controller is about to activate. `mods` must name every module
+    ///      the signed `ha.terms.packageIds` refers to, exactly as `Escrow.activate` will require: the pool
+    ///      runs the same `Packages.resolve`, so a deal that carries REPUTATION cannot be authorized as if it
+    ///      did not. That matters because `Packages.engage` pulls the activation fee from the Holder -- this
+    ///      pool -- on top of the principal, and `_refreshApprove` sizes the escrow allowance as the exact sum
+    ///      of `principal + activationFee` over live auths. An auth that reserved no fee either cannot
+    ///      activate, or spends another auth's share of that aggregate allowance and leaves the vault short.
+    ///      Resolving here turns that from an accounting repair into an impossible state.
+    ///      Core-only deals pass an all-zero `PackageMods`, which `resolve` accepts against empty `packageIds`.
+    function authorize(HolderAuthorization calldata ha, PackageMods calldata mods) external nonReentrant {
+        _authorize(ha, mods);
     }
 
     function isValidSignature(bytes32 digest, bytes memory) external view returns (bytes4) {
@@ -310,7 +311,7 @@ contract Pool is ReentrancyGuardTransient {
         _sync();
     }
 
-    function _authorize(HolderAuthorization calldata ha, address reputation) internal {
+    function _authorize(HolderAuthorization calldata ha, PackageMods calldata mods) internal {
         _recognizeLive();
         if (life != Life.ACTIVE) revert WrongLife();
         DealTerms calldata t = ha.terms;
@@ -322,8 +323,13 @@ contract Pool is ReentrancyGuardTransient {
         Auth storage a = auths[ha.nonce];
         if (a.exists && !a.unlocked && !a.reconciled) revert AuthExists();
 
+        // The kernel's own resolution, run before anything is reserved. Every signed id must be matched to a
+        // named module, so `mods.reputation == address(0)` on a deal that carries REPUTATION reverts here
+        // instead of becoming an unpriced reservation. Fail closed while nothing has moved yet.
+        Packages.resolve(t.packageIds, mods);
+
         uint256 fee = t.principal * uint256(controllerFeeBps) / BPS_DENOM;
-        uint256 actFee = _activationFee(t, reputation);
+        uint256 actFee = mods.reputation == address(0) ? 0 : _activationFee(t, mods.reputation);
         if (idle < t.principal + fee + actFee) revert InsufficientIdle();
 
         bytes32 digest = _digest(ha);
@@ -345,6 +351,11 @@ contract Pool is ReentrancyGuardTransient {
         _refreshApprove();
     }
 
+    /// @dev The activation fee to reserve. `Packages.resolve` has already proved this module hashes to a
+    ///      signed id, so recomputing it here is a second line of defence rather than the first: it catches a
+    ///      module that answers `feeRecipient`/`activationFee`/`completionFee` differently between the two
+    ///      reads inside this same transaction. PERM-03 lets anyone publish a module, so that is not
+    ///      hypothetical. `BadTerms` here means the reservation would not match what the kernel will pull.
     function _activationFee(DealTerms calldata t, address reputation) internal view returns (uint256) {
         if (reputation == address(0)) return 0;
         IReputation r = IReputation(reputation);
@@ -396,6 +407,11 @@ contract Pool is ReentrancyGuardTransient {
             bytes32 id = kernel.dealOf(address(this), nonce);
             if (id == 0) continue;
             if (!a.activated) {
+                // There is deliberately no repair branch for an unreserved activation fee. `authorize` runs
+                // `Packages.resolve` and `_activationFee` re-binds the policy to a signed id, and
+                // `Packages.engage` re-binds again before it pulls, so what was reserved and what the kernel
+                // takes cannot diverge. A shortfall here would mean one of those three checks is broken, and
+                // `_sync` is the net that reports it rather than this loop papering over it.
                 if (a.activationFee != 0) {
                     locked -= a.activationFee;
                     consumed += a.activationFee;

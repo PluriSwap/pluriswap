@@ -6,6 +6,7 @@ import {stdJson} from "forge-std/StdJson.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {
     Status,
+    PackageMods,
     DealTerms,
     HolderAuthorization,
     ProviderAgreement,
@@ -26,6 +27,10 @@ contract PoolDeal is Script {
     uint256 internal constant HOLDER_NONCE = 884210;
     uint256 internal constant PROVIDER_NONCE = 884211;
     uint256 internal constant CONTROLLER_NONCE = 884212;
+
+    /// This script demos a Core-only pool deal (`packageIds` is empty), so every package slot is zero.
+    /// `Pool.authorize` runs `Packages.resolve`, which would reject these mods against any signed id.
+    function _noMods() internal pure returns (PackageMods memory m) {}
 
     function run() external {
         uint256 holderPk = _holderKey();
@@ -69,7 +74,7 @@ contract PoolDeal is Script {
         ControllerAcceptance memory ca =
             ControllerAcceptance({terms: terms, nonce: CONTROLLER_NONCE, deadline: block.timestamp + 1 days});
 
-        pool.authorize(ha, address(0));
+        pool.authorize(ha, _noMods());
         bytes32 id = escrow.activate(
             ha,
             "",

@@ -308,7 +308,7 @@ Servicio Holder-contrato (`POOLS.md`). **No** es un perfil del kernel.
 | **Firmado** | El mismo `HolderAuthorization`. El pool responde EIP-1271 `isValidSignature(digest, bytes) == 0x1626ba7e`. Bytes vacías. |
 | **Vivo (espacio propio)** | `life` (`NONE, ACTIVE, DEFICIENT, RUNOFF, WINDING_DOWN, CLOSED`), `idle`, `locked`, `credits`, `consumed`, `nav()`, `totalShares`, `sharesOf`, `sponsors`, `designated`, `auths[nonce]`, `controllerFeeBps`, `escrow`, `token`. |
 
-Verbos de *este* objeto, no del Deal: `deposit`, `redeem`, `authorize(ha, reputation)`, `unlock(nonce)`, `reconcile(nonce, providerNonce, controllerNonce)`, `setController` (kick de designated, futuro-only), `startRunoff`, `endRunoff`, `windDown`, `withdrawCredit`, `sync`.
+Verbos de *este* objeto, no del Deal: `deposit`, `redeem`, `authorize(ha, mods)`, `unlock(nonce)`, `reconcile(nonce, providerNonce, controllerNonce)`, `setController` (kick de designated, futuro-only), `startRunoff`, `endRunoff`, `windDown`, `withdrawCredit`, `sync`.
 
 La vista kernel del deal sigue mostrando `Holder = 0xpool…`. No se inyectan NAV ni Sponsors en el panel de términos.
 
@@ -562,7 +562,11 @@ Paneles: `life`, libros (`idle` / `locked` / `credits` / `consumed` / `nav`), `e
 
 Kick = `setController(addr, false)`. Copy: *futuro-only; el Controller snapshotado de un deal vivo no se silencia* (`POOLS.md` §4).
 
-`authorize(ha, reputation)` reserva idle: `principal + controllerFee + activationFee`. Es la única firma. El overload que asumía `reputation = address(0)` se eliminó: dejaba el segundo `pullExact` del kernel sin reserva, y como `_refreshApprove` fija **un** allowance agregado sobre los auths vivos, el fee podía pagarse con la reserva de otro auth y no quedar anotado en ningún libro — `_recognizeLive` saltea un `activationFee` cero, así que `locked` y `nav` quedaban inflados y el agujero lo tapaba el siguiente `deposit` sin mintear shares (`REVIEW.md` §3.6). El pool no puede derivar el módulo de los `packageIds` (son keccak), así que nombrarlo es una afirmación explícita del caller; la consola lo toma del mismo draft de `PackageMods` que usa la activación, y con paquetes apagados el draft está vacío y viaja `address(0)`, que es lo correcto para un deal Core-only. Nada de esto apaga slots en el kernel: un pool *puede* firmar un deal con paquetes (el apagado que describe REVIEW.md era un bug de *otra* UI).
+`authorize(ha, mods)` reserva idle: `principal + controllerFee + activationFee`. Recibe los `PackageMods` completos y corre el mismo `Packages.resolve` del kernel **antes** de reservar nada, así que un deal cuyos `packageIds` firmados incluyen REPUTATION no se puede autorizar con ese slot vacío: revierte `UnknownPackage` sin haber movido un token. La consola pasa el mismo draft de `PackageMods` que usa la activación, y `currentPackageIds()` devuelve `[]` cuando los paquetes están apagados, así que los ids firmados y los mods no pueden desdecirse.
+
+`_recognizeLive` no repara fees ni emite eventos de anomalía: con `resolve` en `authorize` y el re-bind que hace `Packages.engage` antes del pull, lo reservado y lo cobrado no pueden divergir. Un pool en `DEFICIENT` sin causa visible es entonces señal de que una de esas dos capas falló, y el espacio Pool debe mostrarlo como anomalía de kernel y no como un agujero contable de rutina. Ojo con la salida: la consola no expone `redeem`, `withdrawCredit`, `sync`, `startRunoff`, `endRunoff` ni `windDown`, así que un `DEFICIENT` hoy no tiene remedio desde la UI — solo lectura.
+
+Nada de esto apaga slots en el kernel: un pool *puede* firmar un deal con paquetes (el apagado que describe REVIEW.md era un bug de *otra* UI).
 
 #### 2.7 Espacio Créditos
 
@@ -1305,7 +1309,7 @@ Fuente de verdad del corte (Decision 17). Ubicación: `lab/` en este repo (Vite 
 
 - **Título:** `lab: pool space authorize 1271 unlock reconcile books`
 - **Archivos:** `lab/src/pool/{PoolView,Authorize,Books,Life}.*`.
-- **Dependencias:** PR-7 (CA), PR-4. PR-8 opcional para `authorize(ha, reputation)`.
+- **Dependencias:** PR-7 (CA), PR-4. PR-8 opcional para `authorize(ha, mods)`.
 - **Flag:** `pool`.
 - **Cambio:** Deal muestra `Holder = pool`. Banner si `pool.escrow() ≠ recinto`. Kick futuro-only. `holderSig=""` **y CA real** (`holder != controller`, como `PoolDeal.s.sol`). Dummy CA no se usa.
 - **Demo:** PATH-POOL-HOLDER `(3600,1800,7200,0)` contra el JSON cuyo escrow es el Recinto; tres envelopes (HA 1271 + PA + CA hashed).

@@ -1045,10 +1045,11 @@ async function runPool(kind: "deposit" | "authorize" | "unlock" | "reconcile"): 
     } else if (kind === "authorize") {
       const parsed = tryParsed();
       if (!parsed) throw new Error("DealTerms inválidos");
-      // `Pool.authorize` no longer defaults the REPUTATION module, so name it from the same draft the
-      // activation uses. With packages off the draft is empty and `parseModsDraft` yields the zero address.
+      // `Pool.authorize` runs the kernel's own `Packages.resolve`, so it needs the same slots the activation
+      // will. `currentPackageIds()` returns [] whenever packages are off and `parseModsDraft` on an empty
+      // draft yields all-zero slots, so the signed ids and the mods cannot disagree on this path.
       const mods = parseModsDraft(state.packages ? state.modsDraft : emptyModsDraft());
-      await poolAuthorize({ ...common, ha: parsed.ha, reputation: mods.reputation });
+      await poolAuthorize({ ...common, ha: parsed.ha, mods });
     } else if (kind === "unlock") {
       await poolUnlock({ ...common, nonce: BigInt(state.poolUnlockNonce || "0") });
     } else {

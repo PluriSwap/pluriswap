@@ -184,7 +184,7 @@ Deficiencia: `onHand < idle + credits`. Un `deposit` tapa primero el agujero (si
 
 Cualquier Sponsor designa o saca wallets extra (`setController`). No se designa ni se destituye un Sponsor. Kick de designado es futuro-only: el deal ya snapshotado sigue.
 
-`authorize` acepta `C` solo si `C` es Sponsor o designado. Caller = ese `C` o un Sponsor. El kernel solo ve `Holder = pool` y `ControllerAcceptance` de `C`. La única firma es `authorize(ha, reputation)`: `reputation` es el módulo REPUTATION que nombran los `packageIds` firmados, o `address(0)` si el deal no trae ninguno. No hay overload que lo asuma en cero — el pool no puede derivarlo de los ids (son keccak), así que nombrarlo es una afirmación explícita del caller. Si el deal incluye REPUTATION, `authorize` recomputa el `packageId` y reserva `activationFee` de idle: el kernel hace un segundo pull al Holder. Sin esa reserva el activate deja un agujero o revierte.
+`authorize` acepta `C` solo si `C` es Sponsor o designado. Caller = ese `C` o un Sponsor. El kernel solo ve `Holder = pool` y `ControllerAcceptance` de `C`. La firma es `authorize(ha, mods)`: recibe los `PackageMods` completos y corre el mismo `Packages.resolve` del kernel **antes** de reservar nada. Todo `packageId` firmado tiene que quedar matcheado a un módulo nombrado, así que un deal con REPUTATION no se puede autorizar con ese slot vacío: revierte `UnknownPackage` sin haber movido un token. Si el deal incluye REPUTATION, `authorize` recomputa el `packageId` y reserva `activationFee` de idle; el kernel hace un segundo pull al Holder en `engage`, y el approve al escrow es la suma exacta de las reservas.
 
 ---
 
@@ -195,6 +195,10 @@ Validar un quote contra un oracle o una banda es política del pool al decidir s
 Fee del Controller: bps del principal, constitución del vault. Se reserva de idle en `authorize` (el escrow no hace pull del fee). En `reconcile`, si el deal consumió algo (`holderAmt < principal`), se paga a `C`; si el retorno es entero o el authorize expiró, la reserva vuelve a idle. El settlement Core parte Holder / Provider. El fee no es un canal Core.
 
 Invoice de activación (reputación): también se reserva en `authorize`. En cuanto `dealOf` existe, ese fee ya salió hacia el recipient del paquete: sale de `locked` y entra a `consumed`. Un `unlock` (nonce libre) lo devuelve a idle. El approve al escrow es la suma exacta de `principal + activationFee` de auths aún no activados; no es `max`.
+
+Con `Packages.resolve` en `authorize`, un agente ya no puede describir un deal de menos: si los `packageIds` firmados incluyen REPUTATION y el slot viene vacío, la autorización revierte `UnknownPackage` antes de reservar nada. Y lo que se reserva es lo que se cobra, en tres capas: `resolve` valida el id contra la policy viva, `_activationFee` lo recomputa antes de reservar, y `Packages.engage` lo recomputa otra vez antes del pull — esa tercera es necesaria porque `admit` no es `view` y puede escribir entre la validación y la lectura. Un módulo que cambia de opinión en el medio hace que `engage` revierta `PackageDrift` y la activación se revierte entera, sin nonce consumido.
+
+`_recognizeLive` no tiene rama de reparación y no la necesita: un activation fee sin reservar significaría que una de las tres capas se rompió, y en ese caso `_sync` es la red que lo reporta — `_onHand() < idle + credits` pasa el pool a `DEFICIENT` — en vez de que el loop lo tape debitando un número que nadie puede justificar.
 
 `RATE_POLICY`, mandato con bits, y operator acceptance fee como canal Core son el leak que este recorte saca del kernel.
 

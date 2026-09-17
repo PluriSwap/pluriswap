@@ -117,7 +117,9 @@ contract PoolArbTest is BaseTest {
         PackageMods memory mods;
         mods.court = address(court);
         vm.prank(controller);
-        pool.authorize(ha, address(0));
+        // `authorize` runs the same `Packages.resolve` the kernel will, so it needs the same slots. Passing
+        // zero mods here used to be accepted and silently under-described the deal.
+        pool.authorize(ha, mods);
         return escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca), mods);
     }
 }

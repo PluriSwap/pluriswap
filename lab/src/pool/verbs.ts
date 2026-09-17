@@ -1,6 +1,7 @@
 import type { Hex } from "viem";
 import type { HexAddress } from "../addressbook/types.ts";
 import type { Envelope } from "../consent/eip712.ts";
+import type { PackageMods } from "../deal/types.ts";
 import { writeContractTx } from "../verbs/chain.ts";
 import { poolAbi } from "./abi.ts";
 
@@ -45,17 +46,17 @@ export async function poolAuthorize(args: {
   pool: HexAddress;
   pk: string;
   ha: Envelope;
-  /// The REPUTATION module named by `ha.terms.packageIds`, or the zero address for a deal that has none.
-  /// `Pool.authorize` has no overload that defaults it: an unreserved activation fee either fails the
-  /// activation or is paid out of another authorization's share of the aggregate allowance and never booked.
-  reputation: HexAddress;
+  /// Every module the signed `ha.terms.packageIds` refers to, exactly as the activation will require.
+  /// `Pool.authorize` runs `Packages.resolve`, so a REPUTATION deal authorized with that slot empty reverts
+  /// `UnknownPackage` instead of reserving no activation fee and leaving the vault short.
+  mods: PackageMods;
 }): Promise<Hex> {
   return writeContractTx({
     ...args,
     address: args.pool,
     abi: poolAbi,
     functionName: "authorize",
-    functionArgs: [toHa(args.ha), args.reputation],
+    functionArgs: [toHa(args.ha), args.mods],
   });
 }
 
