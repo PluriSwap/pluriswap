@@ -8,7 +8,7 @@ import { renderMatrixPanel } from "./MatrixPanel.ts";
 import { renderSettlementPanel } from "./SettlementPanel.ts";
 import { renderSubjectsPanel } from "./SubjectsPanel.ts";
 import { renderTermsPanel } from "./TermsPanel.ts";
-import { statusName, type DealSnapshot, type ModuleBinding } from "./types.ts";
+import { postPendingChips, statusName, type DealSnapshot, type ModuleBinding } from "./types.ts";
 
 export function renderDealView(
   root: HTMLElement,
@@ -45,7 +45,7 @@ export function renderDealView(
       <header class="deal-id">
         <h1>Deal</h1>
         <p><code>${deal.dealId}</code></p>
-        <p><span class="chip is-on"><code>${statusName(deal.status)}</code></span></p>
+        <p><span class="chip is-on"><code>${statusName(deal.status)}</code></span>${postPendingChipHtml(deal.postPending)}</p>
         ${opts.writeError ? `<p class="bad">${opts.writeError.replaceAll("<", "&lt;")}</p>` : ""}
       </header>
       ${renderMatrixPanel(matrix, senderLabel, { ...opts, dualSign: opts.dualSign, zkArb: opts.zkArb })}
@@ -99,6 +99,13 @@ export function renderDealEmpty(root: HTMLElement, message: string | null): void
   root.innerHTML = message
     ? `<p class="${message.startsWith("NONE") ? "muted" : "bad"}">${escapeHtml(message)}</p>`
     : "";
+}
+
+function postPendingChipHtml(pending: number): string {
+  if (pending === 0) return "";
+  return postPendingChips(pending)
+    .map((label) => ` <span class="chip"><code>${label}</code></span>`)
+    .join("");
 }
 
 function escapeHtml(value: string): string {

@@ -24,6 +24,7 @@ export function renderMatrixPanel(
             "forceStalemate",
             "withdraw",
             "cancelNonce",
+            "retryPostTerminal",
           ].includes(row.verb)) ||
           (Boolean(opts.dualSign) && dualVerb) ||
           (Boolean(opts.zkArb) &&

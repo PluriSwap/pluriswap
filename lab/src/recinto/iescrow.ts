@@ -133,6 +133,13 @@ export const iescrowAbi = [
     ],
     outputs: [{ name: "", type: "uint256" }],
   },
+  {
+    type: "function",
+    name: "postPending",
+    stateMutability: "view",
+    inputs: [{ name: "dealId", type: "bytes32" }],
+    outputs: [{ name: "", type: "uint8" }],
+  },
 ] as const;
 
 export const operatorAbi = [

@@ -94,12 +94,13 @@ No guarda un set mundial de paquetes oficiales. No guarda fees ni receivers: viv
 | Lectura de extensión | Cualquiera, si el perfil está on | `readRuling` |
 | Crédito | Beneficiario | `withdraw` |
 | Nonce | `msg.sender` | `cancelNonce` |
+| Post-terminal | Cualquiera | `retryPostTerminal` — reintenta los consumidores EP-POST que fallaron en `_close`, por bit pendiente |
 
 ### 3.3 Dependencias
 
 El kernel **no importa implementaciones**. Habla las interfaces de la sección 4. OpenZeppelin: crypto, ERC-20, reentrancy (`IMPLEMENTATION.md`).
 
-El borde con los paquetes (`resolve`, `engage`, invoice de completion, `disposeBond`, `notify`) vive en la librería externa `Packages` (DELEGATECALL, mismo contexto de storage y de custodia). Es reparto de bytecode, no de confianza: la librería es inmutable y linkeada en el deploy, igual que `Settlement` y `Clocks`.
+El borde con los paquetes (`resolve`, `engage`, invoice de completion, `runPostTerminal`) vive en la librería externa `Packages` (DELEGATECALL, mismo contexto de storage y de custodia). Es reparto de bytecode, no de confianza: la librería es inmutable y linkeada en el deploy, igual que `Settlement` y `Clocks`.
 
 `Machine.sol` no es una capa. El catálogo es `STATE_MACHINE.md`.
 
@@ -185,11 +186,11 @@ Publicar y usar pasan por el **mismo** escrow. No hace falta otro deployment de 
 
 ### 5.4 Snapshot e incompatibles
 
-En `FUNDED` quedan las addresses resueltas y el bitmap de kinds. Los verbos posteriores (`verifyProof`, `openCourt`, `disposeBond`, `notifyTerminal`) usan **ese** snapshot, no un global.
+En `FUNDED` quedan las addresses resueltas y el bitmap de kinds. Los verbos posteriores (`verifyProof`, `openCourt`, `runPostTerminal` —que es el que llama `notifyTerminal` y dispone los bonds—) usan **ese** snapshot, no un global.
 
 Incompatibles al resolver: ZK + ARBITRATION. Reputación sin Passport. Bonds sin Passport + Reputación.
 
-El kernel **re-verifica** el ID contra los getters en vivo en cada momento de invoice y dispose: un módulo que deriva su policy (proxy, fee mutable) pierde el cobro — fee 0 en completion, fail-open en `disposeBond` — y `verifyProof` / `openCourt` lo rechazan (`PackageDrift`). Las salidas Core del deal siguen (KERNEL-04).
+El kernel **re-verifica** el ID contra los getters en vivo en cada momento de invoice y dispose: un módulo que deriva su policy (proxy, fee mutable) pierde el cobro — fee 0 en completion, fail-open en la disposición de bonds — y `verifyProof` / `openCourt` lo rechazan (`PackageDrift`). Las salidas Core del deal siguen (KERNEL-04).
 
 ---
 
@@ -203,7 +204,7 @@ El kernel **re-verifica** el ID contra los getters en vivo en cada momento de in
 
 `settlementOf(dealId)` es el mismo record on-chain. Sin callback de pool en el terminal.
 
-`notifyTerminal` es EP-POST: revert no deshace el escrow. `disposeBond` no puede ser el único camino que, al revertir, congele un outcome ya decidido (`PROTECTION.md` §2).
+`notifyTerminal` es EP-POST: revert no deshace el escrow. La disposición de bonds no puede ser el único camino que, al revertir, congele un outcome ya decidido; y como el revert sí se recupera, el bit queda en `Deal.postPending` para `retryPostTerminal` (`PROTECTION.md` §2).
 
 ---
 

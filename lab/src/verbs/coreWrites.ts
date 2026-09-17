@@ -12,6 +12,7 @@ export const CORE_WRITE_VERBS = [
   "forceStalemate",
   "withdraw",
   "cancelNonce",
+  "retryPostTerminal",
 ] as const;
 
 export type CoreWriteVerb = (typeof CORE_WRITE_VERBS)[number];
@@ -78,6 +79,13 @@ export const coreWriteAbi = [
     name: "cancelNonce",
     stateMutability: "nonpayable",
     inputs: [{ name: "nonce", type: "uint256" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "retryPostTerminal",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "dealId", type: "bytes32" }],
     outputs: [],
   },
 ] as const;

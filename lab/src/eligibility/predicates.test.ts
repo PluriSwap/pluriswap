@@ -49,6 +49,7 @@ function deal(over: Partial<DealSnapshot> & { status: number }): DealSnapshot {
     },
     kinds: 0,
     settlement: { status: over.status, holderAmt: 0n, providerAmt: 0n },
+    postPending: 0,
     blockTimestamp: 100n,
     blockNumber: 1n,
     ...over,
@@ -187,10 +188,11 @@ describe("Deal matrix (CASE-CORE)", () => {
   it("CASE-CORE-17: terminal lists every kernel row as WrongStatus where applicable", () => {
     const d = deal({ status: Status.RELEASED });
     const rows = matrixForDeal(d, provider);
-    expect(rows.length).toBeGreaterThanOrEqual(17);
+    expect(rows.length).toBeGreaterThanOrEqual(18);
     expect(rows.find((r) => r.verb === "markFiat")?.eval.reason).toBe(R.WrongStatus);
     expect(rows.find((r) => r.verb === "mutualCancel")?.eval.reason).toBe(R.DraftEmpty);
     expect(rows.find((r) => r.verb === "activate")?.eval.reason).toBe(R.DealExists);
+    expect(rows.find((r) => r.verb === "retryPostTerminal")?.eval.reason).toBe(R.NothingPending);
   });
 
   it("does not hide illegal kernel rows", () => {
@@ -214,6 +216,7 @@ describe("Deal matrix (CASE-CORE)", () => {
       "forceArbitrationTimeout",
       "withdraw",
       "cancelNonce",
+      "retryPostTerminal",
     ]) {
       expect(verbs).toContain(v);
     }
@@ -240,6 +243,21 @@ describe("Deal matrix (CASE-CORE)", () => {
     expect(rows.find((r) => r.verb === "mutualCancel")?.eval.enabled).toBe(true);
     expect(rows.find((r) => r.verb === "coSignedRelease")?.eval.reason).toBe(R.DraftEmpty);
     expect(rows.find((r) => r.verb === "mutualSplit")?.eval.reason).toBe(R.DraftEmpty);
+  });
+
+  it("retryPostTerminal is ENABLED only on a terminal with leftover bits", () => {
+    const live = deal({ status: Status.FUNDED });
+    expect(matrixForDeal(live, holder).find((r) => r.verb === "retryPostTerminal")?.eval.reason).toBe(
+      R.WrongStatus,
+    );
+    const clean = deal({ status: Status.RELEASED, postPending: 0 });
+    expect(matrixForDeal(clean, holder).find((r) => r.verb === "retryPostTerminal")?.eval.reason).toBe(
+      R.NothingPending,
+    );
+    const owed = deal({ status: Status.STALEMATE, postPending: 0x07 });
+    const row = matrixForDeal(owed, holder).find((r) => r.verb === "retryPostTerminal");
+    expect(row?.eval.enabled).toBe(true);
+    expect(row?.class).toBe("anyone");
   });
 
   it("release from FIAT_SENT only for Controller", () => {

@@ -295,7 +295,7 @@ Peer binding (pre-activate y en snapshot):
 
 Mismatch → `PeerMismatch`. Visible en el panel de slots **antes** de enviar.
 
-Drift post-activación (`_named` en `verifyProof` / `openCourt` / completion / `disposeBond`): el id recomputeado con getters *vivos* debe seguir en `terms.packageIds`. Si no: `PackageDrift` en aristas; fee 0 en completion; fail-open en bonds. KERNEL-04: las salidas Core siguen. La consola re-ejecuta el recompute en cada render del deal vivo y muestra un badge `DRIFT` por slot, sin bloquear `timeoutFiat` / dual-sign / `forceStalemate`.
+Drift post-activación (`_named` en `verifyProof` / `openCourt` / completion / bonds): el id recomputeado con getters *vivos* debe seguir en `terms.packageIds`. Si no: `PackageDrift` en aristas; fee 0 en completion; fail-open en bonds. KERNEL-04: las salidas Core siguen. La consola re-ejecuta el recompute en cada render del deal vivo y muestra un badge `DRIFT` por slot, sin bloquear `timeoutFiat` / dual-sign / `forceStalemate`.
 
 #### 1.7 Pool
 
@@ -710,6 +710,7 @@ Probes de preflight (lecturas, no txs): `holder != provider`, `principal > 0`, c
 | `forceArbitrationTimeout` | `WrongStatus`; `Clocks.TooEarly` | ARBITRATION_ACTIVE ∧ due. Anyone. |
 | `withdraw(token)` | **no revierte** si crédito 0 (`Settlement.withdraw` return) | UX: disable con etiqueta `no-op` si `creditOf==0`. No es `Escrow.*`. |
 | `cancelNonce(nonce)` | siempre success, idempotente | Siempre enabled para `msg.sender`. Badge `already used` si `used==true`. |
+| `retryPostTerminal(dealId)` | `WrongStatus` si el deal no es terminal; `NothingPending` si `postPending(dealId) == 0` | Enabled solo con `postPending != 0`. Mostrar los bits como chips (`notify-H`, `notify-P`, `bond-A`, `bond-B`) para que se vea qué falta. Es verbo de keeper: lo ejecuta cualquiera, no hace falta ser parte del deal |
 
 CASE-CORE-16 (release/claim desde DISPUTED) y CASE-CORE-17 (mutación en terminal) = filas `WrongStatus`, no se ocultan.
 

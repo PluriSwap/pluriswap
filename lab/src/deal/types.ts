@@ -39,6 +39,36 @@ export const PKG = {
   ARB: 16,
 } as const;
 
+/** `Packages.POST_*` bits of `Escrow.postPending`. */
+export const POST = {
+  NOTIFY_H: 0x01,
+  NOTIFY_P: 0x02,
+  BOND_A: 0x04,
+  BOND_B: 0x08,
+} as const;
+
+const POST_LABELS: { bit: number; label: string }[] = [
+  { bit: POST.NOTIFY_H, label: "notify-H" },
+  { bit: POST.NOTIFY_P, label: "notify-P" },
+  { bit: POST.BOND_A, label: "bond-A" },
+  { bit: POST.BOND_B, label: "bond-B" },
+];
+
+export function isTerminalStatus(status: number): boolean {
+  return (
+    status === Status.RELEASED ||
+    status === Status.RESOLVED_SPLIT ||
+    status === Status.STALEMATE ||
+    status === Status.CANCELLED ||
+    status === Status.RESOLVED_BY_ARBITRATION ||
+    status === Status.CLAIMED
+  );
+}
+
+export function postPendingChips(pending: number): string[] {
+  return POST_LABELS.filter((row) => (pending & row.bit) !== 0).map((row) => row.label);
+}
+
 export type DealTerms = {
   holder: HexAddress;
   controller: HexAddress;
@@ -76,6 +106,8 @@ export type DealSnapshot = {
   modules: PackageMods;
   kinds: number;
   settlement: { status: number; holderAmt: bigint; providerAmt: bigint };
+  /** Escrow-only keeper surface, not `IEscrow`. Zero once every post-terminal call succeeded or was abandoned. */
+  postPending: number;
   blockTimestamp: bigint;
   blockNumber: bigint;
 };

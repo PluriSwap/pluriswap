@@ -37,7 +37,7 @@ export async function fetchDeal(
   dealId: HexBytes32,
 ): Promise<DealSnapshot> {
   const client = createPublicClient({ transport: http(rpcUrl) });
-  const [block, status, terms, clocks, subjects, modules, kinds, settlement] = await Promise.all([
+  const [block, status, terms, clocks, subjects, modules, kinds, settlement, postPending] = await Promise.all([
     client.getBlock({ blockTag: "latest" }),
     client.readContract({ address: escrow, abi: iescrowAbi, functionName: "status", args: [dealId] }),
     client.readContract({ address: escrow, abi: iescrowAbi, functionName: "terms", args: [dealId] }),
@@ -46,6 +46,7 @@ export async function fetchDeal(
     client.readContract({ address: escrow, abi: iescrowAbi, functionName: "modules", args: [dealId] }),
     client.readContract({ address: escrow, abi: iescrowAbi, functionName: "kinds", args: [dealId] }),
     client.readContract({ address: escrow, abi: iescrowAbi, functionName: "settlementOf", args: [dealId] }),
+    client.readContract({ address: escrow, abi: iescrowAbi, functionName: "postPending", args: [dealId] }),
   ]);
 
   const mods: PackageMods = {
@@ -85,6 +86,7 @@ export async function fetchDeal(
       holderAmt: settlement[1],
       providerAmt: settlement[2],
     },
+    postPending,
     blockTimestamp: block.timestamp,
     blockNumber: block.number ?? 0n,
   };

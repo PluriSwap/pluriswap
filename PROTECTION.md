@@ -43,7 +43,7 @@ El kernel, en un punto nombrado, hace una de estas cosas. Nada más.
 | `verifyProof` | `FUNDED` + ZK | `dealId` ok + `paymentNullifier` fresco de V | Ignore / reject; el deal no cambia |
 | `openCourt` | `FIAT_SENT` o `DISPUTED` | Disputa creada bajo adapter snapshotado | Reject; estado igual |
 | `readRuling` | `ARBITRATION_ACTIVE` | `holder_win` / `provider_win` / `stalemate` | Ignore si no es de esa terna |
-| `disposeBond` | Terminal | Nada: unlock del lock, slash al ganador, o quema | El terminal Core ya commitió |
+| `runPostTerminal` (bonds) | Terminal | Nada: unlock del lock, slash al ganador, o quema | El terminal Core ya commitió |
 | `notifyTerminal` | Después del commit | Sujeto snapshotado (`IEscrow.subjects`), no un `identify` en vivo | Fallo **no** revierte el escrow |
 
 Reglas duras:
@@ -107,14 +107,15 @@ Un deal ZK no llega a `FIAT_SENT` ni a `DISPUTED`. Un deal con arbitraje no usa 
 ### 4.3 Terminal (un solo commit)
 
 ```
-1. Kernel escribe el terminal record (estado, deltas, origen)
+1. Kernel escribe el terminal record (estado, deltas) y emite Settled
 2. El escrow acredita Holder / Provider / fee ya invoiced (credit-first; push opcional)
-3. disposeBond  unlock | slash del lock al ganador | quema ambos locks (stalemate)
-4. Commit
-5. notifyTerminal  reputación: count/volume/penalty, suelta inFlight
+3. runPostTerminal, primera pasada: disposición de bonds (unlock | slash del lock al ganador | quema ambos
+   locks en stalemate) y notifyTerminal (count/volume/penalty, suelta inFlight). Cada llamada va en try; la
+   que falla deja su bit en Deal.postPending, junto con el outcome que la parametriza
+4. retryPostTerminal(dealId): permissionless e idempotente, reintenta solo los bits pendientes
 ```
 
-El paso 5 no puede revertir 1–4. Humanidad no se llama en el terminal.
+El paso 3 no puede revertir 1–2, y el 4 no puede revertir nada: ambos corren después del commit y cada llamada va en `try`. Humanidad no se llama en el terminal.
 
 ---
 
@@ -158,7 +159,7 @@ Gobernanza de la DAO (tesorería, listados, frontends) es fuera de este archivo.
 | --- | --- | --- | --- | --- |
 | Passport | `identify` en activación | Credencial autenticada | Nullifier / sujeto | Liberar principal; ser gate de Core-only |
 | Reputación | `admit` + `invoice` en activación; `notifyTerminal` | Sujeto, principal, bond, `inFlight` | cap / ok / fee | Mutar un deal vivo; revertir settlement |
-| Bonds | `reserveBond` / `disposeBond` | Vault del sujeto, `dealId`, outcome | Lock; unlock/slash/quema | Mezclar con principal; withdraw de `locked`; elegir destinos fuera de la fórmula |
+| Bonds | `reserve` / `runPostTerminal` | Vault del sujeto, `dealId`, outcome | Lock; unlock/slash/quema | Mezclar con principal; withdraw de `locked`; elegir destinos fuera de la fórmula |
 | ZK | `verifyProof`; apaga CASE-CORE-11/07/06 | Proof de V, `dealId`, `paymentNullifier` | `RELEASED` + invoice | Aceptar otro verifier; reusar nullifier o proof de otro deal; bloquear fiat-timeout |
 | Arbitraje | `openCourt` / `readRuling` | Fee del Controller | Estado `ARBITRATION_ACTIVE` o terna holder_win / provider_win / stalemate | Mover custodia; ruling parcial; que abra alguien que no es el Controller |
 | DAO | Ninguno propio | — | Crédito si es recipient | Inyectarse en un deal que no eligió su paquete |
@@ -176,8 +177,9 @@ Rampa tampoco. Es un composer delante o detrás del escrow (`RAMPS.md`). No tien
 | Paquete requerido ausente, revert, o evidencia stale en activación | No hay deal |
 | ZK no produce proof | Fiat-timeout / cancel; no `DISPUTED` |
 | Adapter de arbitraje mudo | Arbitration timeout → `STALEMATE`; cualquiera lo ejecuta |
-| `notifyTerminal` (reputación) revierte | Escrow intacto; retry permissionless |
-| Paquete deriva su policy post-activación (el `packageId` firmado deja de matchear) | `verifyProof` / `openCourt`: reject (`PackageDrift`). Completion fee: el paquete pierde el cobro (fee 0) y el terminal Core sigue. `disposeBond`: fail-open, el lock queda en el vault (TRUST-03) |
+| `notifyTerminal` (reputación) revierte | Escrow intacto. El bit queda en `Deal.postPending` y cualquiera lo reintenta con `retryPostTerminal(dealId)`. Idempotente: el bit se limpia solo si la llamada tuvo éxito, así que no hay delta doble. Si el módulo no vuelve, el bit queda — soltarlo en silencio escondería la fuga de `inFlight` |
+| `unlock` / `burn` / `slash` (vault) revierte | Igual: bit pendiente y retry permissionless. Si además el vault derivó o dejó de responder, el bit se **abandona** y el lock queda en el vault (TRUST-03), porque insistir nunca tendría éxito y `postPending` no llegaría a cero |
+| Paquete deriva su policy post-activación (el `packageId` firmado deja de matchear) | `verifyProof` / `openCourt`: reject (`PackageDrift`). Completion fee: el paquete pierde el cobro (fee 0) y el terminal Core sigue. Disposición de bonds: fail-open, el lock queda en el vault (TRUST-03) |
 | Paquete deriva su policy **durante** la activación: contesta una cosa en `resolve` y otra en el pull de `engage` (posible porque `admit` no es `view`) | `engage` recomputa el `packageId` con los valores que está por cobrar y revierte `PackageDrift`. La activación se revierte entera: no se consume nonce, no se mueve principal, no se cobra nada |
 | Fee de verificación o completion mayor o igual al leftover | No se cobra ese fee. El terminal Core se commitea. Nunca revert |
 | Paquete no seleccionado | Su arista o hook rechaza o está ausente; Core sigue |

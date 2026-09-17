@@ -176,7 +176,7 @@ El recinto Core (firmas, nonce atómico, pull exacto, credit-first del principal
 - Sin paquetes se activa, se cancela, se marca fiat, se releasea, se claim, se disputa y se fuerza stalemate.
 - El relayer no elige destinos. Holder-gross / Provider-gross = addresses de firma.
 - Nonces no se consumen si el pull falla.
-- EP-POST (`notify`, `disposeBond`) no deshace el escrow.
+- EP-POST (`runPostTerminal`) no deshace el escrow. Un fallo queda en `Deal.postPending` y `retryPostTerminal` lo reintenta.
 - ZK y Arb son incompatibles; Rep exige Passport; Bonds exige los dos.
 - Drift: `verifyProof`/`openCourt` reject; completion y bonds fail-open.
 - Pool y rampa no añaden estados al kernel.
@@ -190,7 +190,7 @@ El recinto Core (firmas, nonce atómico, pull exacto, credit-first del principal
 3. `_takeCompletionFrom` no puede revertir el terminal (`fee > left` → se omite el fee). **Hecho.** `claim` cobra completion y cierra en `CLAIMED`. **Hecho.**
 4. Sacar mocks del path “oficial” (Passport writable, court con `submitRuling` público, verifier que decodifica bytes). **Passport hecho:** `HumanPassport` sobre el decoder de Human Passport; `PassportPicker` lo elige en Arbitrum One o con `PASSPORT_DECODER`. `PassportMock` queda sólo para Sepolia/local. **Court hecho (2026-09-13):** `KlerosAdapter` parametrizado por chain (`KlerosConfig`: core, registry, `extraData`, `KLEROS_POLICY_URI`); template KIP-99 válido para la Court UI (`policyURI`, chain/arbitrator reales, `caseOf` como mapping); PluriSwap sólo abre y recibe, la evidencia va por la dapp de Kleros. Pendiente externo: whitelist del adapter en el `KlerosCore` de Arbitrum One (gobernanza Kleros) y pinear `KLEROS_POLICY.md`. Verifier pendiente.
 5. Pool: escribir `credits` (o dejar de anunciarlo); reservar `invoiceActivation`; approve exacto; `nonReentrant` en `withdrawCredit`/`reconcile`. **Hecho.**
-6. Recorte de storage del `Deal` cuando toque tamaño/gas. **Superado:** `Packages` (librería externa) saca resolve/engage/invoice/disposeBond/notify del kernel; Escrow queda en 15.3 KB con 9.2 KB de margen.
+6. Recorte de storage del `Deal` cuando toque tamaño/gas. **Superado:** `Packages` (librería externa) saca resolve/engage/invoice/`runPostTerminal` del kernel. Tras el retry path el Escrow queda en 16.1 KB con 8.4 KB de margen. Los cuatro `uint8` de retry (`closeH`/`closeP`/`bondAction`/`postPending`) caben en el slot de `pkgs`.
 7. Decisiones de kernel (2026-09-12). **Hecho.**
    - Completion fee iff el Provider cobra algo, sobre el pot entero, antes del split. Refund nunca paga.
    - `Status.CLAIMED`: Provider Peaceful, Holder Silent, bonds unlock.

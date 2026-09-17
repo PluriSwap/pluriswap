@@ -15,7 +15,7 @@ import {ICourt} from "../packages/interfaces/ICourt.sol";
 /// @title Packages
 /// @notice The kernel's package edge, as an external library (DELEGATECALL from `Escrow`).
 /// @dev Resolution binds signed ids to live module policy (TRUST-03); engagement identifies, admits and reserves;
-///      terminals invoice, dispose bonds and notify. Everything a terminal calls on a module is `try`: a package
+///      terminals invoice and run post-terminal work. Everything a terminal calls on a module is `try`: a package
 ///      can lose its fee or its lock, never hold the principal hostage. Lives outside `Escrow` for bytecode headroom.
 library Packages {
     using SafeERC20 for IERC20;
@@ -25,6 +25,13 @@ library Packages {
     uint8 internal constant BONDS = 4;
     uint8 internal constant ZK = 8;
     uint8 internal constant ARB = 16;
+
+    /// Post-terminal package calls, as bits of `Deal.postPending`. Each is cleared only when its own call
+    /// succeeds, which is what makes `Escrow.retryPostTerminal` idempotent.
+    uint8 internal constant POST_NOTIFY_H = 0x01;
+    uint8 internal constant POST_NOTIFY_P = 0x02;
+    uint8 internal constant POST_BOND_A = 0x04;
+    uint8 internal constant POST_BOND_B = 0x08;
 
     error UnknownPackage();
     error IncompatiblePackages();
@@ -154,39 +161,98 @@ library Packages {
         if (!named(d, PackageId.reputation(address(r), to, activation, fee))) return (0, address(0));
     }
 
-    /// @dev Unlock, burn, or move the loser's lock to the winner's signing address. Drift → fail-open, and so is a
-    ///      vault whose `sink` getter reverts: `_close` calls this on every terminal, so a reverting read here
-    ///      would otherwise hold the principal hostage with no exit left, not even `CANCELLED`.
-    function disposeBond(Deal storage d, bytes32 dealId, BondAction bond) public {
-        if ((d.pkgs & BONDS) == 0) return;
-        IBondVault vault = IBondVault(d.mods.bonds);
-        address sink;
-        try vault.sink() returns (address s) {
-            sink = s;
-        } catch {
-            return;
-        }
-        if (!named(d, PackageId.bonds(address(vault), sink))) return;
-        DealTerms storage t = d.terms;
-        if (bond == BondAction.Unlock) {
-            try vault.unlock(d.subjectH, t.token, dealId) {} catch {}
-            try vault.unlock(d.subjectP, t.token, dealId) {} catch {}
-        } else if (bond == BondAction.Burn) {
-            try vault.burn(d.subjectH, d.subjectP, t.token, dealId) {} catch {}
-        } else if (bond == BondAction.HolderWins) {
-            try vault.slash(d.subjectP, d.subjectH, t.token, dealId, t.holder) {} catch {}
-        } else {
-            try vault.slash(d.subjectH, d.subjectP, t.token, dealId, t.provider) {} catch {}
-        }
+    // --- post-terminal work -----------------------------------------------------------------------------------
+
+    /// @dev Which post-terminal calls this deal owes, from its bound kinds and the terminal's bond action.
+    ///      `Unlock` is one call per subject; burn and slash take both subjects in a single call.
+    function postTerminalOwed(Deal storage d, BondAction bond) public view returns (uint8 owed) {
+        if ((d.pkgs & REP) != 0) owed = POST_NOTIFY_H | POST_NOTIFY_P;
+        if ((d.pkgs & BONDS) != 0) owed |= bond == BondAction.Unlock ? POST_BOND_A | POST_BOND_B : POST_BOND_A;
     }
 
-    /// @dev Reputation hears the terminal with the subjects snapshotted at activation (ADM-05).
-    function notify(Deal storage d, IReputation.Close closeH, IReputation.Close closeP) public {
-        if ((d.pkgs & REP) == 0) return;
-        IReputation r = IReputation(d.mods.reputation);
+    /// @dev Attempt the post-terminal calls still set in `pending` and return the bits that remain. One
+    ///      implementation serves both the first attempt from `_close` and every retry from
+    ///      `Escrow.retryPostTerminal`, so the two cannot drift apart.
+    ///
+    ///      Every call is `try`, because a package can lose its fee or its lock but never hold the principal
+    ///      hostage (KERNEL-04). A bit is cleared only when its call succeeds, so a retry can never apply a
+    ///      reputation delta twice or dispose the same lock twice.
+    ///
+    ///      A bond call is also cleared when the vault is unreadable or has drifted off its signed id:
+    ///      TRUST-03 makes that a permanent fail-open with the lock left in the vault, so keeping the bit set
+    ///      would leave `postPending` unable to ever reach zero. Reputation has no drift gate -- a
+    ///      notification is not a charge, and `completionInvoice` already denies a drifted module its fee --
+    ///      so its bits stay pending until the module answers. A module that never comes back leaves them set,
+    ///      and `retryPostTerminal` stays callable as a no-op; that is deliberate, because silently dropping
+    ///      the notification would hide a subject's capacity leak.
+    function runPostTerminal(
+        Deal storage d,
+        bytes32 dealId,
+        uint8 closeH,
+        uint8 closeP,
+        uint8 bondAction,
+        uint8 pending
+    ) public returns (uint8 left) {
+        left = pending;
         DealTerms storage t = d.terms;
-        try r.notifyTerminal(d.subjectH, t.token, t.principal, closeH) {} catch {}
-        try r.notifyTerminal(d.subjectP, t.token, t.principal, closeP) {} catch {}
+
+        if ((left & (POST_NOTIFY_H | POST_NOTIFY_P)) != 0 && (d.pkgs & REP) != 0) {
+            IReputation r = IReputation(d.mods.reputation);
+            if ((left & POST_NOTIFY_H) != 0) {
+                try r.notifyTerminal(d.subjectH, t.token, t.principal, IReputation.Close(closeH)) {
+                    left &= ~POST_NOTIFY_H;
+                } catch {}
+            }
+            if ((left & POST_NOTIFY_P) != 0) {
+                try r.notifyTerminal(d.subjectP, t.token, t.principal, IReputation.Close(closeP)) {
+                    left &= ~POST_NOTIFY_P;
+                } catch {}
+            }
+        }
+
+        if ((left & (POST_BOND_A | POST_BOND_B)) != 0 && (d.pkgs & BONDS) != 0) {
+            IBondVault vault = IBondVault(d.mods.bonds);
+            address sink;
+            bool readable = true;
+            try vault.sink() returns (address s) {
+                sink = s;
+            } catch {
+                readable = false;
+            }
+            if (!readable || !named(d, PackageId.bonds(address(vault), sink))) {
+                left &= ~(POST_BOND_A | POST_BOND_B);
+                return left;
+            }
+            BondAction bond = BondAction(bondAction);
+            if (bond == BondAction.Unlock) {
+                if ((left & POST_BOND_A) != 0) {
+                    try vault.unlock(d.subjectH, t.token, dealId) {
+                        left &= ~POST_BOND_A;
+                    } catch {}
+                }
+                if ((left & POST_BOND_B) != 0) {
+                    try vault.unlock(d.subjectP, t.token, dealId) {
+                        left &= ~POST_BOND_B;
+                    } catch {}
+                }
+            } else if ((left & POST_BOND_A) != 0) {
+                bool done;
+                if (bond == BondAction.Burn) {
+                    try vault.burn(d.subjectH, d.subjectP, t.token, dealId) {
+                        done = true;
+                    } catch {}
+                } else if (bond == BondAction.HolderWins) {
+                    try vault.slash(d.subjectP, d.subjectH, t.token, dealId, t.holder) {
+                        done = true;
+                    } catch {}
+                } else {
+                    try vault.slash(d.subjectH, d.subjectP, t.token, dealId, t.provider) {
+                        done = true;
+                    } catch {}
+                }
+                if (done) left &= ~POST_BOND_A;
+            }
+        }
     }
 
     // --- helpers --------------------------------------------------------------------------------------------

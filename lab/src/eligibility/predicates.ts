@@ -1,5 +1,5 @@
 import { addDuration, isDue, isStrictlyBefore } from "../deal/clocks.ts";
-import { PKG, Status, type DealSnapshot } from "../deal/types.ts";
+import { isTerminalStatus, PKG, Status, type DealSnapshot } from "../deal/types.ts";
 import { R, disabled, enabled, type Eval } from "./errors.ts";
 
 export type DualSignDraft = {
@@ -255,5 +255,11 @@ export function evalWithdraw(input: MatrixInput): Eval {
 export function evalCancelNonce(input: MatrixInput): Eval {
   const missing = requireSender(input.sender);
   if (missing) return missing;
+  return enabled();
+}
+
+export function evalRetryPostTerminal(input: MatrixInput): Eval {
+  if (!isTerminalStatus(input.deal.status)) return disabled(R.WrongStatus);
+  if (input.deal.postPending === 0) return disabled(R.NothingPending);
   return enabled();
 }

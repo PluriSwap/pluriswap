@@ -94,6 +94,15 @@ struct Deal {
     bytes32 subjectH;
     bytes32 subjectP;
     uint8 pkgs;
+    /// Terminal outcome, stored so the post-terminal package calls can be retried after `_close`. Not
+    /// derivable from `status`: STALEMATE alone maps to three different (close, bondAction) pairs, and
+    /// RESOLVED_BY_ARBITRATION to two, depending on who won and which clock ran out.
+    uint8 closeH;
+    uint8 closeP;
+    uint8 bondAction;
+    /// `Packages.POST_*` bits still owed. Zero once every post-terminal call has either succeeded or been
+    /// abandoned because the module drifted away from its signed id.
+    uint8 postPending;
     PackageMods mods;
     uint256 holderAmt;
     uint256 providerAmt;

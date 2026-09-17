@@ -132,7 +132,7 @@ Ese lock dura **hasta el terminal de ese deal**. Los relojes del escrow (fiat, r
 
 ### 5.3 Terminal
 
-Atómico con el commit Core (`disposeBond`):
+Atómico con el commit Core (`Packages.runPostTerminal`):
 
 | Terminal | Qué hace el vault con el lock de ese deal |
 | --- | --- |

@@ -18,6 +18,7 @@ import {
   evalTimeoutFiat,
   evalVerifyProof,
   evalWithdraw,
+  evalRetryPostTerminal,
   type DualSignDraft,
   type MatrixInput,
 } from "./predicates.ts";
@@ -170,6 +171,14 @@ export function buildMatrix(input: MatrixInput): MatrixRow[] {
       clock: "n/a",
       senderSeat: "msg.sender",
     },
+    {
+      verb: "retryPostTerminal",
+      class: "anyone",
+      requiredStatus: "terminal",
+      kinds: "n/a",
+      clock: "n/a",
+      senderSeat: "anyone",
+    },
   ];
 
   const evals: Record<string, (i: MatrixInput) => Eval> = {
@@ -190,6 +199,7 @@ export function buildMatrix(input: MatrixInput): MatrixRow[] {
     forceArbitrationTimeout: evalForceArbitrationTimeout,
     withdraw: evalWithdraw,
     cancelNonce: evalCancelNonce,
+    retryPostTerminal: evalRetryPostTerminal,
   };
 
   return rows.map((row) => ({ ...row, eval: evals[row.verb]!(input) }));

@@ -531,6 +531,7 @@ contract PackagesTest is BaseTest {
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
         assertEq(token.balanceOf(sink), 0);
         assertTrue(driftVault.lockOf(SUB_H, id) != 0);
+        assertEq(escrow.postPending(id), 0, "drifted vault abandoned, not left pending");
     }
 
     /// @dev KERNEL-04: a reputation module whose policy getters revert is unreadable drift. It loses the invoice;
@@ -553,8 +554,8 @@ contract PackagesTest is BaseTest {
         assertEq(token.balanceOf(feeRecipient), 0);
     }
 
-    /// @dev KERNEL-04, the load-bearing case: `_close` calls `disposeBond` on *every* terminal, so a vault whose
-    ///      `sink` getter reverts used to brick all eleven exits including `CANCELLED` — the one with
+    /// @dev KERNEL-04, the load-bearing case: `_close` runs post-terminal work on *every* terminal, so a vault
+    ///      whose `sink` getter reverts used to brick all eleven exits including `CANCELLED` — the one with
     ///      `providerBps == 0`, which never reaches `completionInvoice`. The Holder must still get its refund.
     function test_vaultSinkReverts_cancelStillRefundsHolder() public {
         RevertingSinkVault hostile = new RevertingSinkVault(address(escrow), sink, passport);
@@ -571,13 +572,13 @@ contract PackagesTest is BaseTest {
         assertEq(uint8(escrow.status(id)), uint8(Status.CANCELLED));
         assertEq(token.balanceOf(holder), PRINCIPAL + BOND);
         assertTrue(hostile.lockOf(SUB_H, id) != 0);
+        assertEq(escrow.postPending(id), 0, "unreadable vault is abandoned on the first pass");
     }
 
-    /// `PROTECTION.md` §8 promises that when a post-terminal package call reverts, the escrow stays intact and
-    /// the call is retried permissionlessly. There is no retry path: `_close` is one-shot, so once `d.status`
-    /// is terminal every verb reverts `WrongStatus`. This measures what is actually lost when a module is
-    /// briefly unreachable -- a proxy mid-upgrade, a paused implementation, a hostile one.
-    function test_postTerminalPackageFailure_leaksInFlightAndBondLockForever() public {
+    /// First half of the retry story: when both `notifyTerminal` and `unlock` revert, `_close` still commits
+    /// (KERNEL-04) and records every owed bit in `postPending`. Deal verbs cannot discharge it.
+    /// `test_retryPostTerminal_recoversInFlightAndBondLock` is the second half.
+    function test_postTerminalPackageFailure_recordsInFlightAndBondLock() public {
         _fundBonds();
         bytes32 id = _activateTrio(1, 1);
         assertEq(reputation.inFlight(SUB_H, address(token)), PRINCIPAL, "capacity reserved at activation");
@@ -611,10 +612,183 @@ contract PackagesTest is BaseTest {
         vm.expectRevert(BondVault.InsufficientAvailable.selector);
         vault.withdraw(SUB_H, address(token), BOND);
 
-        // And nothing can repair it: every verb rejects a terminal deal.
+        // The deal verbs cannot repair it -- every one rejects a terminal deal -- and nothing repairs it on
+        // its own. What the kernel now does is *record* the debt, so a keeper can discharge it later.
         vm.prank(holder);
         vm.expectRevert(Escrow.WrongStatus.selector);
         escrow.release(id);
+        assertEq(escrow.postPending(id), 0x0F, "all four post-terminal calls recorded as still owed");
+    }
+
+    /// The retry discharges exactly what the measurement above showed as lost, and the holder gets its bond back.
+    function test_retryPostTerminal_recoversInFlightAndBondLock() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        vm.mockCallRevert(
+            address(reputation), abi.encodeWithSelector(IReputation.notifyTerminal.selector), "module down"
+        );
+        vm.mockCallRevert(address(vault), abi.encodeWithSelector(IBondVault.unlock.selector), "vault down");
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.release(id);
+        assertEq(escrow.postPending(id), 0x0F);
+
+        // The module comes back. Anyone can discharge the debt; it does not have to be a party to the deal.
+        vm.clearMockedCalls();
+        vm.prank(address(0xE1E));
+        escrow.retryPostTerminal(id);
+
+        assertEq(escrow.postPending(id), 0, "everything delivered");
+        assertEq(reputation.inFlight(SUB_H, address(token)), 0, "holder capacity released");
+        assertEq(reputation.inFlight(SUB_P, address(token)), 0, "provider capacity released");
+        assertEq(vault.lockOf(SUB_H, id), 0, "the lock was disposed");
+        assertEq(vault.available(SUB_H, address(token)), BOND, "the bond is withdrawable again");
+        vm.prank(holder);
+        vault.withdraw(SUB_H, address(token), BOND);
+        assertEq(token.balanceOf(holder), BOND, "and the holder actually got it back");
+    }
+
+    /// Idempotency is the whole safety argument for a permissionless retry: a bit is cleared only when its own
+    /// call succeeded, so a second call has nothing left and cannot apply a reputation delta twice.
+    function test_retryPostTerminal_secondCallIsRejectedAndChangesNothing() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        vm.mockCallRevert(
+            address(reputation), abi.encodeWithSelector(IReputation.notifyTerminal.selector), "module down"
+        );
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.release(id);
+        // Only the two notifications failed; both bond unlocks went through.
+        assertEq(escrow.postPending(id), 0x03, "POST_NOTIFY_H | POST_NOTIFY_P");
+        assertEq(vault.lockOf(SUB_H, id), 0, "the vault was reachable and disposed normally");
+
+        vm.clearMockedCalls();
+        escrow.retryPostTerminal(id);
+        uint256 score = reputation.score(SUB_H, address(token));
+        assertEq(escrow.postPending(id), 0);
+        assertEq(reputation.inFlight(SUB_H, address(token)), 0);
+
+        vm.expectRevert(Escrow.NothingPending.selector);
+        escrow.retryPostTerminal(id);
+        assertEq(reputation.score(SUB_H, address(token)), score, "no second reputation delta");
+    }
+
+    /// A vault that drifted off its signed id is permanent fail-open (TRUST-03), so its bits are abandoned
+    /// rather than left pending forever -- otherwise `postPending` could never reach zero and a keeper would
+    /// keep paying gas for a retry that can never succeed.
+    function test_retryPostTerminal_abandonsBondBitsOnDrift() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        vm.mockCallRevert(address(vault), abi.encodeWithSelector(IBondVault.unlock.selector), "vault down");
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.release(id);
+        assertEq(escrow.postPending(id), 0x0C, "POST_BOND_A | POST_BOND_B");
+
+        // Proxy upgrade: `sink()` now returns something the signed id does not cover.
+        vm.clearMockedCalls();
+        vm.mockCall(address(vault), abi.encodeWithSelector(IBondVault.sink.selector), abi.encode(address(0xBAD)));
+        escrow.retryPostTerminal(id);
+
+        assertEq(escrow.postPending(id), 0, "abandoned, not left pending");
+        assertEq(vault.lockOf(SUB_H, id), BOND, "the lock stays in the vault, as TRUST-03 specifies");
+        vm.expectRevert(Escrow.NothingPending.selector);
+        escrow.retryPostTerminal(id);
+    }
+
+    /// Guards on the entry point: a live deal has nothing to retry, and neither does a Core-only terminal,
+    /// which never owed a package call and therefore never stored an outcome.
+    function test_retryPostTerminal_rejectsLiveAndCoreOnlyDeals() public {
+        _fundBonds();
+        bytes32 live = _activateTrio(1, 1);
+        vm.expectRevert(Escrow.WrongStatus.selector);
+        escrow.retryPostTerminal(live);
+        assertEq(escrow.postPending(live), 0);
+
+        // The trio deal above spent the holder's whole balance, so fund the second one.
+        token.mint(holder, PRINCIPAL);
+        DealTerms memory core = _p2pTerms();
+        PackageMods memory noMods;
+        bytes32 id = _activateWith(core, noMods, 2, 2);
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.release(id);
+        assertEq(escrow.postPending(id), 0, "a Core-only terminal stores nothing");
+        vm.expectRevert(Escrow.NothingPending.selector);
+        escrow.retryPostTerminal(id);
+    }
+
+    /// STALEMATE alone is not enough to retry: `forceStalemate` burns, an arbitration timeout unlocks. If the
+    /// stored `bondAction` were dropped and Unlock inferred from status, retry would return the locks instead
+    /// of sending them to the sink.
+    function test_retryPostTerminal_stalemateBurnsNotUnlocks() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        vm.mockCallRevert(
+            address(reputation), abi.encodeWithSelector(IReputation.notifyTerminal.selector), "module down"
+        );
+        vm.mockCallRevert(address(vault), abi.encodeWithSelector(IBondVault.burn.selector), "vault down");
+        _markFiat(id);
+        _openDisputed(id);
+        vm.warp(block.timestamp + 7200);
+        escrow.forceStalemate(id);
+
+        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        assertEq(escrow.postPending(id), 0x07, "POST_NOTIFY_H | POST_NOTIFY_P | POST_BOND_A - burn is one call");
+        assertEq(vault.lockOf(SUB_H, id), BOND);
+        assertEq(vault.lockOf(SUB_P, id), BOND);
+        assertEq(token.balanceOf(sink), 0);
+
+        vm.clearMockedCalls();
+        escrow.retryPostTerminal(id);
+
+        assertEq(escrow.postPending(id), 0);
+        assertEq(vault.lockOf(SUB_H, id), 0);
+        assertEq(vault.lockOf(SUB_P, id), 0);
+        assertEq(token.balanceOf(sink), BOND * 2, "both locks burned, not unlocked");
+        assertEq(vault.available(SUB_H, address(token)), 0, "burn consumed the deposit");
+        assertEq(reputation.inFlight(SUB_H, address(token)), 0);
+    }
+
+    /// RESOLVED_BY_ARBITRATION is the other status that is not a function of the bond action: holder-win
+    /// slashes, provider-win slashes the other way. Retry must keep HolderWins, not Unlock.
+    function test_retryPostTerminal_arbHolderWinSlashes() public {
+        _fundBonds();
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted4(passport.packageId(), reputation.packageId(), vault.packageId(), court.packageId());
+        terms.arbitrationDuration = 1 days;
+        PackageMods memory mods = _trioMods();
+        mods.court = address(court);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        vm.mockCallRevert(
+            address(reputation), abi.encodeWithSelector(IReputation.notifyTerminal.selector), "module down"
+        );
+        vm.mockCallRevert(address(vault), abi.encodeWithSelector(IBondVault.slash.selector), "vault down");
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.openCourt{value: COURT_ETH}(id);
+        arbitrator.giveRuling(court.disputeOf(id), 1);
+        escrow.readRuling(id);
+
+        assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
+        assertEq(escrow.postPending(id), 0x07, "POST_NOTIFY_H | POST_NOTIFY_P | POST_BOND_A - slash is one call");
+        assertEq(vault.lockOf(SUB_P, id), BOND, "provider lock still waiting to be slashed");
+        assertEq(token.balanceOf(holder), PRINCIPAL, "refund landed; the slash did not");
+
+        vm.clearMockedCalls();
+        escrow.retryPostTerminal(id);
+
+        assertEq(escrow.postPending(id), 0);
+        assertEq(vault.lockOf(SUB_H, id), 0);
+        assertEq(vault.lockOf(SUB_P, id), 0);
+        assertEq(token.balanceOf(holder), PRINCIPAL + BOND, "provider lock moved to the holder");
+        assertEq(vault.available(SUB_H, address(token)), BOND, "holder's own lock was released");
+        (uint32 successH, uint32 penaltyH,) = reputation.stats(SUB_H, address(token));
+        (, uint32 penaltyP,) = reputation.stats(SUB_P, address(token));
+        assertEq(successH, 0, "holder recorded ArbWin, not Peaceful");
+        assertEq(penaltyH, 0);
+        assertEq(penaltyP, 15, "provider recorded ArbLoss, the stored closeP, not a status-derived default");
     }
 
     function _fundBonds() internal {
@@ -1133,7 +1307,7 @@ contract RevertingGettersReputation is IReputation {
 }
 
 contract RevertingSinkVault is IBondVault {
-    /// @dev Simulates a vault behind a proxy that stops answering `sink()`. `disposeBond` reads it on every
+    /// @dev Simulates a vault behind a proxy that stops answering `sink()`. `runPostTerminal` reads it on every
     ///      terminal to evaluate drift, so this is the getter that used to be able to brick all eleven exits.
     error Hostile();
     error Unavailable();

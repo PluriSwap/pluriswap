@@ -44,6 +44,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     error PackageNotSelected();
     error EdgeOff();
     error NotRuled();
+    error NothingPending();
 
     event Activated(
         bytes32 dealId, address holder, address provider, address controller, address token, uint256 principal
@@ -114,6 +115,13 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
 
     function kinds(bytes32 dealId) external view returns (uint8) {
         return deals[dealId].pkgs;
+    }
+
+    /// @dev The post-terminal package calls still owed for a deal, as `Packages.POST_*` bits. Zero means the
+    ///      terminal settled cleanly with its packages, or the deal never bound any. Not in `IEscrow`, which
+    ///      is the read surface other contracts consume; this one is for keepers and indexers.
+    function postPending(bytes32 dealId) external view returns (uint8) {
+        return deals[dealId].postPending;
     }
 
     function creditOf(address token, address beneficiary) external view returns (uint256) {
@@ -440,12 +448,36 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         Settlement.withdraw(settlement, token, msg.sender);
     }
 
+    /// @dev Permissionless retry of the post-terminal package calls that failed inside `_close`. Without it a
+    ///      module that was merely unreachable at the terminal -- a proxy mid-upgrade, a paused
+    ///      implementation -- costs its subjects permanently: `Reputation.inFlight` stays consumed for a deal
+    ///      that already closed, and `BondVault.lockOf` keeps `available` reduced so a bond that was deposited
+    ///      and earned back can never be withdrawn. Only the escrow can make these calls, since both modules
+    ///      gate on `msg.sender == operator`, so the retry has to live here.
+    ///      Idempotent: `Packages.runPostTerminal` clears a bit only when its own call succeeds, so retrying
+    ///      can never apply a reputation delta twice or dispose the same lock twice.
+    function retryPostTerminal(bytes32 dealId) external nonReentrant {
+        Deal storage d = deals[dealId];
+        if (!_isTerminal(d.status)) revert WrongStatus();
+        uint8 pending = d.postPending;
+        if (pending == 0) revert NothingPending();
+        d.postPending = Packages.runPostTerminal(d, dealId, d.closeH, d.closeP, d.bondAction, pending);
+    }
+
     function cancelNonce(uint256 nonce) external {
         used[msg.sender][nonce] = true;
         emit NonceCancelled(msg.sender, nonce);
     }
 
     // --- internals -------------------------------------------------------------------------------------------------
+
+    /// @dev The six statuses `_close` can write. `Pool._terminal` hand-duplicates this set with no
+    ///      compile-time coupling; the kernel is the source of truth, so if a seventh terminal is ever added
+    ///      this is the function to change and the pool is the one that will silently mis-handle it.
+    function _isTerminal(Status s) private pure returns (bool) {
+        return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
+            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
+    }
 
     function _released() private pure returns (Outcome memory) {
         return Outcome(Status.RELEASED, ALL, IReputation.Close.Peaceful, IReputation.Close.Peaceful, BondAction.Unlock);
@@ -478,8 +510,23 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         emit Settled(dealId, o.next, holderAmt, providerAmt);
         if (holderAmt != 0) Settlement.creditThenTryPush(settlement, d.terms.token, d.terms.holder, holderAmt);
         if (providerAmt != 0) Settlement.creditThenTryPush(settlement, d.terms.token, d.terms.provider, providerAmt);
-        Packages.disposeBond(d, dealId, o.bond);
-        Packages.notify(d, o.closeH, o.closeP);
+
+        // Post-terminal package work. KERNEL-04 keeps it off the critical path -- a call that fails here does
+        // not revert the terminal -- but `_close` is one-shot, so a failure has to be retryable from stored
+        // state or it is lost forever: an undelivered `notifyTerminal` leaves `Reputation.inFlight` consumed
+        // for a deal that already closed, and an undisposed bond leaves real deposited value locked, since
+        // `available` subtracts it. Store the outcome and the outstanding bits only when something is still
+        // owed, so Core-only deals and clean terminals pay nothing for the retry path.
+        uint8 owed = Packages.postTerminalOwed(d, o.bond);
+        if (owed != 0) {
+            uint8 left = Packages.runPostTerminal(d, dealId, uint8(o.closeH), uint8(o.closeP), uint8(o.bond), owed);
+            if (left != 0) {
+                d.closeH = uint8(o.closeH);
+                d.closeP = uint8(o.closeP);
+                d.bondAction = uint8(o.bond);
+                d.postPending = left;
+            }
+        }
     }
 
     /// @dev KERNEL-04: a fee that does not fit is skipped and the terminal never reverts on a package.

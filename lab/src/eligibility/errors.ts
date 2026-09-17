@@ -5,6 +5,7 @@ export const R = {
   PackageNotSelected: "Escrow.PackageNotSelected",
   PackageDrift: "Escrow.PackageDrift",
   NotRuled: "Escrow.NotRuled",
+  NothingPending: "Escrow.NothingPending",
   DealExists: "Escrow.DealExists",
   DealIdMismatch: "Escrow.DealIdMismatch",
   DeadlineMismatch: "Escrow.DeadlineMismatch",
