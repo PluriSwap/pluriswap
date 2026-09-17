@@ -41,7 +41,7 @@ contract FlipFeeReputation is IReputation {
 
     /// What the parties signed: this module, this recipient, zero activation fee, zero completion fee.
     function packageId() external view returns (bytes32) {
-        return PackageId.reputation(address(this), feeRecipient, 0, 0);
+        return PackageId.reputation(address(this), feeRecipient, 0, 0, 0);
     }
 
     function activationFee() external view returns (uint256) {
@@ -53,6 +53,14 @@ contract FlipFeeReputation is IReputation {
     }
 
     function invoiceCompletion() external view returns (uint256 amount, address recipient) {
+        return (0, feeRecipient);
+    }
+
+    function contestFee() external pure returns (uint256) {
+        return 0;
+    }
+
+    function invoiceContest() external view returns (uint256 amount, address recipient) {
         return (0, feeRecipient);
     }
 
@@ -119,7 +127,7 @@ contract EngageActivationFeeTest is BaseTest {
     /// honest non-zero activation fee still activates and still gets paid.
     function test_engage_acceptsHonestNonZeroActivationFee() public {
         uint256 actFee = 250_000;
-        Reputation honest = new Reputation(passport, feeRecipient, actFee, 0, address(escrow));
+        Reputation honest = new Reputation(passport, feeRecipient, actFee, 0, 0, address(escrow));
         token.mint(holder, actFee);
 
         DealTerms memory terms = _p2pTerms();

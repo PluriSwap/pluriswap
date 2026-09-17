@@ -155,6 +155,56 @@ describe("Deal matrix (CASE-CORE)", () => {
     expect(evalOpenCourt(ctx).reason).toBe(R.InexactPull);
   });
 
+  it("official reputation without opener allowance is InexactPull on openDisputed", () => {
+    const d = deal({
+      status: Status.FIAT_SENT,
+      kinds: PKG.REP,
+      clocks: {
+        activatedAt: 10n,
+        fiatSentAt: 20n,
+        disputedAt: 0n,
+        arbitrationOpenedAt: 0n,
+      },
+      blockTimestamp: 30n,
+    });
+    const ctx = {
+      deal: d,
+      sender: controller,
+      credit: null,
+      ruling: null,
+      dualSign: null,
+      contestPref: { fee: 50_000n, allowance: 0n },
+    };
+    expect(evalOpenDisputed(ctx).reason).toBe(R.InexactPull);
+    expect(evalOpenCourt({ ...ctx, courtPref: null }).reason).toBe(R.PackageNotSelected);
+    const arb = deal({
+      status: Status.FIAT_SENT,
+      kinds: PKG.ARB | PKG.REP,
+      clocks: d.clocks,
+      blockTimestamp: 30n,
+    });
+    expect(
+      evalOpenCourt({
+        ...ctx,
+        deal: arb,
+        contestPref: { fee: 50_000n, allowance: 0n },
+      }).reason,
+    ).toBe(R.InexactPull);
+    const fromDisputed = deal({
+      status: Status.DISPUTED,
+      kinds: PKG.ARB | PKG.REP,
+      clocks: { ...d.clocks, disputedAt: 20n },
+      blockTimestamp: 30n,
+    });
+    expect(
+      evalOpenCourt({
+        ...ctx,
+        deal: fromDisputed,
+        contestPref: { fee: 50_000n, allowance: 0n },
+      }).enabled,
+    ).toBe(true);
+  });
+
   it("FIAT_SENT releaseDuration=0 → openDisputed TooLate, claim due", () => {
     const d = deal({
       status: Status.FIAT_SENT,

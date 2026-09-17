@@ -299,7 +299,7 @@ Dual-sign (cancel, split, co-signed release) exige `MutualCancel` / `MutualSplit
 
 Desde `DISPUTED`, el split (CASE-CORE-14) es la salida pacífica parcial: el Holder recupera una parte del principal y el Provider recibe el resto, según los bps firmados en el payload. No es un veredicto. El completion fee de ese terminal se calcula sobre el **principal completo del deal**, no sobre la tajada del Provider (sección 12).
 
-Abrir `DISPUTED` es gratis en Core: sin fee y sin bond. Es el freno defensivo del lado Holder contra un claim no autenticado. No es un tribunal, no es un win del Holder, y no quema principal. Un paquete puede cobrar por abrir contest **solo** en deals que lo seleccionaron.
+Abrir `DISPUTED` es gratis en Core: sin fee y sin bond. Es el freno defensivo del lado Holder contra un claim no autenticado. No es un tribunal, no es un win del Holder, y no quema principal. El paquete de reputación oficial cobra un contest fee no-cero, una vez, de la wallet del opener. Un clon con fee cero es otro hash. Court-only sin reputación sigue gratis (el court fee del tribunal es otro cobro).
 
 Si el deal seleccionó `PAYMENT_PROOF`, CASE-CORE-11 rechaza: ese escrow no entra a `DISPUTED`. Ver §9.1.
 
@@ -450,7 +450,7 @@ No hay hook `POOL` ni canal de operator fee en el kernel. Un contrato Holder pue
 
 La transición base CASE-CORE-11 es Core y debe ejecutarse sin paquete. Un paquete puede:
 
-- exigir fee, bond, u otro costo de contest **solo** si el deal seleccionó ese paquete;
+- exigir fee, bond, u otro costo de contest **solo** si el deal seleccionó ese paquete (oficial: reputación no-cero, una vez);
 - añadir un path de evidencia enhanced y fallar esa enhancement closed.
 
 Un paquete **no** puede:
@@ -597,7 +597,7 @@ Claim no autentica fiat. Fiat timeout no es culpa del Provider. En un deal ZK, f
 - Un deal con `PAYMENT_PROOF` no entra a `DISPUTED`. Proof o fiat-timeout; no hay otra opción.
 - Tras `disputeDeadline`, cualquiera fuerza `STALEMATE` (50/50). Si hay bonds, se queman. El split dual-firmado es la salida pacífica *antes* de ese reloj.
 - En un split, el completion fee se calcula sobre el principal completo y se deduce antes de los bps.
-- Abrir `DISPUTED` no exige fee ni bond de Core.
+- Abrir `DISPUTED` no exige fee ni bond de Core. Con reputación oficial, el opener paga el contest fee al entrar.
 - Todo deal snapshottea Holder, Provider y Controller. La activación consume una `HolderAuthorization` EIP-712. Si `Holder == Controller`, esa firma cubre ambos roles. Si no, el Holder nombra al Controller y hace falta `ControllerAcceptance`.
 - Holder-gross vuelve al Holder. Provider-gross a la address de firma del Provider. El Controller no cobra principal. El Holder de un deal vivo no se cambia.
 - El kernel verifica el digest (ECDSA o EIP-1271) y un pull exacto. No exige ERC-2612, Permit2, ni un perfil `POOL`. Cómo el Holder se volvió pullable es local al Holder.
@@ -619,7 +619,7 @@ Una extensión nueva es conforme solo si encaja en una fila de esta tabla. Si no
 | Liquidez reutilizable | Servicio de pool como Holder (`POOLS.md`) | El kernel no añade estados ni fees de Controller; el pool produce el mismo `HolderAuthorization` vía EIP-1271 |
 | Entrar o salir de Arbitrum | Composer de rampa (`RAMPS.md`), no Core | Sin la rampa, un Holder ya en Arbitrum activa igual. Stargate caído no congela deals fondeados. Cero fee de protocolo |
 | Skin-in-the-game | EP-HOOK-ACTIVATE (`BONDS`) | Kernel ejecuta la fórmula firmada; el paquete no elige destinos |
-| Cobrar por abrir contest | EP-HOOK-DISPUTE + slot firmado | Deals que no seleccionaron el paquete siguen abriendo `DISPUTED` gratis |
+| Cobrar por abrir contest | EP-HOOK-DISPUTE + slot firmado de reputación | Core-only sigue gratis. Oficial: no-cero, una vez, fail-closed si no alcanza |
 | Acotar el residual de disputa | **no aplica** | Stalemate Core es 50/50 fijo; no hay bps de residual |
 | Sybil / uniqueness | EP-HOOK-ADMISSION + EP-POST (`HUMANITY`) | Nunca es gate de Core-only; no libera principal |
 | Score de comportamiento | EP-POST (`REPUTATION`) | Consume el terminal record; fallo no revierte settlement |

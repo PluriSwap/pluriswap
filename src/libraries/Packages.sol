@@ -53,7 +53,10 @@ library Packages {
             IReputation r = IReputation(mods.reputation);
             if (address(r.passport()) != mods.passport) revert PeerMismatch();
             _requireNamed(
-                ids, PackageId.reputation(mods.reputation, r.feeRecipient(), r.activationFee(), r.completionFee())
+                ids,
+                PackageId.reputation(
+                    mods.reputation, r.feeRecipient(), r.activationFee(), r.completionFee(), r.contestFee()
+                )
             );
             pkgs |= REP;
             matched++;
@@ -104,7 +107,9 @@ library Packages {
             // both charge the value they validated; this was the one path that re-read instead.
             uint256 fee = r.activationFee();
             address to = r.feeRecipient();
-            _requireStillNamed(t.packageIds, PackageId.reputation(address(r), to, fee, r.completionFee()));
+            _requireStillNamed(
+                t.packageIds, PackageId.reputation(address(r), to, fee, r.completionFee(), r.contestFee())
+            );
             if (fee != 0) {
                 Settlement.pullExact(t.token, t.holder, fee);
                 IERC20(t.token).safeTransfer(to, fee);
@@ -158,7 +163,59 @@ library Packages {
         } catch {
             return (0, address(0));
         }
-        if (!named(d, PackageId.reputation(address(r), to, activation, fee))) return (0, address(0));
+        uint256 contest;
+        try r.contestFee() returns (uint256 amount) {
+            contest = amount;
+        } catch {
+            return (0, address(0));
+        }
+        if (!named(d, PackageId.reputation(address(r), to, activation, fee, contest))) {
+            return (0, address(0));
+        }
+    }
+
+    /// @dev Contest-open invoice: `(0, 0)` without reputation or when the module drifted. Fail-open on
+    ///      drift so a Core `openDisputed` is not bricked (KERNEL-04); a healthy official module always
+    ///      charges, which is what makes opening a fight cost something.
+    function contestInvoice(Deal storage d) public view returns (uint256 fee, address to) {
+        if ((d.pkgs & REP) == 0) return (0, address(0));
+        IReputation r = IReputation(d.mods.reputation);
+        uint256 activation;
+        uint256 completion;
+        try r.feeRecipient() returns (address recipient) {
+            to = recipient;
+        } catch {
+            return (0, address(0));
+        }
+        try r.contestFee() returns (uint256 contest) {
+            fee = contest;
+        } catch {
+            return (0, address(0));
+        }
+        try r.activationFee() returns (uint256 amount) {
+            activation = amount;
+        } catch {
+            return (0, address(0));
+        }
+        try r.completionFee() returns (uint256 amount) {
+            completion = amount;
+        } catch {
+            return (0, address(0));
+        }
+        if (!named(d, PackageId.reputation(address(r), to, activation, completion, fee))) return (0, address(0));
+    }
+
+    /// @dev Pull the contest-open fee from `payer` (the opener) once. Shared by `openDisputed` and
+    ///      `openCourt` from `FIAT_SENT` so entering the fight cannot be charged twice. Fail-closed:
+    ///      a short allowance reverts and the deal stays where it was.
+    function chargeContest(Deal storage d, address payer) public {
+        if (d.contestPaid) return;
+        (uint256 fee, address to) = contestInvoice(d);
+        if (fee != 0) {
+            Settlement.pullExact(d.terms.token, payer, fee);
+            IERC20(d.terms.token).safeTransfer(to, fee);
+        }
+        d.contestPaid = true;
     }
 
     // --- post-terminal work -----------------------------------------------------------------------------------

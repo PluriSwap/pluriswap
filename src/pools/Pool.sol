@@ -359,7 +359,8 @@ contract Pool is ReentrancyGuardTransient {
     function _activationFee(DealTerms calldata t, address reputation) internal view returns (uint256) {
         if (reputation == address(0)) return 0;
         IReputation r = IReputation(reputation);
-        bytes32 id = PackageId.reputation(reputation, r.feeRecipient(), r.activationFee(), r.completionFee());
+        bytes32 id =
+            PackageId.reputation(reputation, r.feeRecipient(), r.activationFee(), r.completionFee(), r.contestFee());
         bytes32[] calldata ids = t.packageIds;
         for (uint256 i; i < ids.length; i++) {
             if (ids[i] == id) return r.activationFee();

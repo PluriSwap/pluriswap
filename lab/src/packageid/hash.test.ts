@@ -30,9 +30,10 @@ describe("PackageId kinds", () => {
   });
 
   it("reputation id binds fee schedule", () => {
-    const x = reputationId(b, c, 1n, 2n);
-    expect(reputationId(b, c, 1n, 3n)).not.toBe(x);
-    expect(reputationId(b, a, 1n, 2n)).not.toBe(x);
+    const x = reputationId(b, c, 1n, 2n, 0n);
+    expect(reputationId(b, c, 1n, 3n, 0n)).not.toBe(x);
+    expect(reputationId(b, a, 1n, 2n, 0n)).not.toBe(x);
+    expect(reputationId(b, c, 1n, 2n, 1n)).not.toBe(x);
   });
 
   it("bonds id includes BOND_LOCK_BPS = 1000", () => {

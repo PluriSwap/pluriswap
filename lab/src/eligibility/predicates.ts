@@ -28,6 +28,11 @@ export type CourtPrefInput = {
   msgValue: bigint | null;
 };
 
+export type ContestPrefInput = {
+  fee: bigint | null;
+  allowance: bigint | null;
+};
+
 export type MatrixInput = {
   deal: DealSnapshot;
   sender: string | null;
@@ -38,6 +43,7 @@ export type MatrixInput = {
   driftArb?: boolean;
   proof?: string | null;
   courtPref?: CourtPrefInput | null;
+  contestPref?: ContestPrefInput | null;
 };
 
 function isZk(deal: DealSnapshot): boolean {
@@ -117,6 +123,15 @@ export function evalClaim(input: MatrixInput): Eval {
   return clockDue(deal.clocks.fiatSentAt, deal.terms.releaseDuration, deal.blockTimestamp) ?? enabled();
 }
 
+function requireContestAllowance(input: MatrixInput): Eval | null {
+  const fee = input.contestPref?.fee ?? 0n;
+  if (fee === 0n) return null;
+  if (input.contestPref?.allowance == null || input.contestPref.allowance < fee) {
+    return disabled(R.InexactPull);
+  }
+  return null;
+}
+
 export function evalOpenDisputed(input: MatrixInput): Eval {
   const { deal, sender } = input;
   if (deal.status !== Status.FIAT_SENT) return disabled(R.WrongStatus);
@@ -124,10 +139,9 @@ export function evalOpenDisputed(input: MatrixInput): Eval {
   const missing = requireSender(sender);
   if (missing) return missing;
   if (!eq(sender!, deal.terms.controller)) return disabled(R.Unauthorized);
-  return (
-    clockStrictlyBefore(deal.clocks.fiatSentAt, deal.terms.releaseDuration, deal.blockTimestamp) ??
-    enabled()
-  );
+  const clock = clockStrictlyBefore(deal.clocks.fiatSentAt, deal.terms.releaseDuration, deal.blockTimestamp);
+  if (clock) return clock;
+  return requireContestAllowance(input) ?? enabled();
 }
 
 export function evalForceStalemate(input: MatrixInput): Eval {
@@ -216,6 +230,10 @@ export function evalOpenCourt(input: MatrixInput): Eval {
       : clockStrictlyBefore(deal.clocks.disputedAt, deal.terms.disputeDuration, deal.blockTimestamp);
   if (clock) return clock;
   if (input.driftArb) return disabled(R.PackageDrift);
+  if (deal.status === Status.FIAT_SENT) {
+    const contest = requireContestAllowance(input);
+    if (contest) return contest;
+  }
   const pref = input.courtPref;
   if (pref?.kind === "mock") {
     if (pref.courtFee !== null && (pref.allowance === null || pref.allowance < pref.courtFee)) {

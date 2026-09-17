@@ -955,7 +955,7 @@ contract PoolTest is BaseTest {
     function test_reputation_reservesActivationFee() public {
         uint256 actFee = 100_000;
         PassportMock passport = new PassportMock();
-        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, address(escrow));
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, address(escrow));
         passport.setHuman(address(pool), keccak256("pool"));
         passport.setHuman(provider, keccak256("prov"));
 
@@ -991,7 +991,7 @@ contract PoolTest is BaseTest {
     function test_reputation_shortIdleReverts() public {
         uint256 actFee = 100_000;
         PassportMock passport = new PassportMock();
-        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, address(escrow));
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, address(escrow));
         DealTerms memory terms = _poolHolderTerms();
         terms.packageIds = _sorted2(passport.packageId(), rep.packageId());
         vm.prank(controller);
@@ -1001,7 +1001,7 @@ contract PoolTest is BaseTest {
 
     function test_reputation_unknownModuleReverts() public {
         PassportMock passport = new PassportMock();
-        Reputation rep = new Reputation(passport, address(0xFEE), 1, 0, address(escrow));
+        Reputation rep = new Reputation(passport, address(0xFEE), 1, 0, 0, address(escrow));
         vm.prank(controller);
         // `authorize` now runs `Packages.resolve` before reserving anything, so a named module that no signed
         // id refers to is rejected with the kernel's own error instead of `Pool.BadTerms` from `_activationFee`.
@@ -1015,7 +1015,7 @@ contract PoolTest is BaseTest {
     function test_reputation_unnamedModuleReverts() public {
         uint256 actFee = 100_000;
         PassportMock passport = new PassportMock();
-        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, address(escrow));
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, address(escrow));
         passport.setHuman(address(pool), keccak256("pool"));
         passport.setHuman(provider, keccak256("prov"));
         token.mint(holder, actFee);
@@ -1040,7 +1040,7 @@ contract PoolTest is BaseTest {
     function test_unlock_returnsActivationFee() public {
         uint256 actFee = 100_000;
         PassportMock passport = new PassportMock();
-        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, address(escrow));
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, address(escrow));
         token.mint(holder, actFee);
         vm.prank(holder);
         pool.deposit(actFee);

@@ -13,6 +13,9 @@ export type FeeProjection = {
   /// principal pull, so an allowance sized to the principal alone reverts inside the token -- not with
   /// `Settlement.InexactPull`, which only fires when a transfer succeeds and the delta comes up short.
   activationFee: bigint;
+  /// What the opener must have approved when entering a fight. Pulled from `msg.sender` at
+  /// `openDisputed` / `openCourt` from `FIAT_SENT`, not from the principal. Core-only is 0.
+  contestFee: bigint;
 };
 
 /// Mirrors `Escrow._invoice`. A fee is collected only while it is strictly below what is left to split, so a
@@ -24,6 +27,7 @@ export type FeeProjection = {
 export function projectFees(principal: bigint, policy: LivePolicy | null): FeeProjection {
   const completionFee = policy?.reputation?.completionFee ?? null;
   const activationFee = policy?.reputation?.activationFee ?? 0n;
+  const contestFee = policy?.reputation?.contestFee ?? 0n;
   const verifyFee = policy?.zk?.verifyFee ?? null;
 
   if (completionFee !== null && completionFee >= principal) {
@@ -34,6 +38,7 @@ export function projectFees(principal: bigint, policy: LivePolicy | null): FeePr
       },
       netToProvider: null,
       activationFee,
+      contestFee,
     };
   }
   if (verifyFee !== null && verifyFee >= principal) {
@@ -44,14 +49,15 @@ export function projectFees(principal: bigint, policy: LivePolicy | null): FeePr
       },
       netToProvider: null,
       activationFee,
+      contestFee,
     };
   }
   if (completionFee === null && verifyFee === null) {
-    return { stop: null, netToProvider: null, activationFee };
+    return { stop: null, netToProvider: null, activationFee, contestFee };
   }
 
   let net = principal;
   if (verifyFee !== null && verifyFee > 0n) net -= verifyFee;
   if (completionFee !== null && completionFee > 0n && completionFee < net) net -= completionFee;
-  return { stop: null, netToProvider: net, activationFee };
+  return { stop: null, netToProvider: net, activationFee, contestFee };
 }

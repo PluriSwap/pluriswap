@@ -129,7 +129,7 @@ Los *kinds* son la superficie cerrada de extensión (EXT-01). Cinco. Un kind nue
 | Interfaz | Kind | Verbos | Policy que entra al `packageId` |
 | --- | --- | --- | --- |
 | `IPassport` | PASSPORT | `identify` | address del adapter (`HumanPassport`: decoder y `minScore` inmutables) |
-| `IReputation` | REPUTATION | `admit`, `invoiceActivation`, `invoiceCompletion`, `notifyTerminal` | module, feeRecipient, activationFee, completionFee |
+| `IReputation` | REPUTATION | `admit`, `invoiceActivation`, `invoiceCompletion`, `invoiceContest`, `notifyTerminal` | module, feeRecipient, activationFee, completionFee, contestFee |
 | `IBondVault` | BONDS | `reserve`, `unlock`, `slash`, `burn` | vault, sink, lock bps |
 | `IPaymentProof` | ZK | `verifyProof`, `invoiceVerify` | module, verifier V, feeRecipient, verifyFee |
 | `IVerifier` | (no es paquete) | `verify → (dealId, nullifier)` | — |
@@ -164,7 +164,7 @@ El kernel, por cada slot no nulo:
 3. Exige que `id` esté en `terms.packageIds`.
 4. Si hay Reputation o Bonds, exige `module.passport() == mods.passport`.
 
-El kernel cobra con los getters que entran al hash (`activationFee`, `completionFee`, `verifyFee`, `feeRecipient`). `invoice*` es lectura; no es la fuente del cobro.
+El kernel cobra con los getters que entran al hash (`activationFee`, `completionFee`, `contestFee`, `verifyFee`, `feeRecipient`). `invoice*` es lectura; no es la fuente del cobro.
 
 Exige además que **cada** `packageIds[i]` haya sido reclamado por exactamente un slot. Si sobra un ID o sobra un módulo, reject. Core-only: array vacío, slots nulos.
 

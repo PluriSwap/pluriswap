@@ -36,12 +36,12 @@ contract DriftingReputation is IReputation {
         activationFee = 0;
         completionFee = completionFee_;
         operator = operator_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, 0, completionFee_);
+        packageId = PackageId.reputation(address(this), feeRecipient_, 0, completionFee_, 0);
     }
 
     function setCompletionFee(uint256 fee) external {
         completionFee = fee;
-        packageId = PackageId.reputation(address(this), feeRecipient, 0, fee);
+        packageId = PackageId.reputation(address(this), feeRecipient, 0, fee, 0);
     }
 
     function invoiceActivation() external pure returns (uint256, address) {
@@ -50,6 +50,14 @@ contract DriftingReputation is IReputation {
 
     function invoiceCompletion() external view returns (uint256, address) {
         return (completionFee, feeRecipient);
+    }
+
+    function contestFee() external pure returns (uint256) {
+        return 0;
+    }
+
+    function invoiceContest() external view returns (uint256, address) {
+        return (0, feeRecipient);
     }
 
     function admit(address wallet, address, uint256, address) external view returns (bytes32) {
@@ -69,6 +77,7 @@ contract PackagesHandler is HandlerBase {
 
     uint256 internal constant ACT_FEE = 500_000;
     uint256 internal constant COMP_FEE = 250_000;
+    uint256 internal constant CONTEST_FEE = 50_000;
     uint256 internal constant ZK_FEE = 100_000;
     uint256 internal constant HUGE_FEE = 1e30;
     uint256 internal constant COURT_ETH = 0.01 ether;
@@ -91,14 +100,15 @@ contract PackagesHandler is HandlerBase {
     KlerosAdapter public court;
 
     uint256 public ghost_actFees;
+    uint256 public ghost_contestFees;
     uint256 public ghost_bondDeposited;
     uint256 internal nullifierSeed;
 
     constructor(Escrow escrow_, TestToken token_) HandlerBase(escrow_) {
         token = token_;
         passport = new PassportMock();
-        reputation = new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE, address(escrow_));
-        reputationHuge = new Reputation(passport, FEE_RECIPIENT, 0, HUGE_FEE, address(escrow_));
+        reputation = new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE, CONTEST_FEE, address(escrow_));
+        reputationHuge = new Reputation(passport, FEE_RECIPIENT, 0, HUGE_FEE, 0, address(escrow_));
         reputationDrift = new DriftingReputation(passport, FEE_RECIPIENT, COMP_FEE, address(escrow_));
         vault = new BondVault(address(escrow_), SINK, passport);
         zk = new ZkMock(new VerifierMock(), FEE_RECIPIENT, ZK_FEE, address(escrow_));
@@ -108,6 +118,10 @@ contract PackagesHandler is HandlerBase {
         );
         passport.setHuman(holder, SUB_H);
         passport.setHuman(provider, SUB_P);
+        vm.prank(holder);
+        token.approve(address(escrow_), type(uint256).max);
+        vm.prank(controller);
+        token.approve(address(escrow_), type(uint256).max);
     }
 
     // --- activation ------------------------------------------------------------------------------
@@ -238,13 +252,33 @@ contract PackagesHandler is HandlerBase {
         _recordTerminal(id);
     }
 
+    function openDisputed(uint256 seed) external override count("openDisputed") {
+        (bytes32 id, bool ok) = _pickIf(seed, _canOpenDisputed);
+        if (!ok) return;
+        address c = escrow.terms(id).controller;
+        uint256 fee = _fundContest(id, c);
+        vm.prank(c);
+        escrow.openDisputed(id);
+        ghost_contestFees += fee;
+    }
+
     function openCourt(uint256 seed) external count("openCourt") {
         (bytes32 id, bool ok) = _pickIf(seed, _canOpenCourt);
         if (!ok) return;
         address c = escrow.terms(id).controller;
+        uint256 fee = escrow.status(id) == Status.FIAT_SENT ? _fundContest(id, c) : 0;
         vm.deal(c, COURT_ETH);
         vm.prank(c);
         escrow.openCourt{value: COURT_ETH}(id);
+        ghost_contestFees += fee;
+    }
+
+    function _fundContest(bytes32 id, address opener) internal returns (uint256 fee) {
+        address rep = ghosts[id].reputation;
+        fee = rep == address(0) ? 0 : IReputation(rep).contestFee();
+        if (fee == 0) return 0;
+        token.mint(opener, fee);
+        ghost_minted += fee;
     }
 
     function rule(uint256 seed, uint8 ruling) external count("rule") {
@@ -372,8 +406,8 @@ contract EscrowPackagesInvariantTest is Test {
         assertEq(token.balanceOf(address(escrow)), live + credits, "escrow balance != live principal + credits");
     }
 
-    /// Fees only ever come out of the principal, and every wei of fee lands with the fee recipient.
-    /// holderAmt + providerAmt <= principal per deal; the gap summed over terminals == fees collected.
+    /// Terminal fees come out of the principal. Activation and contest-open come from wallets.
+    /// Every wei of fee lands with the fee recipient. holderAmt + providerAmt <= principal per deal.
     function invariant_feesAccounted() public view {
         uint256 terminalFees;
         uint256 n = h.idsLength();
@@ -396,7 +430,11 @@ contract EscrowPackagesInvariantTest is Test {
             terminalFees += principal - hAmt - pAmt;
         }
         uint256 collected = token.balanceOf(h.FEE_RECIPIENT()) + escrow.creditOf(address(token), h.FEE_RECIPIENT());
-        assertEq(collected, h.ghost_actFees() + terminalFees, "fee recipient != activation + terminal fees");
+        assertEq(
+            collected,
+            h.ghost_actFees() + h.ghost_contestFees() + terminalFees,
+            "fee recipient != activation + contest + terminal fees"
+        );
     }
 
     /// CASE-CORE-17 with packages on: nothing a module does after commit can move a terminal record.

@@ -216,6 +216,7 @@ export function matrixForDeal(
     driftArb?: boolean;
     proof?: string | null;
     courtPref?: MatrixInput["courtPref"];
+    contestPref?: MatrixInput["contestPref"];
   } = {},
 ): MatrixRow[] {
   return buildMatrix({
@@ -228,6 +229,7 @@ export function matrixForDeal(
     driftArb: extras.driftArb,
     proof: extras.proof,
     courtPref: extras.courtPref,
+    contestPref: extras.contestPref,
   });
 }
 

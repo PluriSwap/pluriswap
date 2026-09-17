@@ -67,7 +67,7 @@ contract PackagesFuzzTest is Test {
         completionFee = bound(completionFee, 0, type(uint256).max >> 1);
         bps = uint16(bound(bps, 0, 10_000));
         path = uint8(bound(path, 0, 2));
-        Reputation rep = new Reputation(passport, FEE_RECIPIENT, 0, completionFee, address(escrow));
+        Reputation rep = new Reputation(passport, FEE_RECIPIENT, 0, completionFee, 0, address(escrow));
 
         bytes32 id = _activateWithRep(rep, principal);
         vm.prank(provider);
@@ -109,7 +109,7 @@ contract PackagesFuzzTest is Test {
         principal = bound(principal, 1, T1_CAP);
         verifyFee = bound(verifyFee, 0, type(uint256).max >> 1);
         completionFee = bound(completionFee, 0, type(uint256).max >> 1);
-        Reputation rep = new Reputation(passport, FEE_RECIPIENT, 0, completionFee, address(escrow));
+        Reputation rep = new Reputation(passport, FEE_RECIPIENT, 0, completionFee, 0, address(escrow));
         ZkMock zk = new ZkMock(new VerifierMock(), FEE_RECIPIENT, verifyFee, address(escrow));
 
         DealTerms memory t = _terms(principal);
@@ -147,7 +147,7 @@ contract PackagesFuzzTest is Test {
     function testFuzz_activationFee_isExtraAndAtomic(uint256 principal, uint256 activationFee, bool fund) public {
         principal = bound(principal, 1, T1_CAP);
         activationFee = bound(activationFee, 1, 1e12);
-        Reputation rep = new Reputation(passport, FEE_RECIPIENT, activationFee, 0, address(escrow));
+        Reputation rep = new Reputation(passport, FEE_RECIPIENT, activationFee, 0, 0, address(escrow));
         DealTerms memory t = _terms(principal);
         t.packageIds = _sorted2(passport.packageId(), rep.packageId());
         PackageMods memory mods;
@@ -181,7 +181,7 @@ contract PackagesFuzzTest is Test {
         peaceful = uint8(bound(peaceful, 0, 12));
         stalemates = uint8(bound(stalemates, 0, 4));
         losses = uint8(bound(losses, 0, 2));
-        Reputation rep = new Reputation(passport, FEE_RECIPIENT, 0, 0, address(this));
+        Reputation rep = new Reputation(passport, FEE_RECIPIENT, 0, 0, 0, address(this));
         uint256 unit = 250e6;
         uint256 volume;
         for (uint256 i; i < peaceful; i++) {
@@ -215,7 +215,7 @@ contract PackagesFuzzTest is Test {
 
     /// admit rejects exactly when inFlight + principal > cap; silence and cancel never move the score.
     function testFuzz_reputation_capIsConcurrent(uint256 first, uint256 second) public {
-        Reputation rep = new Reputation(passport, FEE_RECIPIENT, 0, 0, address(this));
+        Reputation rep = new Reputation(passport, FEE_RECIPIENT, 0, 0, 0, address(this));
         uint256 cap = rep.cap(SUB_H, address(token), false);
         first = bound(first, 1, cap);
         second = bound(second, 1, cap);
@@ -337,17 +337,19 @@ contract PackagesFuzzTest is Test {
         uint256 a1,
         uint256 a2,
         uint256 c1,
-        uint256 c2
+        uint256 c2,
+        uint256 t1,
+        uint256 t2
     ) public pure {
-        vm.assume(m1 != m2 || r1 != r2 || a1 != a2 || c1 != c2);
-        assertNotEq(PackageId.reputation(m1, r1, a1, c1), PackageId.reputation(m2, r2, a2, c2));
+        vm.assume(m1 != m2 || r1 != r2 || a1 != a2 || c1 != c2 || t1 != t2);
+        assertNotEq(PackageId.reputation(m1, r1, a1, c1, t1), PackageId.reputation(m2, r2, a2, c2, t2));
     }
 
     function testFuzz_packageId_kindsNeverCollide(address a, address b, uint256 k) public pure {
         bytes32[5] memory ids = [
             PackageId.passport(a),
             PackageId.bonds(a, b),
-            PackageId.reputation(a, b, k, k),
+            PackageId.reputation(a, b, k, k, 0),
             PackageId.arbitration(a, b, k),
             PackageId.zk(a, b, b, k)
         ];
@@ -361,8 +363,8 @@ contract PackagesFuzzTest is Test {
     /// A relayer cannot swap in a module whose live policy hashes to a different id than the one signed.
     function testFuzz_activate_rejectsUnsignedModule(uint256 signedFee, uint256 liveFee) public {
         vm.assume(signedFee != liveFee);
-        Reputation signed = new Reputation(passport, FEE_RECIPIENT, 0, signedFee, address(escrow));
-        Reputation live = new Reputation(passport, FEE_RECIPIENT, 0, liveFee, address(escrow));
+        Reputation signed = new Reputation(passport, FEE_RECIPIENT, 0, signedFee, 0, address(escrow));
+        Reputation live = new Reputation(passport, FEE_RECIPIENT, 0, liveFee, 0, address(escrow));
         DealTerms memory t = _terms(1e6);
         t.packageIds = _sorted2(passport.packageId(), signed.packageId());
         PackageMods memory mods;

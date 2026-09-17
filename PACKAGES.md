@@ -15,10 +15,10 @@ Las rampas de bridge (`RAMPS.md`) no son un paquete de esta lista: no hay `invoi
 | Paquete | Para qué | Punto en la máquina | Cobra | Dónde va el fee |
 | --- | --- | --- | --- | --- |
 | Human Passport | Raíz anti-Sybil: sólo wallets con Passport vigente entran al recinto con paquetes | Admisión | No | — |
-| Reputación | Capa de confianza: cap del principal y fee de acceso | Activación (cap + fee); post-terminal (score) | Sí, en activación | Lo que diga el paquete (oficial: DAO) |
+| Reputación | Capa de confianza: cap del principal y fee de acceso | Activación (cap + fee); contest-open; completion; post-terminal (score) | Sí, en activación y al abrir contest (oficial: no-cero) | Lo que diga el paquete (oficial: DAO) |
 | Bonds | Suben el cap, skin-in-the-game | Activación (reserva); terminal (suelta o slash) | No es un fee: es colateral | Slash: address de firma del ganador (Holder o Provider); **quema** sólo en el stalemate que las partes dejaron vencer |
 | ZK / payment proof | Auto-release autenticado; apaga `DISPUTED` | Arista `FUNDED` → `RELEASED` | Sí, **al verificar** | Lo que diga el paquete (oficial: DAO) |
-| Arbitraje | Tribunal cuando no hay ZK | `FIAT_SENT` / `DISPUTED` → `ARBITRATION_ACTIVE` | Court fee al abrir, de la wallet del opener | Tribunal; el paquete puede sumar contest-open a la DAO |
+| Arbitraje | Tribunal cuando no hay ZK | `FIAT_SENT` / `DISPUTED` → `ARBITRATION_ACTIVE` | Court fee al abrir, de la wallet del opener | Tribunal. Contest-open lo cobra reputación si está seleccionada, una vez, al entrar a la pelea |
 | DAO | Recipient | — | No cobra por sí | — |
 
 ---
@@ -174,12 +174,12 @@ Un split puede slashear de más solo si **las dos partes lo firman** en el paylo
 
 ## 7. Momentos de fee que el kernel conoce
 
-Lista cerrada. Un paquete no inventa un cuarto momento.
+Lista cerrada. Un paquete no inventa un quinto momento.
 
 | Momento | Cuándo | De dónde |
 | --- | --- | --- |
 | Activación | Al entrar a `FUNDED` | Extra al principal (Holder). Reputación usa este. |
-| Abrir contest | Al abrir `DISPUTED` o arbitraje | Wallet del opener. Muerto en deals ZK. |
+| Abrir contest | Al abrir `DISPUTED` o arbitraje desde `FIAT_SENT` | Wallet del opener, una vez (`contestPaid`). Core-only: 0. Oficial: no-cero. Fail-closed si no alcanza; fail-open si el módulo drifted. Muerto en deals ZK. |
 | Al verificar | Proof ZK → `RELEASED` | Lo declara el paquete ZK. |
 | Terminal con completion | **Cualquier terminal donde la tajada del Provider sea > 0**: release, co-firma, split, claim, ZK, arb win del Provider, stalemate 50/50 | Sobre el **pot completo**, deducido antes de partir. La operación ocurrió; el fee es el mismo sin importar cómo cerró. |
 
@@ -193,7 +193,7 @@ Varios paquetes: cada uno cobra lo suyo. Si en activación no alcanza, no hay de
 
 - El deal nombra paquetes; los paquetes nombran fees. No al revés.
 - Core-only: cero fees de paquete.
-- Humanidad no cobra; reputación sí, en activación, y raciona el size.
+- Humanidad no cobra; reputación sí, en activación y al abrir contest (oficial no-cero), y raciona el size.
 - ZK cobra al verificar, no al seleccionar. Un `paymentNullifier` liquida un deal; el `dealId` va en los public inputs.
 - Completion fee si y sólo si el Provider cobra algo; sobre el pot entero, antes del split. Un refund nunca la paga.
 - `CLAIMED` es terminal propio: el Provider cerró la operación (Peaceful), el Controller ausente no es culpa probada (Silent).

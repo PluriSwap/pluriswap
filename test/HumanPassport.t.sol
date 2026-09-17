@@ -37,7 +37,7 @@ contract HumanPassportTest is BaseTest {
         super.setUp();
         decoder = new PassportDecoderMock(THRESHOLD, MAX_AGE);
         passport = new HumanPassport(decoder, 0);
-        reputation = new Reputation(passport, feeRecipient, ACT_FEE, COMP_FEE, address(escrow));
+        reputation = new Reputation(passport, feeRecipient, ACT_FEE, COMP_FEE, 0, address(escrow));
         vault = new BondVault(address(escrow), sink, passport);
 
         decoder.setScore(holder, 250_000, 0);

@@ -32,6 +32,7 @@ import {BaseTest} from "./Base.t.sol";
 contract PackagesTest is BaseTest {
     uint256 internal constant ACT_FEE = 100_000;
     uint256 internal constant COMP_FEE = 50_000;
+    uint256 internal constant CONTEST_FEE = 50_000;
     uint256 internal constant ZK_FEE = 10_000;
     uint256 internal constant COURT_ETH = 0.01 ether;
     uint256 internal constant BOND = PRINCIPAL / 10;
@@ -57,7 +58,7 @@ contract PackagesTest is BaseTest {
         extraData = abi.encode(uint256(1), uint256(3), uint256(1));
         uint64 n = vm.getNonce(address(this));
         address predicted = vm.computeCreateAddress(address(this), n + 6);
-        reputation = new Reputation(passport, feeRecipient, ACT_FEE, COMP_FEE, predicted);
+        reputation = new Reputation(passport, feeRecipient, ACT_FEE, COMP_FEE, CONTEST_FEE, predicted);
         VerifierMock verifier = new VerifierMock();
         zkMod = new ZkMock(verifier, feeRecipient, ZK_FEE, predicted);
         arbitrator = new MockArbitratorV2(COURT_ETH);
@@ -188,7 +189,7 @@ contract PackagesTest is BaseTest {
         vm.warp(block.timestamp + 7200);
         escrow.forceStalemate(id);
         uint256 pot = PRINCIPAL - COMP_FEE;
-        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE + CONTEST_FEE);
         assertEq(token.balanceOf(provider), pot / 2);
         assertEq(token.balanceOf(holder), pot - pot / 2);
     }
@@ -217,8 +218,7 @@ contract PackagesTest is BaseTest {
         _fundBonds();
         bytes32 id = _activateArbTrio();
         _markFiat(id);
-        vm.prank(holder);
-        escrow.openCourt{value: COURT_ETH}(id);
+        _openCourt(id);
         arbitrator.giveRuling(court.disputeOf(id), 0);
         escrow.readRuling(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
@@ -236,8 +236,7 @@ contract PackagesTest is BaseTest {
         _fundBonds();
         bytes32 id = _activateArbTrio();
         _markFiat(id);
-        vm.prank(holder);
-        escrow.openCourt{value: COURT_ETH}(id);
+        _openCourt(id);
         vm.warp(block.timestamp + 1 days);
         escrow.forceArbitrationTimeout(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
@@ -256,13 +255,12 @@ contract PackagesTest is BaseTest {
         _fundBonds();
         bytes32 id = _activateArbTrio();
         _markFiat(id);
-        vm.prank(holder);
-        escrow.openCourt{value: COURT_ETH}(id);
+        _openCourt(id);
         arbitrator.giveRuling(court.disputeOf(id), 2);
         escrow.readRuling(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
         assertEq(token.balanceOf(provider), PRINCIPAL - COMP_FEE + BOND);
-        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE + CONTEST_FEE);
         assertEq(token.balanceOf(sink), 0);
         assertEq(vault.available(SUB_P, address(token)), BOND, "winner's own lock released");
         assertEq(vault.deposited(SUB_H, address(token)), 0, "loser's lock left the vault");
@@ -297,8 +295,7 @@ contract PackagesTest is BaseTest {
         assertEq(token.balanceOf(feeRecipient), ACT_FEE, "activation fee");
 
         _markFiat(id);
-        vm.prank(holder);
-        escrow.openCourt{value: COURT_ETH}(id);
+        _openCourt(id);
         arbitrator.giveRuling(court.disputeOf(id), 2);
         escrow.readRuling(id);
 
@@ -306,7 +303,7 @@ contract PackagesTest is BaseTest {
         assertEq(uint8(s), uint8(Status.RESOLVED_BY_ARBITRATION));
         assertEq(hAmt, 0, "holder lost the ruling");
         assertEq(pAmt, COMP_FEE, "the fee did not fit, so the winner keeps the pot");
-        assertEq(token.balanceOf(feeRecipient), ACT_FEE, "no completion fee at equality");
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FEE, "no completion fee at equality");
     }
 
     /// Same rule through the plain Provider-positive timeout. Pinned separately from the arbitration case to
@@ -430,14 +427,13 @@ contract PackagesTest is BaseTest {
         mods.court = address(court);
         bytes32 id = _activateWith(terms, mods, 1, 1);
         _markFiat(id);
-        vm.prank(holder);
-        escrow.openCourt{value: COURT_ETH}(id);
+        _openCourt(id);
         arbitrator.giveRuling(court.disputeOf(id), 1);
         escrow.readRuling(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
         // A refund is not a trade: no completion fee. The Provider's lock compensates the Holder.
         assertEq(token.balanceOf(holder), PRINCIPAL + BOND);
-        assertEq(token.balanceOf(feeRecipient), ACT_FEE);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FEE);
         assertEq(token.balanceOf(provider), 0);
         assertEq(vault.lockOf(SUB_H, id), 0);
         assertEq(vault.lockOf(SUB_P, id), 0);
@@ -477,6 +473,85 @@ contract PackagesTest is BaseTest {
 
         escrow.forceStalemate(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+    }
+
+    function test_openDisputed_chargesContestFee() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        _markFiat(id);
+        _fundContest();
+        uint256 beforeOpener = token.balanceOf(holder);
+        uint256 beforeDao = token.balanceOf(feeRecipient);
+        vm.prank(holder);
+        escrow.openDisputed(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.DISPUTED));
+        assertEq(token.balanceOf(holder), beforeOpener - CONTEST_FEE);
+        assertEq(token.balanceOf(feeRecipient), beforeDao + CONTEST_FEE);
+    }
+
+    function test_openDisputed_shortAllowanceReverts() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        _markFiat(id);
+        _fundContest();
+        vm.prank(holder);
+        token.approve(address(escrow), 0);
+        vm.prank(holder);
+        vm.expectRevert();
+        escrow.openDisputed(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.FIAT_SENT));
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE);
+    }
+
+    function test_openDisputed_coreOnly_isFree() public {
+        bytes32 id = _activateP2P(1, 1);
+        _markFiat(id);
+        uint256 beforeOpener = token.balanceOf(holder);
+        uint256 beforeDao = token.balanceOf(feeRecipient);
+        vm.prank(holder);
+        escrow.openDisputed(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.DISPUTED));
+        assertEq(token.balanceOf(holder), beforeOpener);
+        assertEq(token.balanceOf(feeRecipient), beforeDao);
+    }
+
+    function test_openCourt_fromFiatSent_chargesContestOnce() public {
+        _fundBonds();
+        bytes32 id = _activateArbTrio();
+        _markFiat(id);
+        uint256 beforeDao = token.balanceOf(feeRecipient);
+        _openCourt(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.ARBITRATION_ACTIVE));
+        assertEq(token.balanceOf(feeRecipient), beforeDao + CONTEST_FEE);
+    }
+
+    function test_openCourt_fromDisputed_doesNotChargeAgain() public {
+        _fundBonds();
+        bytes32 id = _activateArbTrio();
+        _markFiat(id);
+        _openDisputed(id);
+        uint256 afterFirst = token.balanceOf(feeRecipient);
+        vm.prank(holder);
+        escrow.openCourt{value: COURT_ETH}(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.ARBITRATION_ACTIVE));
+        assertEq(token.balanceOf(feeRecipient), afterFirst);
+    }
+
+    function test_openDisputed_contestFeeDrift_isFree() public {
+        DriftReputation drift = new DriftReputation(passport, feeRecipient, 0, 0, address(escrow));
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted2(passport.packageId(), drift.packageId());
+        PackageMods memory mods;
+        mods.passport = address(passport);
+        mods.reputation = address(drift);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        drift.setCompletionFee(1);
+        _markFiat(id);
+        uint256 beforeDao = token.balanceOf(feeRecipient);
+        vm.prank(holder);
+        escrow.openDisputed(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.DISPUTED));
+        assertEq(token.balanceOf(feeRecipient), beforeDao);
     }
 
     function test_completionFeeDrift_packageLosesInvoice() public {
@@ -766,8 +841,7 @@ contract PackagesTest is BaseTest {
         );
         vm.mockCallRevert(address(vault), abi.encodeWithSelector(IBondVault.slash.selector), "vault down");
         _markFiat(id);
-        vm.prank(holder);
-        escrow.openCourt{value: COURT_ETH}(id);
+        _openCourt(id);
         arbitrator.giveRuling(court.disputeOf(id), 1);
         escrow.readRuling(id);
 
@@ -796,6 +870,22 @@ contract PackagesTest is BaseTest {
         vault.deposit(SUB_H, address(token), BOND);
         vm.prank(provider);
         vault.deposit(SUB_P, address(token), BOND);
+    }
+
+    function _fundContest() internal {
+        token.mint(holder, CONTEST_FEE);
+    }
+
+    function _openDisputed(bytes32 id) internal override {
+        _fundContest();
+        vm.prank(holder);
+        escrow.openDisputed(id);
+    }
+
+    function _openCourt(bytes32 id) internal {
+        _fundContest();
+        vm.prank(holder);
+        escrow.openCourt{value: COURT_ETH}(id);
     }
 
     function _trioTerms() internal view returns (DealTerms memory terms) {
@@ -832,7 +922,7 @@ contract PackagesTest is BaseTest {
     }
 
     function test_communityReputation_sameEscrow() public {
-        Reputation free = new Reputation(passport, address(0xBEEF), 0, 0, address(escrow));
+        Reputation free = new Reputation(passport, address(0xBEEF), 0, 0, 0, address(escrow));
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted2(passport.packageId(), free.packageId());
         PackageMods memory mods;
@@ -856,7 +946,7 @@ contract PackagesTest is BaseTest {
         PassportMock other = new PassportMock();
         other.setHuman(holder, SUB_H);
         other.setHuman(provider, SUB_P);
-        Reputation alien = new Reputation(other, feeRecipient, 0, 0, address(escrow));
+        Reputation alien = new Reputation(other, feeRecipient, 0, 0, 0, address(escrow));
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted2(passport.packageId(), alien.packageId());
         PackageMods memory mods;
@@ -908,7 +998,7 @@ contract PackagesTest is BaseTest {
     }
 
     function test_completionFeeExceedsPrincipal_releaseStillPays() public {
-        Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL + 1, address(escrow));
+        Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL + 1, 0, address(escrow));
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted2(passport.packageId(), fat.packageId());
         PackageMods memory mods;
@@ -937,7 +1027,7 @@ contract PackagesTest is BaseTest {
     }
 
     function test_zkFitsCompletionDoesNot_chargesOnlyZk() public {
-        Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL, address(escrow));
+        Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL, 0, address(escrow));
         ZkMock zk = new ZkMock(new VerifierMock(), feeRecipient, ZK_FEE, address(escrow));
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted3(passport.packageId(), fat.packageId(), zk.packageId());
@@ -1034,12 +1124,12 @@ contract DriftReputation is IReputation {
         activationFee = activationFee_;
         completionFee = completionFee_;
         operator = operator_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_);
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, 0);
     }
 
     function setCompletionFee(uint256 fee) external {
         completionFee = fee;
-        packageId = PackageId.reputation(address(this), feeRecipient, activationFee, fee);
+        packageId = PackageId.reputation(address(this), feeRecipient, activationFee, fee, 0);
     }
 
     function invoiceActivation() external view returns (uint256 amount, address recipient) {
@@ -1048,6 +1138,14 @@ contract DriftReputation is IReputation {
 
     function invoiceCompletion() external view returns (uint256 amount, address recipient) {
         return (completionFee, feeRecipient);
+    }
+
+    function contestFee() external pure returns (uint256) {
+        return 0;
+    }
+
+    function invoiceContest() external view returns (uint256 amount, address recipient) {
+        return (0, feeRecipient);
     }
 
     function admit(address wallet, address, uint256, address) external returns (bytes32 subject) {
@@ -1216,7 +1314,7 @@ contract LyingReputation is IReputation {
         activationFee = activationFee_;
         completionFee = completionFee_;
         operator = operator_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_);
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, 0);
     }
 
     function invoiceActivation() external view returns (uint256 amount, address recipient) {
@@ -1225,6 +1323,14 @@ contract LyingReputation is IReputation {
 
     function invoiceCompletion() external pure returns (uint256 amount, address recipient) {
         return (type(uint256).max, address(0xBAD));
+    }
+
+    function contestFee() external pure returns (uint256) {
+        return 0;
+    }
+
+    function invoiceContest() external view returns (uint256 amount, address recipient) {
+        return (0, feeRecipient);
     }
 
     function admit(address wallet, address, uint256, address) external returns (bytes32 subject) {
@@ -1264,7 +1370,7 @@ contract RevertingGettersReputation is IReputation {
         _feeRecipient = feeRecipient_;
         _activationFee = activationFee_;
         _completionFee = completionFee_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_);
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, 0);
     }
 
     function setRevertGetters(bool on) external {
@@ -1294,6 +1400,16 @@ contract RevertingGettersReputation is IReputation {
     function invoiceCompletion() external view returns (uint256 amount, address recipient) {
         if (revertGetters) revert Unavailable();
         return (_completionFee, _feeRecipient);
+    }
+
+    function contestFee() external view returns (uint256) {
+        if (revertGetters) revert Unavailable();
+        return 0;
+    }
+
+    function invoiceContest() external view returns (uint256 amount, address recipient) {
+        if (revertGetters) revert Unavailable();
+        return (0, _feeRecipient);
     }
 
     function admit(address wallet, address, uint256, address) external returns (bytes32 subject) {

@@ -25,6 +25,7 @@ contract Reputation is IReputation {
     address public immutable feeRecipient;
     uint256 public immutable activationFee;
     uint256 public immutable completionFee;
+    uint256 public immutable contestFee;
     bytes32 public immutable packageId;
 
     mapping(bytes32 subject => mapping(address token => uint256 amount)) public inFlight;
@@ -35,6 +36,7 @@ contract Reputation is IReputation {
         address feeRecipient_,
         uint256 activationFee_,
         uint256 completionFee_,
+        uint256 contestFee_,
         address operator_
     ) {
         if (address(passport_) == address(0) || feeRecipient_ == address(0) || operator_ == address(0)) {
@@ -44,8 +46,9 @@ contract Reputation is IReputation {
         feeRecipient = feeRecipient_;
         activationFee = activationFee_;
         completionFee = completionFee_;
+        contestFee = contestFee_;
         operator = operator_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_);
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, contestFee_);
     }
 
     function invoiceActivation() external view returns (uint256 amount, address recipient) {
@@ -54,6 +57,10 @@ contract Reputation is IReputation {
 
     function invoiceCompletion() external view returns (uint256 amount, address recipient) {
         return (completionFee, feeRecipient);
+    }
+
+    function invoiceContest() external view returns (uint256 amount, address recipient) {
+        return (contestFee, feeRecipient);
     }
 
     function stats(bytes32 subject, address token)

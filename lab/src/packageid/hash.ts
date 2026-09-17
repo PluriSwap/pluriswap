@@ -26,6 +26,7 @@ export function reputationId(
   feeRecipient: HexAddress,
   activationFee: bigint,
   completionFee: bigint,
+  contestFee: bigint,
 ): HexBytes32 {
   return keccak256(
     encodeAbiParameters(
@@ -35,8 +36,9 @@ export function reputationId(
         { type: "address" },
         { type: "uint256" },
         { type: "uint256" },
+        { type: "uint256" },
       ],
-      [KIND.REPUTATION, module as Address, feeRecipient as Address, activationFee, completionFee],
+      [KIND.REPUTATION, module as Address, feeRecipient as Address, activationFee, completionFee, contestFee],
     ),
   ) as HexBytes32;
 }

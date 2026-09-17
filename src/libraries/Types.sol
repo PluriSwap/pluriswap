@@ -103,6 +103,9 @@ struct Deal {
     /// `Packages.POST_*` bits still owed. Zero once every post-terminal call has either succeeded or been
     /// abandoned because the module drifted away from its signed id.
     uint8 postPending;
+    /// Set after the contest-open invoice is taken (or skipped at fee 0). `openDisputed` and `openCourt`
+    /// from `FIAT_SENT` share the moment: entering the fight costs once.
+    bool contestPaid;
     PackageMods mods;
     uint256 holderAmt;
     uint256 providerAmt;

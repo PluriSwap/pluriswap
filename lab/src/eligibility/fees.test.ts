@@ -16,6 +16,7 @@ function policy(completionFee: bigint | null, verifyFee: bigint | null, activati
       feeRecipient,
       activationFee,
       completionFee: completionFee ?? 0n,
+      contestFee: 0n,
       operator: ZERO_ADDRESS,
     };
   }
@@ -27,12 +28,23 @@ function policy(completionFee: bigint | null, verifyFee: bigint | null, activati
 
 describe("projectFees", () => {
   it("projects nothing when no fee-bearing package is bound", () => {
-    expect(projectFees(1_000n, null)).toEqual({ stop: null, netToProvider: null, activationFee: 0n });
-    expect(projectFees(1_000n, emptyPolicy())).toEqual({ stop: null, netToProvider: null, activationFee: 0n });
+    expect(projectFees(1_000n, null)).toEqual({
+      stop: null,
+      netToProvider: null,
+      activationFee: 0n,
+      contestFee: 0n,
+    });
+    expect(projectFees(1_000n, emptyPolicy())).toEqual({
+      stop: null,
+      netToProvider: null,
+      activationFee: 0n,
+      contestFee: 0n,
+    });
     expect(projectFees(1_000n, policy(null, null))).toEqual({
       stop: null,
       netToProvider: null,
       activationFee: 0n,
+      contestFee: 0n,
     });
   });
 
@@ -114,6 +126,29 @@ describe("projectFees", () => {
 
     it("is not capped by the principal: the Holder funds it on top", () => {
       expect(projectFees(1_000n, policy(0n, null, 5_000n)).activationFee).toBe(5_000n);
+    });
+  });
+
+  describe("contestFee", () => {
+    it("is zero without a reputation package", () => {
+      expect(projectFees(1_000n, null).contestFee).toBe(0n);
+      expect(projectFees(1_000n, policy(null, 10n)).contestFee).toBe(0n);
+    });
+
+    it("does not change the Provider net: the opener pays it", () => {
+      const p = emptyPolicy();
+      p.reputation = {
+        address: mod,
+        passport: ZERO_ADDRESS,
+        feeRecipient,
+        activationFee: 0n,
+        completionFee: 50n,
+        contestFee: 100n,
+        operator: ZERO_ADDRESS,
+      };
+      const f = projectFees(1_000n, p);
+      expect(f.contestFee).toBe(100n);
+      expect(f.netToProvider).toBe(950n);
     });
   });
 });

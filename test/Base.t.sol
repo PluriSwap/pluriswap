@@ -180,7 +180,7 @@ contract BaseTest is Test {
         );
     }
 
-    function _openDisputed(bytes32 id) internal {
+    function _openDisputed(bytes32 id) internal virtual {
         vm.prank(holder);
         escrow.openDisputed(id);
     }

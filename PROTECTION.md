@@ -49,7 +49,7 @@ El kernel, en un punto nombrado, hace una de estas cosas. Nada más.
 Reglas duras:
 
 - El paquete no devuelve receivers, outcomes, estados, ni destinos de principal.
-- El kernel cobra con los getters que entran al `packageId` (`activationFee`, `completionFee`, `verifyFee`, `feeRecipient`). `invoice*` no puede mentir un amount distinto. El deal no los pisa.
+- El kernel cobra con los getters que entran al `packageId` (`activationFee`, `completionFee`, `contestFee`, `verifyFee`, `feeRecipient`). `invoice*` no puede mentir un amount distinto. El deal no los pisa.
 - La DAO no aparece como verbo. Si un paquete oficial la puso de recipient, el kernel le acredita. Si el deal eligió un clon con fee cero, la DAO no cobra.
 - `notifyTerminal` es EP-POST: reputación e `inFlight` se actualizan después. Si revierte, el escrow ya es terminal; se reintenta. No se deshace `RELEASED`.
 
@@ -97,8 +97,8 @@ El kernel corre `STATE_MACHINE.md`. Los paquetes no tienen tick.
 | --- | --- | --- |
 | Proof ZK de V | `verifyProof` → `RELEASED` | Cobra `invoice` al verificar (oficial: DAO) |
 | Proof que no es V | Ignore | — |
-| Controller abre `DISPUTED` | Si ZK está on: **reject**. Si no: entra `DISPUTED` | `invoice` contest-open solo si el paquete lo declara |
-| Controller abre arbitraje | Solo si ARBITRATION on y ZK off | Court fee de la wallet del opener al tribunal; contest-open opcional a la DAO |
+| Controller abre `DISPUTED` | Si ZK está on: **reject**. Si no: entra `DISPUTED` | Reputación cobra contest-open una vez (oficial: no-cero). Core-only: gratis. Allowance corta: reject, el deal no cambia. Drift: fee 0 |
+| Controller abre arbitraje | Solo si ARBITRATION on y ZK off | Court fee de la wallet del opener al tribunal. Desde `FIAT_SENT`, reputación cobra contest-open si aún no se pagó; desde `DISPUTED`, no otra vez |
 | `disputeDeadline` | Cualquiera fuerza `STALEMATE` | — |
 | Fiat timeout (deal ZK) | `CANCELLED`; principal al Holder | ZK no cobra |
 
@@ -158,7 +158,7 @@ Gobernanza de la DAO (tesorería, listados, frontends) es fuera de este archivo.
 | Paquete | Punto kernel | Entra | Sale | No puede |
 | --- | --- | --- | --- | --- |
 | Passport | `identify` en activación | Credencial autenticada | Nullifier / sujeto | Liberar principal; ser gate de Core-only |
-| Reputación | `admit` + `invoice` en activación; `notifyTerminal` | Sujeto, principal, bond, `inFlight` | cap / ok / fee | Mutar un deal vivo; revertir settlement |
+| Reputación | `admit` + `invoice` en activación y contest-open; `notifyTerminal` | Sujeto, principal, bond, `inFlight` | cap / ok / fee | Mutar un deal vivo; revertir settlement |
 | Bonds | `reserve` / `runPostTerminal` | Vault del sujeto, `dealId`, outcome | Lock; unlock/slash/quema | Mezclar con principal; withdraw de `locked`; elegir destinos fuera de la fórmula |
 | ZK | `verifyProof`; apaga CASE-CORE-11/07/06 | Proof de V, `dealId`, `paymentNullifier` | `RELEASED` + invoice | Aceptar otro verifier; reusar nullifier o proof de otro deal; bloquear fiat-timeout |
 | Arbitraje | `openCourt` / `readRuling` | Fee del Controller | Estado `ARBITRATION_ACTIVE` o terna holder_win / provider_win / stalemate | Mover custodia; ruling parcial; que abra alguien que no es el Controller |

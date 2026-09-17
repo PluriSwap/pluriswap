@@ -129,6 +129,7 @@ const state = {
   labError: null as string | null,
   zkArb: true,
   courtPref: null as CourtPref | null,
+  contestAllowance: null as bigint | null,
   dealPolicy: emptyPolicy() as LivePolicy,
   poolFlag: true,
   holderIsPool: false,
@@ -531,6 +532,10 @@ function paint(): void {
             msgValue: state.courtPref.kind === "kleros" ? state.courtPref.cost : 0n,
           }
         : null,
+      contestPref: {
+        fee: state.dealPolicy.reputation?.contestFee ?? 0n,
+        allowance: state.contestAllowance,
+      },
     });
     const label = sender ? `${state.activeRole} ${sender}` : `${state.activeRole} desconectado`;
     renderDealView(
@@ -724,6 +729,20 @@ async function refreshExtras(): Promise<void> {
     );
   } catch {
     state.dealPolicy = emptyPolicy();
+  }
+  if (state.deal && state.dealPolicy.reputation?.contestFee) {
+    try {
+      state.contestAllowance = await fetchAllowance(
+        state.rpcUrl,
+        state.deal.terms.token,
+        state.deal.terms.controller,
+        escrow,
+      );
+    } catch {
+      state.contestAllowance = null;
+    }
+  } else {
+    state.contestAllowance = null;
   }
   if (state.deal) {
     try {

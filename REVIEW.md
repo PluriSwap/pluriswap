@@ -123,7 +123,7 @@ Kleros está mejor. No es lo que despliega `DeployPackages`.
 
 | Tema | Spec | Código |
 | --- | --- | --- |
-| Contest-open invoice | Momento cerrado, opcional | `openDisputed` no cobra nada |
+| Contest-open invoice | Momento cerrado | **Hecho:** reputación oficial no-cero, una vez, opener paga. Core-only gratis. Drift → 0 |
 | Compose rampa → `activate` | `RAMPS.md` lo permite | Solo taxi |
 | `credits` del pool | Bucket de tesorería | Campo muerto |
 | `CLAIMED` vs `RELEASED` | Outcome distinto | **Hecho:** `Status.CLAIMED` (10) |

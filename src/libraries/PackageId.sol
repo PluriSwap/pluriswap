@@ -20,12 +20,14 @@ library PackageId {
         return keccak256(abi.encode(PASSPORT_KIND, adapter));
     }
 
-    function reputation(address module, address feeRecipient, uint256 activationFee, uint256 completionFee)
-        public
-        pure
-        returns (bytes32)
-    {
-        return keccak256(abi.encode(REPUTATION_KIND, module, feeRecipient, activationFee, completionFee));
+    function reputation(
+        address module,
+        address feeRecipient,
+        uint256 activationFee,
+        uint256 completionFee,
+        uint256 contestFee
+    ) public pure returns (bytes32) {
+        return keccak256(abi.encode(REPUTATION_KIND, module, feeRecipient, activationFee, completionFee, contestFee));
     }
 
     function arbitration(address adapter, address tribunal, uint256 courtFee) public pure returns (bytes32) {

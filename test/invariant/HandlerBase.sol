@@ -288,7 +288,7 @@ abstract contract HandlerBase is Test {
         _recordTerminal(id);
     }
 
-    function openDisputed(uint256 seed) external count("openDisputed") {
+    function openDisputed(uint256 seed) external virtual count("openDisputed") {
         (bytes32 id, bool ok) = _pickIf(seed, _canOpenDisputed);
         if (!ok) return;
         vm.prank(escrow.terms(id).controller);
