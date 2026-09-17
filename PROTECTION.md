@@ -178,6 +178,7 @@ Rampa tampoco. Es un composer delante o detrás del escrow (`RAMPS.md`). No tien
 | Adapter de arbitraje mudo | Arbitration timeout → `STALEMATE`; cualquiera lo ejecuta |
 | `notifyTerminal` (reputación) revierte | Escrow intacto; retry permissionless |
 | Paquete deriva su policy post-activación (el `packageId` firmado deja de matchear) | `verifyProof` / `openCourt`: reject (`PackageDrift`). Completion fee: el paquete pierde el cobro (fee 0) y el terminal Core sigue. `disposeBond`: fail-open, el lock queda en el vault (TRUST-03) |
+| Paquete deriva su policy **durante** la activación: contesta una cosa en `resolve` y otra en el pull de `engage` (posible porque `admit` no es `view`) | `engage` recomputa el `packageId` con los valores que está por cobrar y revierte `PackageDrift`. La activación se revierte entera: no se consume nonce, no se mueve principal, no se cobra nada |
 | Fee de verificación o completion mayor o igual al leftover | No se cobra ese fee. El terminal Core se commitea. Nunca revert |
 | Paquete no seleccionado | Su arista o hook rechaza o está ausente; Core sigue |
 | Usuario pone fee 0 en los términos | Irrelevante: el fee no vive ahí |

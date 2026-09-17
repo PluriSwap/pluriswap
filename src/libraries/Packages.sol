@@ -91,10 +91,16 @@ library Packages {
             address v = (pkgs & BONDS) != 0 ? mods.bonds : address(0);
             r.admit(t.holder, t.token, t.principal, v);
             r.admit(t.provider, t.token, t.principal, v);
+            // `admit` is not `view` and runs between `resolve`'s validation and this read, so a module can
+            // answer one policy while it is being checked and another while it is being paid. Re-bind the
+            // values actually charged to a signed id before pulling anything. `completionInvoice` and `zk`
+            // both charge the value they validated; this was the one path that re-read instead.
             uint256 fee = r.activationFee();
+            address to = r.feeRecipient();
+            _requireStillNamed(t.packageIds, PackageId.reputation(address(r), to, fee, r.completionFee()));
             if (fee != 0) {
                 Settlement.pullExact(t.token, t.holder, fee);
-                IERC20(t.token).safeTransfer(r.feeRecipient(), fee);
+                IERC20(t.token).safeTransfer(to, fee);
             }
         }
         if ((pkgs & BONDS) != 0) {
@@ -198,5 +204,15 @@ library Packages {
             if (ids[i] == id) return;
         }
         revert UnknownPackage();
+    }
+
+    /// @dev The same search as `_requireNamed`, for a policy that *was* named when `resolve` validated it and
+    ///      is being re-checked after a non-view module call. Different meaning, so a different error: the
+    ///      caller did not fail to name a package, the module stopped matching the one they signed.
+    function _requireStillNamed(bytes32[] memory ids, bytes32 id) private pure {
+        for (uint256 i; i < ids.length; i++) {
+            if (ids[i] == id) return;
+        }
+        revert PackageDrift();
     }
 }
