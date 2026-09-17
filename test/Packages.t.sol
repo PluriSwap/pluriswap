@@ -573,6 +573,50 @@ contract PackagesTest is BaseTest {
         assertTrue(hostile.lockOf(SUB_H, id) != 0);
     }
 
+    /// `PROTECTION.md` §8 promises that when a post-terminal package call reverts, the escrow stays intact and
+    /// the call is retried permissionlessly. There is no retry path: `_close` is one-shot, so once `d.status`
+    /// is terminal every verb reverts `WrongStatus`. This measures what is actually lost when a module is
+    /// briefly unreachable -- a proxy mid-upgrade, a paused implementation, a hostile one.
+    function test_postTerminalPackageFailure_leaksInFlightAndBondLockForever() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        assertEq(reputation.inFlight(SUB_H, address(token)), PRINCIPAL, "capacity reserved at activation");
+        assertEq(vault.lockOf(SUB_H, id), BOND, "bond locked at activation");
+        assertEq(vault.available(SUB_H, address(token)), 0, "BOND deposited, BOND locked");
+
+        vm.mockCallRevert(
+            address(reputation), abi.encodeWithSelector(IReputation.notifyTerminal.selector), "module down"
+        );
+        vm.mockCallRevert(address(vault), abi.encodeWithSelector(IBondVault.unlock.selector), "vault down");
+
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.release(id);
+
+        // KERNEL-04 holds: the Core terminal completed and the principal moved.
+        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        // `_fundBonds` moved both bonds into the vault, so the provider holds only the released principal
+        // minus the completion fee. Its own bond is still locked in there.
+        assertEq(token.balanceOf(provider), PRINCIPAL - COMP_FEE);
+        assertEq(token.balanceOf(holder), 0, "the holder's whole position is the bond stuck in the vault");
+
+        // ...and everything the packages owed is silently lost.
+        assertEq(reputation.inFlight(SUB_H, address(token)), PRINCIPAL, "inFlight never released");
+        assertEq(reputation.inFlight(SUB_P, address(token)), PRINCIPAL, "inFlight never released");
+        assertEq(vault.lockOf(SUB_H, id), BOND, "the lock was never disposed");
+        assertEq(vault.available(SUB_H, address(token)), 0, "so the bond is still not withdrawable");
+
+        // The holder owns that bond outright and cannot recover it.
+        vm.prank(holder);
+        vm.expectRevert(BondVault.InsufficientAvailable.selector);
+        vault.withdraw(SUB_H, address(token), BOND);
+
+        // And nothing can repair it: every verb rejects a terminal deal.
+        vm.prank(holder);
+        vm.expectRevert(Escrow.WrongStatus.selector);
+        escrow.release(id);
+    }
+
     function _fundBonds() internal {
         vm.prank(holder);
         vault.deposit(SUB_H, address(token), BOND);
