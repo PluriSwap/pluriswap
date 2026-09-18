@@ -25,7 +25,7 @@ contract ReputationTest is Test {
     function setUp() public {
         token = new TestToken();
         passport = new PassportMock();
-        reputation = new Reputation(passport, feeRecipient, 1_000_000, 2_000_000, 3_000_000, address(this));
+        reputation = new Reputation(passport, feeRecipient, 1_000_000, 2_000_000, 100, 10_000_000, address(this));
         vault = new BondVault(address(this), address(0xdeaD), passport);
         passport.setHuman(holder, SUBJECT_H);
         token.mint(holder, 10_000_000);
@@ -35,28 +35,35 @@ contract ReputationTest is Test {
 
     function test_constructor_rejectsZeroAddresses() public {
         vm.expectRevert(Reputation.ZeroAddress.selector);
-        new Reputation(IPassport(address(0)), feeRecipient, 1, 1, 0, address(this));
+        new Reputation(IPassport(address(0)), feeRecipient, 1, 1, 0, 0, address(this));
         vm.expectRevert(Reputation.ZeroAddress.selector);
-        new Reputation(passport, address(0), 1, 1, 0, address(this));
+        new Reputation(passport, address(0), 1, 1, 0, 0, address(this));
         vm.expectRevert(Reputation.ZeroAddress.selector);
-        new Reputation(passport, feeRecipient, 1, 1, 0, address(0));
+        new Reputation(passport, feeRecipient, 1, 1, 0, 0, address(0));
+    }
+
+    function test_constructor_rejectsBpsOverMax() public {
+        vm.expectRevert(Reputation.BadFee.selector);
+        new Reputation(passport, feeRecipient, 1, 1, 10_001, 0, address(this));
     }
 
     function test_packageId_passportAndReputationStable() public view {
         assertEq(passport.packageId(), PackageId.passport(address(passport)));
         assertEq(
             reputation.packageId(),
-            PackageId.reputation(address(reputation), feeRecipient, 1_000_000, 2_000_000, 3_000_000)
+            PackageId.reputation(address(reputation), feeRecipient, 1_000_000, 2_000_000, 100, 10_000_000)
         );
     }
 
     function test_invoice_declaredInPackage() public view {
         (uint256 act, address actTo) = reputation.invoiceActivation();
         (uint256 done, address doneTo) = reputation.invoiceCompletion();
-        (uint256 contest, address contestTo) = reputation.invoiceContest();
+        (uint256 contest, address contestTo) = reputation.invoiceContest(1_000_000_000);
         assertEq(act, 1_000_000);
         assertEq(done, 2_000_000);
-        assertEq(contest, 3_000_000);
+        assertEq(contest, 10_000_000); // 1% of 1000 USDC = 10, at the floor
+        (uint256 contestBig,) = reputation.invoiceContest(2_000_000_000);
+        assertEq(contestBig, 20_000_000); // 1% of 2000 USDC
         assertEq(actTo, feeRecipient);
         assertEq(doneTo, feeRecipient);
         assertEq(contestTo, feeRecipient);

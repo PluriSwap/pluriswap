@@ -569,15 +569,15 @@ El Controller no aparece en esta tabla. No es un lado económico del escrow.
 | OUT-08 Mutual split | `RESOLVED_SPLIT` | bps firmados, **después** del completion fee sobre el principal completo | Core; también desde `DISPUTED` |
 | OUT-09 Arb holder win | `RESOLVED_BY_ARBITRATION` | 100% Holder | `ARBITRATION` |
 | OUT-10 Arb provider win | `RESOLVED_BY_ARBITRATION` | 100% Provider | `ARBITRATION` |
-| OUT-11 Arb refused | `STALEMATE` | 50/50 protocolo | `ARBITRATION` |
-| OUT-12 Arb timeout | `STALEMATE` | 50/50 protocolo | `ARBITRATION` |
-| OUT-13 Dispute timeout | `STALEMATE` | 50/50 protocolo; cualquiera lo ejecuta | Core (off si `PAYMENT_PROOF`) |
+| OUT-11 Arb refused | `STALEMATE` | 50/50 protocolo; **sin** completion fee | `ARBITRATION` |
+| OUT-12 Arb timeout | `STALEMATE` | 50/50 protocolo; **sin** completion fee | `ARBITRATION` |
+| OUT-13 Dispute timeout | `STALEMATE` | 50/50 protocolo; cualquiera lo ejecuta; **sin** completion fee | Core (off si `PAYMENT_PROOF`) |
 
 **Completion fee.** Lo declara el paquete que lo cobra, no un campo libre del deal. La base es siempre el **principal completo**, nunca la tajada de un split. Si el fee no cabe en el leftover (`fee >= left`), **no se cobra**. La comparación es estricta a propósito: un fee exactamente igual al pot dejaría en cero a la parte que acaba de cerrar el trade, ganar el ruling o sobrevivir al reloj, y convertiría el terminal en una transferencia pura al fee recipient. Omitido en la igualdad, el ganador conserva todo. El terminal Core sigue. Un paquete no puede revertir release, split, proof ni arb-win.
 
 En un split (OUT-08), incluido el que sale de `DISPUTED`: se deduce el fee sobre el principal entero y después se aplican los bps al resto. Una parte vuelve al Holder y la otra va al Provider. No se puede usar un split chico para achicar el fee. Si el paquete no declara completion fee, el fee es cero y el split es sobre el principal entero.
 
-En timeout / cancel Holder-positivo no hay completion fee. En proof ZK, el fee del paquete ZK se cobra al verificar (OUT-03).
+En timeout / cancel Holder-positivo no hay completion fee. En `STALEMATE` (OUT-11, OUT-12, OUT-13) tampoco: no hubo completion, la DAO no cobra. En proof ZK, el fee del paquete ZK se cobra al verificar (OUT-03).
 
 **Bonds** (si el paquete está seleccionado): viven en el BondVault, no en el escrow. Cada deal traba un lock hasta su terminal. Se sueltan (vuelven a `available`) en todo terminal pacífico. Slash solo en OUT-09 / OUT-10: lock del perdedor a la address de firma del ganador (Holder o Provider; nunca el Controller) y en todo `STALEMATE` (OUT-11, OUT-12, OUT-13) → **quema** de ambos locks a un sink inmutable, no a la DAO ni a una parte. El timeout de `DISPUTED` sin tribunal **es** stalemate: cualquiera lo llama tras `disputeDeadline`. Detalle en `PACKAGES.md` §5.
 

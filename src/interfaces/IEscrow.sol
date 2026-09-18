@@ -27,4 +27,6 @@ interface IEscrow {
     function settlementOf(bytes32 dealId) external view returns (Status status_, uint256 holderAmt, uint256 providerAmt);
 
     function creditOf(address token, address beneficiary) external view returns (uint256);
+
+    function contestPaid(bytes32 dealId) external view returns (bool);
 }

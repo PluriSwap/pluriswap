@@ -74,7 +74,8 @@ describe("firstResolveRevert", () => {
         feeRecipient: fee,
         activationFee: 0n,
         completionFee: 0n,
-        contestFee: 0n,
+        contestBps: 0n,
+        contestFloor: 0n,
         operator: ZERO_ADDRESS,
       },
     }));

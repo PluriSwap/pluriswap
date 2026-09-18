@@ -57,7 +57,8 @@ export type LivePolicy = {
     feeRecipient: HexAddress | null;
     activationFee: bigint | null;
     completionFee: bigint | null;
-    contestFee: bigint | null;
+    contestBps: bigint | null;
+    contestFloor: bigint | null;
     operator: HexAddress | null;
   } | null;
   bonds: {

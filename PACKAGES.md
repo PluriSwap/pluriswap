@@ -179,9 +179,9 @@ Lista cerrada. Un paquete no inventa un quinto momento.
 | Momento | Cuándo | De dónde |
 | --- | --- | --- |
 | Activación | Al entrar a `FUNDED` | Extra al principal (Holder). Reputación usa este. |
-| Abrir contest | Al abrir `DISPUTED` o arbitraje desde `FIAT_SENT` | Wallet del opener, una vez (`contestPaid`). Core-only: 0. Oficial: no-cero. Fail-closed si no alcanza; fail-open si el módulo drifted. Muerto en deals ZK. |
+| Abrir contest | Al abrir `DISPUTED` o arbitraje desde `FIAT_SENT` | Wallet del opener, una vez (`contestPaid`). Core-only: 0. Oficial: `max(1% del principal, 10 USDC)` (`contestBps=100`, `contestFloor=10e6` en 6 dec). Fail-closed si no alcanza; fail-open si el módulo drifted. Muerto en deals ZK. |
 | Al verificar | Proof ZK → `RELEASED` | Lo declara el paquete ZK. |
-| Terminal con completion | **Cualquier terminal donde la tajada del Provider sea > 0**: release, co-firma, split, claim, ZK, arb win del Provider, stalemate 50/50 | Sobre el **pot completo**, deducido antes de partir. La operación ocurrió; el fee es el mismo sin importar cómo cerró. |
+| Terminal con completion | **Cualquier terminal donde la tajada del Provider sea > 0 y el status no sea `STALEMATE`**: release, co-firma, split, claim, ZK, arb win del Provider | Sobre el **pot completo**, deducido antes de partir. La operación ocurrió; el fee es el mismo sin importar cómo cerró. `STALEMATE` no es completion: la DAO no cobra. |
 
 Refund al Holder (cancel, fiat timeout, split que deja al Provider en cero, arb win del Holder): no hay completion fee. No hubo operación. Lo de activación, si se cobró, ya se consumió.
 
@@ -195,7 +195,7 @@ Varios paquetes: cada uno cobra lo suyo. Si en activación no alcanza, no hay de
 - Core-only: cero fees de paquete.
 - Humanidad no cobra; reputación sí, en activación y al abrir contest (oficial no-cero), y raciona el size.
 - ZK cobra al verificar, no al seleccionar. Un `paymentNullifier` liquida un deal; el `dealId` va en los public inputs.
-- Completion fee si y sólo si el Provider cobra algo; sobre el pot entero, antes del split. Un refund nunca la paga.
+- Completion fee si el Provider cobra algo **y el terminal no es `STALEMATE`**; sobre el pot entero, antes del split. Un refund y un stalemate nunca la pagan.
 - `CLAIMED` es terminal propio: el Provider cerró la operación (Peaceful), el Controller ausente no es culpa probada (Silent).
 - Stalemate de `DISPUTED` (nadie resolvió) quema bonds. Tribunal que rehúsa o no contesta: bonds de vuelta. El split antes del reloj es la salida pacífica.
 - Slash con culpable: lock del perdedor a la address de firma del ganador (Holder o Provider). Compensa a la parte dañada.

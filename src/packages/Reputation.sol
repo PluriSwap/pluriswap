@@ -13,6 +13,7 @@ contract Reputation is IReputation {
     error InsufficientBond();
     error ZeroAddress();
     error Unauthorized();
+    error BadFee();
 
     struct Stat {
         uint32 successCount;
@@ -25,7 +26,8 @@ contract Reputation is IReputation {
     address public immutable feeRecipient;
     uint256 public immutable activationFee;
     uint256 public immutable completionFee;
-    uint256 public immutable contestFee;
+    uint256 public immutable contestBps;
+    uint256 public immutable contestFloor;
     bytes32 public immutable packageId;
 
     mapping(bytes32 subject => mapping(address token => uint256 amount)) public inFlight;
@@ -36,19 +38,24 @@ contract Reputation is IReputation {
         address feeRecipient_,
         uint256 activationFee_,
         uint256 completionFee_,
-        uint256 contestFee_,
+        uint256 contestBps_,
+        uint256 contestFloor_,
         address operator_
     ) {
         if (address(passport_) == address(0) || feeRecipient_ == address(0) || operator_ == address(0)) {
             revert ZeroAddress();
         }
+        if (contestBps_ > 10_000) revert BadFee();
         passport = passport_;
         feeRecipient = feeRecipient_;
         activationFee = activationFee_;
         completionFee = completionFee_;
-        contestFee = contestFee_;
+        contestBps = contestBps_;
+        contestFloor = contestFloor_;
         operator = operator_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, contestFee_);
+        packageId = PackageId.reputation(
+            address(this), feeRecipient_, activationFee_, completionFee_, contestBps_, contestFloor_
+        );
     }
 
     function invoiceActivation() external view returns (uint256 amount, address recipient) {
@@ -59,8 +66,16 @@ contract Reputation is IReputation {
         return (completionFee, feeRecipient);
     }
 
-    function invoiceContest() external view returns (uint256 amount, address recipient) {
-        return (contestFee, feeRecipient);
+    function invoiceContest(uint256 principal) external view returns (uint256 amount, address recipient) {
+        return (_contestDue(principal), feeRecipient);
+    }
+
+    /// @dev 1% of `principal` when `contestBps == 100`, never below `contestFloor`. Zero bps is a flat floor
+    ///      (free if the floor is also 0).
+    function _contestDue(uint256 principal) internal view returns (uint256) {
+        if (contestBps == 0) return contestFloor;
+        uint256 pct = principal * contestBps / 10_000;
+        return pct < contestFloor ? contestFloor : pct;
     }
 
     function stats(bytes32 subject, address token)

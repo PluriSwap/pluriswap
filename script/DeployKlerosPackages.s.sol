@@ -25,7 +25,8 @@ contract DeployKlerosPackages is PassportPicker, KlerosConfig {
 
     uint256 internal constant ACT_FEE = 100_000;
     uint256 internal constant COMP_FEE = 50_000;
-    uint256 internal constant CONTEST_FEE = 50_000;
+    uint256 internal constant CONTEST_BPS = 100;
+    uint256 internal constant CONTEST_FLOOR = 10_000_000;
     uint256 internal constant ZK_FEE = 10_000;
     address internal constant FEE_RECIPIENT = address(0xFEE);
     address internal constant SINK = address(0xdeaD);
@@ -42,7 +43,8 @@ contract DeployKlerosPackages is PassportPicker, KlerosConfig {
 
         vm.startBroadcast(pk);
         (IPassport passport, address decoder) = _deployPassport();
-        Reputation reputation = new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE, CONTEST_FEE, predicted);
+        Reputation reputation =
+            new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE, CONTEST_BPS, CONTEST_FLOOR, predicted);
         VerifierMock verifier = new VerifierMock();
         ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE, predicted);
         BondVault vault = new BondVault(predicted, SINK, passport);

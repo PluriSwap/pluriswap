@@ -32,7 +32,8 @@ import {BaseTest} from "./Base.t.sol";
 contract PackagesTest is BaseTest {
     uint256 internal constant ACT_FEE = 100_000;
     uint256 internal constant COMP_FEE = 50_000;
-    uint256 internal constant CONTEST_FEE = 50_000;
+    uint256 internal constant CONTEST_BPS = 100;
+    uint256 internal constant CONTEST_FLOOR = 10_000_000;
     uint256 internal constant ZK_FEE = 10_000;
     uint256 internal constant COURT_ETH = 0.01 ether;
     uint256 internal constant BOND = PRINCIPAL / 10;
@@ -58,7 +59,7 @@ contract PackagesTest is BaseTest {
         extraData = abi.encode(uint256(1), uint256(3), uint256(1));
         uint64 n = vm.getNonce(address(this));
         address predicted = vm.computeCreateAddress(address(this), n + 6);
-        reputation = new Reputation(passport, feeRecipient, ACT_FEE, COMP_FEE, CONTEST_FEE, predicted);
+        reputation = new Reputation(passport, feeRecipient, ACT_FEE, COMP_FEE, CONTEST_BPS, CONTEST_FLOOR, predicted);
         VerifierMock verifier = new VerifierMock();
         zkMod = new ZkMock(verifier, feeRecipient, ZK_FEE, predicted);
         arbitrator = new MockArbitratorV2(COURT_ETH);
@@ -180,18 +181,18 @@ contract PackagesTest is BaseTest {
         assertEq(penalty, 5);
     }
 
-    /// Decision: the completion fee is invoiced on the whole pot whenever the Provider is paid, before any split.
-    function test_stalemate_isASplit_chargesCompletionOnTotal() public {
+    /// Decision: STALEMATE is not a completion. The DAO already took activation and contest-open; it does
+    /// not take a completion cut of a trade that nobody closed.
+    function test_stalemate_noCompletionInvoice() public {
         _fundBonds();
         bytes32 id = _activateTrio(1, 1);
         _markFiat(id);
         _openDisputed(id);
         vm.warp(block.timestamp + 7200);
         escrow.forceStalemate(id);
-        uint256 pot = PRINCIPAL - COMP_FEE;
-        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE + CONTEST_FEE);
-        assertEq(token.balanceOf(provider), pot / 2);
-        assertEq(token.balanceOf(holder), pot - pot / 2);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FLOOR, "DAO gets activation+contest, not completion");
+        assertEq(token.balanceOf(provider), PRINCIPAL / 2);
+        assertEq(token.balanceOf(holder), PRINCIPAL - PRINCIPAL / 2);
     }
 
     /// Decision: CLAIMED is its own terminal. The trade happened: fee on the pot, Provider credited, Holder silent.
@@ -229,6 +230,7 @@ contract PackagesTest is BaseTest {
         (, uint32 penaltyP,) = reputation.stats(SUB_P, address(token));
         assertEq(penaltyH, 5);
         assertEq(penaltyP, 5);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FLOOR, "refused court is stalemate: no completion");
     }
 
     /// Decision: a court that never answers is the court's failure. Locks back, no score moves.
@@ -248,6 +250,7 @@ contract PackagesTest is BaseTest {
         assertEq(penaltyH, 0);
         assertEq(penaltyP, 0);
         assertEq(reputation.inFlight(SUB_P, address(token)), 0);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FLOOR, "arb timeout is stalemate: no completion");
     }
 
     /// Decision: a ruled slash always compensates the wronged side; Provider wins → Holder's lock to the Provider.
@@ -260,7 +263,7 @@ contract PackagesTest is BaseTest {
         escrow.readRuling(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
         assertEq(token.balanceOf(provider), PRINCIPAL - COMP_FEE + BOND);
-        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE + CONTEST_FEE);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE + CONTEST_FLOOR);
         assertEq(token.balanceOf(sink), 0);
         assertEq(vault.available(SUB_P, address(token)), BOND, "winner's own lock released");
         assertEq(vault.deposited(SUB_H, address(token)), 0, "loser's lock left the vault");
@@ -303,12 +306,12 @@ contract PackagesTest is BaseTest {
         assertEq(uint8(s), uint8(Status.RESOLVED_BY_ARBITRATION));
         assertEq(hAmt, 0, "holder lost the ruling");
         assertEq(pAmt, COMP_FEE, "the fee did not fit, so the winner keeps the pot");
-        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FEE, "no completion fee at equality");
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FLOOR, "no completion fee at equality");
     }
 
     /// Same rule through the plain Provider-positive timeout. Pinned separately from the arbitration case to
-    /// record that it is not court-specific: every provider-positive terminal (release, claim, co-sign, split,
-    /// 50/50 stalemate) routes through one `_close`.
+    /// record that it is not court-specific: every provider-positive completion (release, claim, co-sign, split)
+    /// routes through one `_close`. STALEMATE is the exception: it is not a completion.
     function test_claim_feeEqualsPrincipal_feeSkippedProviderPaidInFull() public {
         DealTerms memory terms = _p2pTerms();
         terms.principal = COMP_FEE;
@@ -433,7 +436,7 @@ contract PackagesTest is BaseTest {
         assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
         // A refund is not a trade: no completion fee. The Provider's lock compensates the Holder.
         assertEq(token.balanceOf(holder), PRINCIPAL + BOND);
-        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FEE);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FLOOR);
         assertEq(token.balanceOf(provider), 0);
         assertEq(vault.lockOf(SUB_H, id), 0);
         assertEq(vault.lockOf(SUB_P, id), 0);
@@ -485,8 +488,8 @@ contract PackagesTest is BaseTest {
         vm.prank(holder);
         escrow.openDisputed(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.DISPUTED));
-        assertEq(token.balanceOf(holder), beforeOpener - CONTEST_FEE);
-        assertEq(token.balanceOf(feeRecipient), beforeDao + CONTEST_FEE);
+        assertEq(token.balanceOf(holder), beforeOpener - CONTEST_FLOOR);
+        assertEq(token.balanceOf(feeRecipient), beforeDao + CONTEST_FLOOR);
     }
 
     function test_openDisputed_shortAllowanceReverts() public {
@@ -522,7 +525,7 @@ contract PackagesTest is BaseTest {
         uint256 beforeDao = token.balanceOf(feeRecipient);
         _openCourt(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.ARBITRATION_ACTIVE));
-        assertEq(token.balanceOf(feeRecipient), beforeDao + CONTEST_FEE);
+        assertEq(token.balanceOf(feeRecipient), beforeDao + CONTEST_FLOOR);
     }
 
     function test_openCourt_fromDisputed_doesNotChargeAgain() public {
@@ -873,7 +876,7 @@ contract PackagesTest is BaseTest {
     }
 
     function _fundContest() internal {
-        token.mint(holder, CONTEST_FEE);
+        token.mint(holder, CONTEST_FLOOR);
     }
 
     function _openDisputed(bytes32 id) internal override {
@@ -922,7 +925,7 @@ contract PackagesTest is BaseTest {
     }
 
     function test_communityReputation_sameEscrow() public {
-        Reputation free = new Reputation(passport, address(0xBEEF), 0, 0, 0, address(escrow));
+        Reputation free = new Reputation(passport, address(0xBEEF), 0, 0, 0, 0, address(escrow));
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted2(passport.packageId(), free.packageId());
         PackageMods memory mods;
@@ -946,7 +949,7 @@ contract PackagesTest is BaseTest {
         PassportMock other = new PassportMock();
         other.setHuman(holder, SUB_H);
         other.setHuman(provider, SUB_P);
-        Reputation alien = new Reputation(other, feeRecipient, 0, 0, 0, address(escrow));
+        Reputation alien = new Reputation(other, feeRecipient, 0, 0, 0, 0, address(escrow));
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted2(passport.packageId(), alien.packageId());
         PackageMods memory mods;
@@ -998,7 +1001,7 @@ contract PackagesTest is BaseTest {
     }
 
     function test_completionFeeExceedsPrincipal_releaseStillPays() public {
-        Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL + 1, 0, address(escrow));
+        Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL + 1, 0, 0, address(escrow));
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted2(passport.packageId(), fat.packageId());
         PackageMods memory mods;
@@ -1027,7 +1030,7 @@ contract PackagesTest is BaseTest {
     }
 
     function test_zkFitsCompletionDoesNot_chargesOnlyZk() public {
-        Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL, 0, address(escrow));
+        Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL, 0, 0, address(escrow));
         ZkMock zk = new ZkMock(new VerifierMock(), feeRecipient, ZK_FEE, address(escrow));
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted3(passport.packageId(), fat.packageId(), zk.packageId());
@@ -1124,12 +1127,12 @@ contract DriftReputation is IReputation {
         activationFee = activationFee_;
         completionFee = completionFee_;
         operator = operator_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, 0);
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, 0, 0);
     }
 
     function setCompletionFee(uint256 fee) external {
         completionFee = fee;
-        packageId = PackageId.reputation(address(this), feeRecipient, activationFee, fee, 0);
+        packageId = PackageId.reputation(address(this), feeRecipient, activationFee, fee, 0, 0);
     }
 
     function invoiceActivation() external view returns (uint256 amount, address recipient) {
@@ -1140,11 +1143,15 @@ contract DriftReputation is IReputation {
         return (completionFee, feeRecipient);
     }
 
-    function contestFee() external pure returns (uint256) {
+    function contestBps() external pure returns (uint256) {
         return 0;
     }
 
-    function invoiceContest() external view returns (uint256 amount, address recipient) {
+    function contestFloor() external pure returns (uint256) {
+        return 0;
+    }
+
+    function invoiceContest(uint256) external view returns (uint256 amount, address recipient) {
         return (0, feeRecipient);
     }
 
@@ -1314,7 +1321,7 @@ contract LyingReputation is IReputation {
         activationFee = activationFee_;
         completionFee = completionFee_;
         operator = operator_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, 0);
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, 0, 0);
     }
 
     function invoiceActivation() external view returns (uint256 amount, address recipient) {
@@ -1325,11 +1332,15 @@ contract LyingReputation is IReputation {
         return (type(uint256).max, address(0xBAD));
     }
 
-    function contestFee() external pure returns (uint256) {
+    function contestBps() external pure returns (uint256) {
         return 0;
     }
 
-    function invoiceContest() external view returns (uint256 amount, address recipient) {
+    function contestFloor() external pure returns (uint256) {
+        return 0;
+    }
+
+    function invoiceContest(uint256) external view returns (uint256 amount, address recipient) {
         return (0, feeRecipient);
     }
 
@@ -1370,7 +1381,7 @@ contract RevertingGettersReputation is IReputation {
         _feeRecipient = feeRecipient_;
         _activationFee = activationFee_;
         _completionFee = completionFee_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, 0);
+        packageId = PackageId.reputation(address(this), feeRecipient_, activationFee_, completionFee_, 0, 0);
     }
 
     function setRevertGetters(bool on) external {
@@ -1402,12 +1413,17 @@ contract RevertingGettersReputation is IReputation {
         return (_completionFee, _feeRecipient);
     }
 
-    function contestFee() external view returns (uint256) {
+    function contestBps() external view returns (uint256) {
         if (revertGetters) revert Unavailable();
         return 0;
     }
 
-    function invoiceContest() external view returns (uint256 amount, address recipient) {
+    function contestFloor() external view returns (uint256) {
+        if (revertGetters) revert Unavailable();
+        return 0;
+    }
+
+    function invoiceContest(uint256) external view returns (uint256 amount, address recipient) {
         if (revertGetters) revert Unavailable();
         return (0, _feeRecipient);
     }

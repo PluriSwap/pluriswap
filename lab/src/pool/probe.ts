@@ -15,6 +15,8 @@ export type PoolSnapshot = {
   totalShares: bigint;
   nav: bigint;
   controllerFeeBps: number;
+  reimburseContest: boolean;
+  payControllerOnFullReturn: boolean;
   agent: boolean | null;
 };
 
@@ -24,18 +26,21 @@ export async function probePool(
   agent: HexAddress | null,
 ): Promise<PoolSnapshot> {
   const client = createPublicClient({ transport: http(rpcUrl) });
-  const [escrow, token, life, idle, locked, credits, consumed, totalShares, nav, fee] = await Promise.all([
-    client.readContract({ address: pool, abi: poolAbi, functionName: "escrow" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "token" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "life" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "idle" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "locked" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "credits" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "consumed" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "totalShares" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "nav" }),
-    client.readContract({ address: pool, abi: poolAbi, functionName: "controllerFeeBps" }),
-  ]);
+  const [escrow, token, life, idle, locked, credits, consumed, totalShares, nav, fee, reimburse, payFull] =
+    await Promise.all([
+      client.readContract({ address: pool, abi: poolAbi, functionName: "escrow" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "token" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "life" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "idle" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "locked" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "credits" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "consumed" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "totalShares" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "nav" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "controllerFeeBps" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "reimburseContest" }),
+      client.readContract({ address: pool, abi: poolAbi, functionName: "payControllerOnFullReturn" }),
+    ]);
   let isAgent: boolean | null = null;
   if (agent) {
     try {
@@ -62,6 +67,8 @@ export async function probePool(
     totalShares,
     nav,
     controllerFeeBps: fee,
+    reimburseContest: reimburse,
+    payControllerOnFullReturn: payFull,
     agent: isAgent,
   };
 }

@@ -70,6 +70,8 @@ export function renderPoolView(
         <dt>nav</dt><dd><code>${model.snap.nav}</code></dd>
         <dt>totalShares</dt><dd><code>${model.snap.totalShares}</code></dd>
         <dt>controllerFeeBps</dt><dd><code>${model.snap.controllerFeeBps}</code></dd>
+        <dt>reimburseContest</dt><dd><code>${model.snap.reimburseContest}</code></dd>
+        <dt>payControllerOnFullReturn</dt><dd><code>${model.snap.payControllerOnFullReturn}</code></dd>
         <dt>isAgent(asiento)</dt><dd>${model.snap.agent === null ? "—" : model.snap.agent ? `<span class="ok">yes</span>` : `<span class="bad">no</span>`}</dd>
       </dl>`
           : ""

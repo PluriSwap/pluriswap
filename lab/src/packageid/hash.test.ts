@@ -6,6 +6,7 @@ import {
   bondsId,
   klerosId,
   passportId,
+  contestDue,
   reputationId,
   sortUniqueIds,
   zkId,
@@ -29,11 +30,18 @@ describe("PackageId kinds", () => {
     expect(passportId(a)).toMatch(/^0x[0-9a-f]{64}$/);
   });
 
+  it("contestDue is max(principal * bps / 10000, floor); zero bps is flat", () => {
+    expect(contestDue(1_000n, 0n, 7n)).toBe(7n);
+    expect(contestDue(1_000n, 100n, 5n)).toBe(10n);
+    expect(contestDue(1_000n, 100n, 20n)).toBe(20n);
+  });
+
   it("reputation id binds fee schedule", () => {
-    const x = reputationId(b, c, 1n, 2n, 0n);
-    expect(reputationId(b, c, 1n, 3n, 0n)).not.toBe(x);
-    expect(reputationId(b, a, 1n, 2n, 0n)).not.toBe(x);
-    expect(reputationId(b, c, 1n, 2n, 1n)).not.toBe(x);
+    const x = reputationId(b, c, 1n, 2n, 0n, 0n);
+    expect(reputationId(b, c, 1n, 3n, 0n, 0n)).not.toBe(x);
+    expect(reputationId(b, a, 1n, 2n, 0n, 0n)).not.toBe(x);
+    expect(reputationId(b, c, 1n, 2n, 1n, 0n)).not.toBe(x);
+    expect(reputationId(b, c, 1n, 2n, 0n, 1n)).not.toBe(x);
   });
 
   it("bonds id includes BOND_LOCK_BPS = 1000", () => {

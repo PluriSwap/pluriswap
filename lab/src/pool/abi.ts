@@ -13,6 +13,22 @@ export const poolAbi = [
   { type: "function", name: "totalShares", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "nav", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "controllerFeeBps", stateMutability: "view", inputs: [], outputs: [{ type: "uint16" }] },
+  { type: "function", name: "reimburseContest", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
+  { type: "function", name: "payControllerOnFullReturn", stateMutability: "view", inputs: [], outputs: [{ type: "bool" }] },
+  {
+    type: "function",
+    name: "setReimburseContest",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "on", type: "bool" }],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "setPayControllerOnFullReturn",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "on", type: "bool" }],
+    outputs: [],
+  },
   {
     type: "function",
     name: "isAgent",

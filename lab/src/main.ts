@@ -65,6 +65,7 @@ import { emptyRampForm, renderRampView, type RampForm } from "./ramp/RampView.ts
 import { rampQuote, rampSend } from "./ramp/verbs.ts";
 import { sendActivate7 } from "./verbs/activatePackaged.ts";
 import { renderPackageModsPanel } from "./slots/PackageModsPanel.ts";
+import { contestDue } from "./packageid/hash.ts";
 import { computedIds, slotRows } from "./slots/resolve.ts";
 import { parseModsDraft, probeSlots } from "./slots/probe.ts";
 import {
@@ -533,7 +534,7 @@ function paint(): void {
           }
         : null,
       contestPref: {
-        fee: state.dealPolicy.reputation?.contestFee ?? 0n,
+        fee: contestOpenDue(state.deal, state.dealPolicy),
         allowance: state.contestAllowance,
       },
     });
@@ -730,7 +731,7 @@ async function refreshExtras(): Promise<void> {
   } catch {
     state.dealPolicy = emptyPolicy();
   }
-  if (state.deal && state.dealPolicy.reputation?.contestFee) {
+  if (state.deal && contestOpenDue(state.deal, state.dealPolicy) > 0n) {
     try {
       state.contestAllowance = await fetchAllowance(
         state.rpcUrl,
@@ -1516,6 +1517,12 @@ async function sendActivate(): Promise<void> {
     state.sending = false;
     paint();
   }
+}
+
+function contestOpenDue(deal: DealSnapshot | null, policy: LivePolicy): bigint {
+  const r = policy.reputation;
+  if (!deal || !r || r.contestBps == null || r.contestFloor == null) return 0n;
+  return contestDue(deal.terms.principal, r.contestBps, r.contestFloor);
 }
 
 paint();

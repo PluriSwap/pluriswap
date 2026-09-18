@@ -26,7 +26,8 @@ export function reputationId(
   feeRecipient: HexAddress,
   activationFee: bigint,
   completionFee: bigint,
-  contestFee: bigint,
+  contestBps: bigint,
+  contestFloor: bigint,
 ): HexBytes32 {
   return keccak256(
     encodeAbiParameters(
@@ -37,10 +38,18 @@ export function reputationId(
         { type: "uint256" },
         { type: "uint256" },
         { type: "uint256" },
+        { type: "uint256" },
       ],
-      [KIND.REPUTATION, module as Address, feeRecipient as Address, activationFee, completionFee, contestFee],
+      [KIND.REPUTATION, module as Address, feeRecipient as Address, activationFee, completionFee, contestBps, contestFloor],
     ),
   ) as HexBytes32;
+}
+
+/** Same formula as `Packages.contestDue`. Zero bps is a flat floor. */
+export function contestDue(principal: bigint, bps: bigint, floor: bigint): bigint {
+  if (bps === 0n) return floor;
+  const pct = (principal * bps) / 10_000n;
+  return pct < floor ? floor : pct;
 }
 
 export function bondsId(vault: HexAddress, sink: HexAddress): HexBytes32 {

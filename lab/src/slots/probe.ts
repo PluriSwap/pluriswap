@@ -8,7 +8,8 @@ const slotAbi = [
   { type: "function", name: "feeRecipient", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "activationFee", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "completionFee", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
-  { type: "function", name: "contestFee", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "contestBps", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "function", name: "contestFloor", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "function", name: "operator", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "sink", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
   { type: "function", name: "verifier", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
@@ -109,7 +110,8 @@ export async function probeSlots(
       feeRecipient: await read(client, mods.reputation, "feeRecipient"),
       activationFee: await read(client, mods.reputation, "activationFee"),
       completionFee: await read(client, mods.reputation, "completionFee"),
-      contestFee: await read(client, mods.reputation, "contestFee"),
+      contestBps: await read(client, mods.reputation, "contestBps"),
+      contestFloor: await read(client, mods.reputation, "contestFloor"),
       operator: await read(client, mods.reputation, "operator"),
     };
   }

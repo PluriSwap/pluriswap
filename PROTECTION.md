@@ -49,7 +49,7 @@ El kernel, en un punto nombrado, hace una de estas cosas. Nada más.
 Reglas duras:
 
 - El paquete no devuelve receivers, outcomes, estados, ni destinos de principal.
-- El kernel cobra con los getters que entran al `packageId` (`activationFee`, `completionFee`, `contestFee`, `verifyFee`, `feeRecipient`). `invoice*` no puede mentir un amount distinto. El deal no los pisa.
+- El kernel cobra con los getters que entran al `packageId` (`activationFee`, `completionFee`, `contestBps`, `contestFloor`, `verifyFee`, `feeRecipient`). `invoice*` no puede mentir un amount distinto. El deal no los pisa.
 - La DAO no aparece como verbo. Si un paquete oficial la puso de recipient, el kernel le acredita. Si el deal eligió un clon con fee cero, la DAO no cobra.
 - `notifyTerminal` es EP-POST: reputación e `inFlight` se actualizan después. Si revierte, el escrow ya es terminal; se reintenta. No se deshace `RELEASED`.
 

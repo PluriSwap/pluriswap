@@ -16,7 +16,8 @@ function policy(completionFee: bigint | null, verifyFee: bigint | null, activati
       feeRecipient,
       activationFee,
       completionFee: completionFee ?? 0n,
-      contestFee: 0n,
+      contestBps: 0n,
+      contestFloor: 0n,
       operator: ZERO_ADDRESS,
     };
   }
@@ -143,12 +144,29 @@ describe("projectFees", () => {
         feeRecipient,
         activationFee: 0n,
         completionFee: 50n,
-        contestFee: 100n,
+        contestBps: 0n,
+        contestFloor: 100n,
         operator: ZERO_ADDRESS,
       };
       const f = projectFees(1_000n, p);
       expect(f.contestFee).toBe(100n);
       expect(f.netToProvider).toBe(950n);
+    });
+
+    it("is max(principal * bps / 10000, floor)", () => {
+      const p = emptyPolicy();
+      p.reputation = {
+        address: mod,
+        passport: ZERO_ADDRESS,
+        feeRecipient,
+        activationFee: 0n,
+        completionFee: 0n,
+        contestBps: 100n,
+        contestFloor: 10n,
+        operator: ZERO_ADDRESS,
+      };
+      expect(projectFees(500n, p).contestFee).toBe(10n);
+      expect(projectFees(2_000n, p).contestFee).toBe(20n);
     });
   });
 });

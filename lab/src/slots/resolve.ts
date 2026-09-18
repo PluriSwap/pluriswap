@@ -13,13 +13,14 @@ function has(ids: HexBytes32[], id: HexBytes32): boolean {
 
 export function recomputeId(slot: keyof PackageMods, policy: LivePolicy): HexBytes32 | null {
   if (slot === "passport" && policy.passport) return passportId(policy.passport.address);
-  if (slot === "reputation" && policy.reputation?.feeRecipient != null && policy.reputation.activationFee != null && policy.reputation.completionFee != null && policy.reputation.contestFee != null) {
+  if (slot === "reputation" && policy.reputation?.feeRecipient != null && policy.reputation.activationFee != null && policy.reputation.completionFee != null && policy.reputation.contestBps != null && policy.reputation.contestFloor != null) {
     return reputationId(
       policy.reputation.address,
       policy.reputation.feeRecipient,
       policy.reputation.activationFee,
       policy.reputation.completionFee,
-      policy.reputation.contestFee,
+      policy.reputation.contestBps,
+      policy.reputation.contestFloor,
     );
   }
   if (slot === "bonds" && policy.bonds?.sink) return bondsId(policy.bonds.address, policy.bonds.sink);

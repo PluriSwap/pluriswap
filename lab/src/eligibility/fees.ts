@@ -1,3 +1,4 @@
+import { contestDue } from "../packageid/hash.ts";
 import type { LivePolicy } from "../slots/types.ts";
 import { disabled, type Eval } from "./errors.ts";
 
@@ -27,7 +28,10 @@ export type FeeProjection = {
 export function projectFees(principal: bigint, policy: LivePolicy | null): FeeProjection {
   const completionFee = policy?.reputation?.completionFee ?? null;
   const activationFee = policy?.reputation?.activationFee ?? 0n;
-  const contestFee = policy?.reputation?.contestFee ?? 0n;
+  const contestFee =
+    policy?.reputation && policy.reputation.contestBps != null && policy.reputation.contestFloor != null
+      ? contestDue(principal, policy.reputation.contestBps, policy.reputation.contestFloor)
+      : 0n;
   const verifyFee = policy?.zk?.verifyFee ?? null;
 
   if (completionFee !== null && completionFee >= principal) {

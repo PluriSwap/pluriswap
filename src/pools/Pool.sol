@@ -58,6 +58,7 @@ contract Pool is ReentrancyGuardTransient {
         address controller;
         uint256 fee;
         uint256 activationFee;
+        uint256 contestReserve;
         bool exists;
         bool unlocked;
         bool reconciled;
@@ -71,6 +72,13 @@ contract Pool is ReentrancyGuardTransient {
     Life public life;
     bool public openDeposits;
     uint16 public controllerFeeBps;
+    /// @dev When true, `authorize` reserves the contest-open due and `reconcile` pays it to the Controller
+    ///      if they opened a fight (they already paid the kernel from their wallet). When false, the
+    ///      Controller eats that cost — their skin in the game.
+    bool public reimburseContest;
+    /// @dev When true, the reserved Controller fee is paid even if the Holder got the whole principal back.
+    ///      When false (default), a full refund returns the reserve to idle: no trade, no desk cut.
+    bool public payControllerOnFullReturn;
     uint256 public idle;
     uint256 public locked;
     uint256 public consumed;
@@ -159,6 +167,16 @@ contract Pool is ReentrancyGuardTransient {
         if (!sponsors[msg.sender]) revert Unauthorized();
         if (bps > BPS_DENOM) revert BadFee();
         controllerFeeBps = bps;
+    }
+
+    function setReimburseContest(bool on) external {
+        if (!sponsors[msg.sender]) revert Unauthorized();
+        reimburseContest = on;
+    }
+
+    function setPayControllerOnFullReturn(bool on) external {
+        if (!sponsors[msg.sender]) revert Unauthorized();
+        payControllerOnFullReturn = on;
     }
 
     function deposit(uint256 amount) external nonReentrant {
@@ -270,7 +288,7 @@ contract Pool is ReentrancyGuardTransient {
         if (block.timestamp <= a.deadline) revert DeadlineActive();
         a.unlocked = true;
         delete nonceOf[a.digest];
-        uint256 amt = a.terms.principal + a.fee + a.activationFee;
+        uint256 amt = a.terms.principal + a.fee + a.activationFee + a.contestReserve;
         locked -= amt;
         idle += amt;
         _popLive(nonce);
@@ -299,11 +317,21 @@ contract Pool is ReentrancyGuardTransient {
         locked -= a.fee;
         consumed += a.terms.principal - returned;
         idle += returned;
-        if (returned < a.terms.principal && a.fee != 0) {
+        bool feeEarned = a.fee != 0 && (returned < a.terms.principal || payControllerOnFullReturn);
+        if (feeEarned) {
             consumed += a.fee;
             Settlement.creditThenTryPush(payables, token, a.controller, a.fee);
         } else {
             idle += a.fee;
+        }
+        if (a.contestReserve != 0) {
+            locked -= a.contestReserve;
+            if (IEscrow(escrow).contestPaid(id)) {
+                consumed += a.contestReserve;
+                Settlement.creditThenTryPush(payables, token, a.controller, a.contestReserve);
+            } else {
+                idle += a.contestReserve;
+            }
         }
         _popLive(nonce);
         _refreshApprove();
@@ -330,17 +358,19 @@ contract Pool is ReentrancyGuardTransient {
 
         uint256 fee = t.principal * uint256(controllerFeeBps) / BPS_DENOM;
         uint256 actFee = mods.reputation == address(0) ? 0 : _activationFee(t, mods.reputation);
-        if (idle < t.principal + fee + actFee) revert InsufficientIdle();
+        uint256 contest = (reimburseContest && mods.reputation != address(0)) ? _contestDue(t, mods.reputation) : 0;
+        if (idle < t.principal + fee + actFee + contest) revert InsufficientIdle();
 
         bytes32 digest = _digest(ha);
-        idle -= t.principal + fee + actFee;
-        locked += t.principal + fee + actFee;
+        idle -= t.principal + fee + actFee + contest;
+        locked += t.principal + fee + actFee + contest;
         a.digest = digest;
         a.terms = t;
         a.deadline = ha.deadline;
         a.controller = t.controller;
         a.fee = fee;
         a.activationFee = actFee;
+        a.contestReserve = contest;
         a.exists = true;
         a.unlocked = false;
         a.reconciled = false;
@@ -359,11 +389,25 @@ contract Pool is ReentrancyGuardTransient {
     function _activationFee(DealTerms calldata t, address reputation) internal view returns (uint256) {
         if (reputation == address(0)) return 0;
         IReputation r = IReputation(reputation);
-        bytes32 id =
-            PackageId.reputation(reputation, r.feeRecipient(), r.activationFee(), r.completionFee(), r.contestFee());
+        bytes32 id = PackageId.reputation(
+            reputation, r.feeRecipient(), r.activationFee(), r.completionFee(), r.contestBps(), r.contestFloor()
+        );
         bytes32[] calldata ids = t.packageIds;
         for (uint256 i; i < ids.length; i++) {
             if (ids[i] == id) return r.activationFee();
+        }
+        revert BadTerms();
+    }
+
+    function _contestDue(DealTerms calldata t, address reputation) internal view returns (uint256) {
+        if (reputation == address(0)) return 0;
+        IReputation r = IReputation(reputation);
+        bytes32 id = PackageId.reputation(
+            reputation, r.feeRecipient(), r.activationFee(), r.completionFee(), r.contestBps(), r.contestFloor()
+        );
+        bytes32[] calldata ids = t.packageIds;
+        for (uint256 i; i < ids.length; i++) {
+            if (ids[i] == id) return Packages.contestDue(t.principal, r.contestBps(), r.contestFloor());
         }
         revert BadTerms();
     }

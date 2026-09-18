@@ -192,7 +192,9 @@ Cualquier Sponsor designa o saca wallets extra (`setController`). No se designa 
 
 Validar un quote contra un oracle o una banda es política del pool al decidir si `isValidSignature` dice sí. Un deal persona a persona ya bindea principal y fiat exactos y no lo necesita.
 
-Fee del Controller: bps del principal, constitución del vault. Se reserva de idle en `authorize` (el escrow no hace pull del fee). En `reconcile`, si el deal consumió algo (`holderAmt < principal`), se paga a `C`; si el retorno es entero o el authorize expiró, la reserva vuelve a idle. El settlement Core parte Holder / Provider. El fee no es un canal Core.
+Fee del Controller: bps del principal, constitución del vault. Se reserva de idle en `authorize` (el escrow no hace pull del fee). En `reconcile`, si el deal consumió algo (`holderAmt < principal`), se paga a `C`; si el retorno es entero o el authorize expiró, la reserva vuelve a idle — salvo `payControllerOnFullReturn`, que paga el fee también en refund total. El settlement Core parte Holder / Provider. El fee no es un canal Core.
+
+Contest-open es otro arreglo, no el mismo fee. Por default (`reimburseContest=false`) el Controller lo paga de su wallet y el pool no lo reserva: su skin in the game. Con el knob en true, `authorize` reserva `contestDue` y `reconcile` se lo devuelve a `C` sólo si `escrow.contestPaid(id)`. Si nadie abrió la pelea, la reserva vuelve a idle. El approve al escrow sigue siendo `principal + activationFee` de auths vivos: el contest lo paga el opener, no el Holder.
 
 Invoice de activación (reputación): también se reserva en `authorize`. En cuanto `dealOf` existe, ese fee ya salió hacia el recipient del paquete: sale de `locked` y entra a `consumed`. Un `unlock` (nonce libre) lo devuelve a idle. El approve al escrow es la suma exacta de `principal + activationFee` de auths aún no activados; no es `max`.
 

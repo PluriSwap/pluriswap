@@ -46,7 +46,7 @@ contract PoolAuthorizeModsTest is BaseTest {
         super.setUp();
         factory = new PoolFactory();
         passport = new PassportMock();
-        rep = new Reputation(passport, feeRecipient, ACT_FEE, 0, 0, address(escrow));
+        rep = new Reputation(passport, feeRecipient, ACT_FEE, 0, 0, 0, address(escrow));
 
         address[] memory sponsors = new address[](1);
         sponsors[0] = holder;
@@ -187,7 +187,7 @@ contract PoolAuthorizeModsTest is BaseTest {
     /// makes the rebooking branch in `_recognizeLive` unreachable rather than merely rare: a nonzero pull
     /// always implies a nonzero reservation.
     function test_zeroFeeModule_reservesZeroAndPullsZero() public {
-        Reputation free = new Reputation(passport, feeRecipient, 0, 0, 0, address(escrow));
+        Reputation free = new Reputation(passport, feeRecipient, 0, 0, 0, 0, address(escrow));
         DealTerms memory t = _p2pTerms();
         t.holder = address(pool);
         t.controller = controller;

@@ -240,7 +240,7 @@ Contrato detrás de un slot. Permissionless. El kernel no tiene allowlist.
 | Kind | Interfaz | Policy que entra al `packageId` (`PackageId.sol`) |
 | --- | --- | --- |
 | PASSPORT | `IPassport` | `passport(adapter)` |
-| REPUTATION | `IReputation` | `reputation(module, feeRecipient, activationFee, completionFee, contestFee)` |
+| REPUTATION | `IReputation` | `reputation(module, feeRecipient, activationFee, completionFee, contestBps, contestFloor)` |
 | BONDS | `IBondVault` | `bonds(vault, sink)` + `BOND_LOCK_BPS = 1000` |
 | ZK | `IPaymentProof` (+ `IVerifier` detrás) | `zk(module, verifier, feeRecipient, verifyFee)` |
 | ARBITRATION | `ICourt` | `arbitration(adapter, partner, key)` / `kleros(adapter, arbitrator, extraData)` |
@@ -249,7 +249,7 @@ Contrato detrás de un slot. Permissionless. El kernel no tiene allowlist.
 | --- | --- |
 | **Clave** | `address` del módulo. El `packageId` es *contenido*, no clave de navegación. |
 | **Firmado** | El **id**, no la address suelta. |
-| **Vivo** | Getters de policy: `feeRecipient`, `activationFee`, `completionFee`, `contestFee`, `verifier`, `verifyFee`, `sink`, `passport()`, `packageBinding()`. Binding al escrow: ver mapa abajo. **No** entra al `packageId`. |
+| **Vivo** | Getters de policy: `feeRecipient`, `activationFee`, `completionFee`, `contestBps`, `contestFloor`, `verifier`, `verifyFee`, `sink`, `passport()`, `packageBinding()`. Binding al escrow: ver mapa abajo. **No** entra al `packageId`. |
 | **Lab vs real** | Metadato de AddressBook, no del chain. `PassportMock` / `VerifierMock` / `ArbitrationMock` / `ZkMock` se marcan `lab: true`. `KlerosAdapter` se marca `lab: false` (habla un tribunal externo; sigue siendo opt-in). |
 
 El escrow al que el módulo acepta llamadas **no** se llama igual en todos los impls. Mapa de getters (comparar contra el Recinto en foco; no entra al `packageId`):
@@ -269,7 +269,7 @@ Recompute client-side (obligatorio **antes** de firmar y otra vez **antes** de `
 
 ```
 id_passport = keccak256(abi.encode(PASSPORT_KIND, adapter))
-id_rep      = keccak256(abi.encode(REPUTATION_KIND, module, feeRecipient, activationFee, completionFee, contestFee))
+id_rep      = keccak256(abi.encode(REPUTATION_KIND, module, feeRecipient, activationFee, completionFee, contestBps, contestFloor))
 id_bonds    = keccak256(abi.encode(BONDS_KIND, vault, sink, 1000))
 id_zk       = keccak256(abi.encode(ZK_KIND, module, verifier, feeRecipient, verifyFee))
 id_arb      = keccak256(abi.encode(ARBITRATION_KIND, adapter, partner, key))
@@ -551,7 +551,7 @@ No es un storefront. Es un banco de trabajo de resolución.
 - Pegar address → leer policy → recompute `PackageId` → comparar con `packageIds` del borrador.
 - Peer: `passport()` de Rep y Bonds vs slot passport.
 - Binding al Recinto: mapa `operator` | `kernel` | none (§1.6). `KlerosAdapter` → `kernel()`.
-- Fees declarados (`activationFee`, `completionFee`, `contestFee`, `verifyFee`, `courtFee` / `arbitrationCost`) como **policy del módulo**, no campos del deal.
+- Fees declarados (`activationFee`, `completionFee`, `contestBps` / `contestFloor`, `verifyFee`, `courtFee` / `arbitrationCost`) como **policy del módulo**, no campos del deal.
 - Invoices vivos vs leftover proyectado (KERNEL-04: si `fee >= left`, se omite; el terminal no revierte).
 
 #### 2.6 Espacio Pool
@@ -699,7 +699,7 @@ Probes de preflight (lecturas, no txs): `holder != provider`, `principal > 0`, c
 | `timeoutFiat` | `WrongStatus` ≠ FUNDED; `Clocks.TooEarly` si `now < activatedAt+fiatDuration` | FUNDED ∧ due. Anyone. Incluye ZK. `duration=0` ⇒ due en el origen. |
 | `release` | `WrongStatus` ≠ FIAT_SENT; `Unauthorized` ≠ controller | FIAT_SENT ∧ sender=Controller. (ZK no llega a FIAT_SENT.) Completion se cobra aquí, no en `claim`. |
 | `claim` | `WrongStatus` ≠ FIAT_SENT; `EdgeOff` si ZK; `Clocks.TooEarly` | FIAT_SENT ∧ ¬ZK ∧ due. Anyone. **Sin** `_takeCompletion`. |
-| `openDisputed` | `WrongStatus` ≠ FIAT_SENT; `EdgeOff` si ZK; `Unauthorized` ≠ controller; `Clocks.TooLate` si `now >= fiatSentAt+releaseDuration`; `InexactPull` si reputación cobra contest y el opener no tiene allowance | FIAT_SENT ∧ ¬ZK ∧ sender=Controller ∧ strictly-before ∧ (Core-only o allowance ≥ contestFee). Si `releaseDuration=0` ⇒ `TooLate` inmediato. |
+| `openDisputed` | `WrongStatus` ≠ FIAT_SENT; `EdgeOff` si ZK; `Unauthorized` ≠ controller; `Clocks.TooLate` si `now >= fiatSentAt+releaseDuration`; `InexactPull` si reputación cobra contest y el opener no tiene allowance | FIAT_SENT ∧ ¬ZK ∧ sender=Controller ∧ strictly-before ∧ (Core-only o allowance ≥ contestDue). Si `releaseDuration=0` ⇒ `TooLate` inmediato. |
 | `forceStalemate` | `WrongStatus` ≠ DISPUTED; `Clocks.TooEarly` | DISPUTED ∧ due. Anyone. |
 | `mutualCancel` | `DealIdMismatch`; `DeadlineMismatch`; `DeadlinePassed`; `WrongStatus` si no `FUNDED\|FIAT_SENT\|DISPUTED\|ARBITRATION_ACTIVE`; `Invalid*Signature`; `NonceUsed` | DualSignDraft coincidente + deal vivo + firmas P+C + nonces libres. Relayer anyone. |
 | `coSignedRelease` | envelope checks; `WrongStatus` si no `FIAT_SENT\|DISPUTED\|ARBITRATION_ACTIVE` | idem, `_assertDualSignFromActive` |

@@ -955,7 +955,7 @@ contract PoolTest is BaseTest {
     function test_reputation_reservesActivationFee() public {
         uint256 actFee = 100_000;
         PassportMock passport = new PassportMock();
-        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, address(escrow));
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, 0, address(escrow));
         passport.setHuman(address(pool), keccak256("pool"));
         passport.setHuman(provider, keccak256("prov"));
 
@@ -991,7 +991,7 @@ contract PoolTest is BaseTest {
     function test_reputation_shortIdleReverts() public {
         uint256 actFee = 100_000;
         PassportMock passport = new PassportMock();
-        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, address(escrow));
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, 0, address(escrow));
         DealTerms memory terms = _poolHolderTerms();
         terms.packageIds = _sorted2(passport.packageId(), rep.packageId());
         vm.prank(controller);
@@ -1001,7 +1001,7 @@ contract PoolTest is BaseTest {
 
     function test_reputation_unknownModuleReverts() public {
         PassportMock passport = new PassportMock();
-        Reputation rep = new Reputation(passport, address(0xFEE), 1, 0, 0, address(escrow));
+        Reputation rep = new Reputation(passport, address(0xFEE), 1, 0, 0, 0, address(escrow));
         vm.prank(controller);
         // `authorize` now runs `Packages.resolve` before reserving anything, so a named module that no signed
         // id refers to is rejected with the kernel's own error instead of `Pool.BadTerms` from `_activationFee`.
@@ -1015,7 +1015,7 @@ contract PoolTest is BaseTest {
     function test_reputation_unnamedModuleReverts() public {
         uint256 actFee = 100_000;
         PassportMock passport = new PassportMock();
-        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, address(escrow));
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, 0, address(escrow));
         passport.setHuman(address(pool), keccak256("pool"));
         passport.setHuman(provider, keccak256("prov"));
         token.mint(holder, actFee);
@@ -1040,7 +1040,7 @@ contract PoolTest is BaseTest {
     function test_unlock_returnsActivationFee() public {
         uint256 actFee = 100_000;
         PassportMock passport = new PassportMock();
-        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, address(escrow));
+        Reputation rep = new Reputation(passport, address(0xFEE), actFee, 0, 0, 0, address(escrow));
         token.mint(holder, actFee);
         vm.prank(holder);
         pool.deposit(actFee);
@@ -1054,6 +1054,166 @@ contract PoolTest is BaseTest {
         assertEq(pool.idle(), PRINCIPAL + actFee);
         assertEq(pool.locked(), 0);
         assertEq(token.allowance(address(pool), address(escrow)), 0);
+    }
+
+    function test_arrangement_defaultsLeaveControllerSkinInGame() public view {
+        assertFalse(pool.reimburseContest());
+        assertFalse(pool.payControllerOnFullReturn());
+    }
+
+    function test_arrangement_settersOnlySponsor() public {
+        vm.prank(controller);
+        vm.expectRevert(Pool.Unauthorized.selector);
+        pool.setReimburseContest(true);
+        vm.prank(controller);
+        vm.expectRevert(Pool.Unauthorized.selector);
+        pool.setPayControllerOnFullReturn(true);
+        vm.prank(holder);
+        pool.setReimburseContest(true);
+        vm.prank(holder);
+        pool.setPayControllerOnFullReturn(true);
+        assertTrue(pool.reimburseContest());
+        assertTrue(pool.payControllerOnFullReturn());
+    }
+
+    /// Default: contest-open is the Controller's skin. `authorize` does not reserve it.
+    function test_reimburseContest_off_doesNotReserve() public {
+        uint256 floor_ = 10_000_000;
+        PassportMock passport = new PassportMock();
+        Reputation rep = new Reputation(passport, address(0xFEE), 0, 0, 100, floor_, address(escrow));
+        passport.setHuman(address(pool), keccak256("pool"));
+        passport.setHuman(provider, keccak256("prov"));
+        DealTerms memory terms = _poolHolderTerms();
+        terms.packageIds = _sorted2(passport.packageId(), rep.packageId());
+        vm.prank(controller);
+        pool.authorize(_holderAuth(terms, 1), _mods(address(passport), address(rep)));
+        assertEq(pool.locked(), PRINCIPAL);
+        assertEq(pool.idle(), 0);
+    }
+
+    /// Desk that reimburses contest: reserve at authorize, pay the Controller iff they opened the fight.
+    function test_reimburseContest_paysControllerWhenFightOpened() public {
+        uint256 floor_ = 10_000_000;
+        PassportMock passport = new PassportMock();
+        Reputation rep = new Reputation(passport, address(0xFEE), 0, 0, 100, floor_, address(escrow));
+        passport.setHuman(address(pool), keccak256("pool"));
+        passport.setHuman(provider, keccak256("prov"));
+        vm.prank(holder);
+        pool.setReimburseContest(true);
+        token.mint(holder, floor_);
+        vm.prank(holder);
+        pool.deposit(floor_);
+
+        DealTerms memory terms = _poolHolderTerms();
+        terms.packageIds = _sorted2(passport.packageId(), rep.packageId());
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        vm.prank(controller);
+        pool.authorize(ha, _mods(address(passport), address(rep)));
+        assertEq(pool.locked(), PRINCIPAL + floor_);
+
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca = _controllerAuth(terms, 1);
+        bytes32 id = escrow.activate(
+            ha, "", pa, _signProvider(pa), ca, _signController(ca), _mods(address(passport), address(rep))
+        );
+        vm.prank(provider);
+        escrow.markFiat(id);
+        token.mint(controller, floor_);
+        vm.prank(controller);
+        token.approve(address(escrow), floor_);
+        vm.prank(controller);
+        escrow.openDisputed(id);
+        assertTrue(escrow.contestPaid(id));
+        vm.warp(block.timestamp + 7200);
+        escrow.forceStalemate(id);
+        pool.reconcile(1, 1, 1);
+        assertEq(token.balanceOf(controller), floor_, "pool reimburses the opener");
+        assertEq(pool.consumed(), PRINCIPAL / 2 + floor_);
+        assertEq(pool.idle(), PRINCIPAL / 2);
+    }
+
+    /// Fight never opened: the contest reserve returns to idle, LPs are not charged.
+    function test_reimburseContest_unusedReserveReturnsIdle() public {
+        uint256 floor_ = 10_000_000;
+        PassportMock passport = new PassportMock();
+        Reputation rep = new Reputation(passport, address(0xFEE), 0, 0, 100, floor_, address(escrow));
+        passport.setHuman(address(pool), keccak256("pool"));
+        passport.setHuman(provider, keccak256("prov"));
+        vm.prank(holder);
+        pool.setReimburseContest(true);
+        token.mint(holder, floor_);
+        vm.prank(holder);
+        pool.deposit(floor_);
+
+        DealTerms memory terms = _poolHolderTerms();
+        terms.packageIds = _sorted2(passport.packageId(), rep.packageId());
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        vm.prank(controller);
+        pool.authorize(ha, _mods(address(passport), address(rep)));
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca = _controllerAuth(terms, 1);
+        bytes32 id = escrow.activate(
+            ha, "", pa, _signProvider(pa), ca, _signController(ca), _mods(address(passport), address(rep))
+        );
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+        pool.reconcile(1, 1, 1);
+        assertFalse(escrow.contestPaid(id));
+        assertEq(token.balanceOf(controller), 0);
+        assertEq(pool.idle(), floor_);
+        assertEq(pool.consumed(), PRINCIPAL);
+    }
+
+    function test_unlock_returnsContestReserve() public {
+        uint256 floor_ = 10_000_000;
+        PassportMock passport = new PassportMock();
+        Reputation rep = new Reputation(passport, address(0xFEE), 0, 0, 100, floor_, address(escrow));
+        vm.prank(holder);
+        pool.setReimburseContest(true);
+        token.mint(holder, floor_);
+        vm.prank(holder);
+        pool.deposit(floor_);
+        DealTerms memory terms = _poolHolderTerms();
+        terms.packageIds = _sorted2(passport.packageId(), rep.packageId());
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        vm.prank(controller);
+        pool.authorize(ha, _mods(address(passport), address(rep)));
+        vm.warp(ha.deadline + 1);
+        pool.unlock(1);
+        assertEq(pool.idle(), PRINCIPAL + floor_);
+        assertEq(pool.locked(), 0);
+    }
+
+    /// Desk that pays the Controller even when the Holder got everything back.
+    function test_payControllerOnFullReturn_paysFeeOnCancel() public {
+        uint16 bps = 100;
+        uint256 fee = PRINCIPAL * bps / 10_000;
+        Pool p = _privatePool(bps);
+        vm.prank(holder);
+        p.setPayControllerOnFullReturn(true);
+        token.mint(holder, PRINCIPAL + fee);
+        vm.startPrank(holder);
+        token.approve(address(p), type(uint256).max);
+        p.deposit(PRINCIPAL + fee);
+        vm.stopPrank();
+
+        DealTerms memory terms = _p2pTerms();
+        terms.holder = address(p);
+        terms.controller = controller;
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca = _controllerAuth(terms, 1);
+        vm.prank(controller);
+        p.authorize(ha, _noMods());
+        bytes32 id = escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
+        vm.prank(provider);
+        escrow.cancelByProvider(id);
+        p.reconcile(1, 1, 1);
+        assertEq(p.idle(), PRINCIPAL);
+        assertEq(p.consumed(), fee);
+        assertEq(token.balanceOf(controller), fee);
     }
 
     function _sorted2(bytes32 a, bytes32 b) internal pure returns (bytes32[] memory ids) {

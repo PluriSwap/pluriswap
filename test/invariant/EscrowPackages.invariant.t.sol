@@ -5,6 +5,7 @@ import {Test, console2} from "forge-std/Test.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {Status, DealTerms, DealClocks, PackageMods} from "../../src/libraries/Types.sol";
 import {PackageId} from "../../src/libraries/PackageId.sol";
+import {Packages} from "../../src/libraries/Packages.sol";
 import {Escrow} from "../../src/Escrow.sol";
 import {TestToken} from "../../mocks/TestToken.sol";
 import {PassportMock} from "../../mocks/PassportMock.sol";
@@ -36,12 +37,12 @@ contract DriftingReputation is IReputation {
         activationFee = 0;
         completionFee = completionFee_;
         operator = operator_;
-        packageId = PackageId.reputation(address(this), feeRecipient_, 0, completionFee_, 0);
+        packageId = PackageId.reputation(address(this), feeRecipient_, 0, completionFee_, 0, 0);
     }
 
     function setCompletionFee(uint256 fee) external {
         completionFee = fee;
-        packageId = PackageId.reputation(address(this), feeRecipient, 0, fee, 0);
+        packageId = PackageId.reputation(address(this), feeRecipient, 0, fee, 0, 0);
     }
 
     function invoiceActivation() external pure returns (uint256, address) {
@@ -52,11 +53,15 @@ contract DriftingReputation is IReputation {
         return (completionFee, feeRecipient);
     }
 
-    function contestFee() external pure returns (uint256) {
+    function contestBps() external pure returns (uint256) {
         return 0;
     }
 
-    function invoiceContest() external view returns (uint256, address) {
+    function contestFloor() external pure returns (uint256) {
+        return 0;
+    }
+
+    function invoiceContest(uint256) external view returns (uint256, address) {
         return (0, feeRecipient);
     }
 
@@ -77,7 +82,8 @@ contract PackagesHandler is HandlerBase {
 
     uint256 internal constant ACT_FEE = 500_000;
     uint256 internal constant COMP_FEE = 250_000;
-    uint256 internal constant CONTEST_FEE = 50_000;
+    uint256 internal constant CONTEST_BPS = 100;
+    uint256 internal constant CONTEST_FLOOR = 10_000_000;
     uint256 internal constant ZK_FEE = 100_000;
     uint256 internal constant HUGE_FEE = 1e30;
     uint256 internal constant COURT_ETH = 0.01 ether;
@@ -107,8 +113,9 @@ contract PackagesHandler is HandlerBase {
     constructor(Escrow escrow_, TestToken token_) HandlerBase(escrow_) {
         token = token_;
         passport = new PassportMock();
-        reputation = new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE, CONTEST_FEE, address(escrow_));
-        reputationHuge = new Reputation(passport, FEE_RECIPIENT, 0, HUGE_FEE, 0, address(escrow_));
+        reputation =
+            new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE, CONTEST_BPS, CONTEST_FLOOR, address(escrow_));
+        reputationHuge = new Reputation(passport, FEE_RECIPIENT, 0, HUGE_FEE, 0, 0, address(escrow_));
         reputationDrift = new DriftingReputation(passport, FEE_RECIPIENT, COMP_FEE, address(escrow_));
         vault = new BondVault(address(escrow_), SINK, passport);
         zk = new ZkMock(new VerifierMock(), FEE_RECIPIENT, ZK_FEE, address(escrow_));
@@ -275,7 +282,9 @@ contract PackagesHandler is HandlerBase {
 
     function _fundContest(bytes32 id, address opener) internal returns (uint256 fee) {
         address rep = ghosts[id].reputation;
-        fee = rep == address(0) ? 0 : IReputation(rep).contestFee();
+        if (rep == address(0)) return 0;
+        IReputation r = IReputation(rep);
+        fee = Packages.contestDue(escrow.terms(id).principal, r.contestBps(), r.contestFloor());
         if (fee == 0) return 0;
         token.mint(opener, fee);
         ghost_minted += fee;
@@ -426,6 +435,9 @@ contract EscrowPackagesInvariantTest is Test {
             // zero -- pinned by test_providerWin_feeEqualsPrincipal_bothSidesNetZero. Use the ghosted ruling.
             if (s == Status.CANCELLED || (s == Status.RESOLVED_BY_ARBITRATION && g.ruling == 1)) {
                 assertEq(hAmt, principal, "refund charged a fee");
+            }
+            if (s == Status.STALEMATE) {
+                assertEq(hAmt + pAmt, principal, "stalemate invoiced completion");
             }
             terminalFees += principal - hAmt - pAmt;
         }

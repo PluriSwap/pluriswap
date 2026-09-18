@@ -124,6 +124,10 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         return deals[dealId].postPending;
     }
 
+    function contestPaid(bytes32 dealId) external view returns (bool) {
+        return deals[dealId].contestPaid;
+    }
+
     function creditOf(address token, address beneficiary) external view returns (uint256) {
         return Settlement.creditOf(settlement, token, beneficiary);
     }
@@ -494,11 +498,14 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     }
 
     /// @dev One exit for every terminal. The completion fee is invoiced on the whole pot whenever any of it
-    ///      reaches the Provider (a trade happened), before the split; a refund to the Holder is never invoiced.
+    ///      reaches the Provider *and the terminal is not a stalemate*, before the split. A refund and a
+    ///      50/50 stalemate are never invoiced: there was no completion.
     ///      KERNEL-04: a fee that does not fit is skipped, a terminal never reverts on a package.
     function _close(bytes32 dealId, Deal storage d, uint256 pot, Outcome memory o) internal {
         uint256 providerAmt = pot * o.providerBps / ALL;
-        if (providerAmt != 0) {
+        // A stalemate is not a completion: nobody closed a trade. Invoicing it would pay the fee
+        // recipient for an abandoned fight.
+        if (providerAmt != 0 && o.next != Status.STALEMATE) {
             (uint256 fee, address to) = Packages.completionInvoice(d);
             pot = _invoice(pot, fee, d.terms.token, to);
             providerAmt = pot * o.providerBps / ALL;

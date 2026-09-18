@@ -55,7 +55,12 @@ library Packages {
             _requireNamed(
                 ids,
                 PackageId.reputation(
-                    mods.reputation, r.feeRecipient(), r.activationFee(), r.completionFee(), r.contestFee()
+                    mods.reputation,
+                    r.feeRecipient(),
+                    r.activationFee(),
+                    r.completionFee(),
+                    r.contestBps(),
+                    r.contestFloor()
                 )
             );
             pkgs |= REP;
@@ -108,7 +113,8 @@ library Packages {
             uint256 fee = r.activationFee();
             address to = r.feeRecipient();
             _requireStillNamed(
-                t.packageIds, PackageId.reputation(address(r), to, fee, r.completionFee(), r.contestFee())
+                t.packageIds,
+                PackageId.reputation(address(r), to, fee, r.completionFee(), r.contestBps(), r.contestFloor())
             );
             if (fee != 0) {
                 Settlement.pullExact(t.token, t.holder, fee);
@@ -163,15 +169,28 @@ library Packages {
         } catch {
             return (0, address(0));
         }
-        uint256 contest;
-        try r.contestFee() returns (uint256 amount) {
-            contest = amount;
+        uint256 contestBps;
+        uint256 contestFloor;
+        try r.contestBps() returns (uint256 bps) {
+            contestBps = bps;
         } catch {
             return (0, address(0));
         }
-        if (!named(d, PackageId.reputation(address(r), to, activation, fee, contest))) {
+        try r.contestFloor() returns (uint256 floor_) {
+            contestFloor = floor_;
+        } catch {
             return (0, address(0));
         }
+        if (!named(d, PackageId.reputation(address(r), to, activation, fee, contestBps, contestFloor))) {
+            return (0, address(0));
+        }
+    }
+
+    /// @dev 1% when `bps == 100`. Zero bps is a flat floor (free if the floor is also 0).
+    function contestDue(uint256 principal, uint256 bps, uint256 floor_) public pure returns (uint256) {
+        if (bps == 0) return floor_;
+        uint256 pct = principal * bps / 10_000;
+        return pct < floor_ ? floor_ : pct;
     }
 
     /// @dev Contest-open invoice: `(0, 0)` without reputation or when the module drifted. Fail-open on
@@ -182,13 +201,20 @@ library Packages {
         IReputation r = IReputation(d.mods.reputation);
         uint256 activation;
         uint256 completion;
+        uint256 bps;
+        uint256 floor_;
         try r.feeRecipient() returns (address recipient) {
             to = recipient;
         } catch {
             return (0, address(0));
         }
-        try r.contestFee() returns (uint256 contest) {
-            fee = contest;
+        try r.contestBps() returns (uint256 amount) {
+            bps = amount;
+        } catch {
+            return (0, address(0));
+        }
+        try r.contestFloor() returns (uint256 amount) {
+            floor_ = amount;
         } catch {
             return (0, address(0));
         }
@@ -202,7 +228,10 @@ library Packages {
         } catch {
             return (0, address(0));
         }
-        if (!named(d, PackageId.reputation(address(r), to, activation, completion, fee))) return (0, address(0));
+        if (!named(d, PackageId.reputation(address(r), to, activation, completion, bps, floor_))) {
+            return (0, address(0));
+        }
+        fee = contestDue(d.terms.principal, bps, floor_);
     }
 
     /// @dev Pull the contest-open fee from `payer` (the opener) once. Shared by `openDisputed` and

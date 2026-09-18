@@ -25,9 +25,12 @@ library PackageId {
         address feeRecipient,
         uint256 activationFee,
         uint256 completionFee,
-        uint256 contestFee
+        uint256 contestBps,
+        uint256 contestFloor
     ) public pure returns (bytes32) {
-        return keccak256(abi.encode(REPUTATION_KIND, module, feeRecipient, activationFee, completionFee, contestFee));
+        return keccak256(
+            abi.encode(REPUTATION_KIND, module, feeRecipient, activationFee, completionFee, contestBps, contestFloor)
+        );
     }
 
     function arbitration(address adapter, address tribunal, uint256 courtFee) public pure returns (bytes32) {
