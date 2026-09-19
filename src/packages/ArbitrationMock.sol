@@ -20,7 +20,7 @@ contract ArbitrationMock is ICourt {
         None,
         HolderWin,
         ProviderWin,
-        Stalemate
+        Neither
     }
 
     address public immutable tribunal;
@@ -80,6 +80,6 @@ contract ArbitrationMock is ICourt {
         if (controllerOf[dealId] == address(0)) revert NotOpen();
         if (rulingOf[dealId] != Ruling.None) revert AlreadyOpen();
         if (block.timestamp < openedAt[dealId] + duration) revert DeadlineNotDue();
-        rulingOf[dealId] = Ruling.Stalemate;
+        rulingOf[dealId] = Ruling.Neither;
     }
 }

@@ -196,17 +196,17 @@ Extender el protocolo **no** es abrir el catálogo. Es componer partes inmutable
 | `RELEASED` | Terminal | Principal al lado Provider (release, co-signed release, o payment proof) |
 | `CLAIMED` | Terminal | Principal al lado Provider por timeout: fiat marcado, el Controller nunca liberó |
 | `RESOLVED_SPLIT` | Terminal | Split dual-firmado |
-| `STALEMATE` | Terminal | 50/50 de protocolo: timeout de `DISPUTED` sin tribunal, o arbitraje rehusado / arbitration timeout. Bonds: quema sólo en el primero; en los otros dos se devuelven |
+| `STALEMATE` | Terminal | 50/50 de protocolo: timeout de `DISPUTED` **sin** abrir tribunal. Bonds: quema. El jurado nunca cierra en este estado |
 | `CANCELLED` | Terminal | Principal al Holder (cancel Provider, fiat timeout, o mutual cancel) |
 
-`CLAIMED` es un estado propio (valor 10, al final del enum): misma economía de principal que `RELEASED`, distinto origen y distinta lectura para reputación (Provider Peaceful, Holder Silent). `STALEMATE` no distingue origen en el estado: principal 50/50 siempre; los bonds sí distinguen (`PACKAGES.md` §6).
+`CLAIMED` es un estado propio (valor 10, al final del enum): misma economía de principal que `RELEASED`, distinto origen y distinta lectura para reputación (Provider Peaceful, Holder Silent). `STALEMATE` es solo el timeout Core de `DISPUTED` cuando las partes no abrieron corte. Un 50/50 del jurado (rehúsa o no contesta) es `RESOLVED_BY_ARBITRATION`. Los bonds distinguen: quema en `STALEMATE`; unlock en el 50/50 del jurado (`PACKAGES.md` §6).
 
 ### Solo perfil ARBITRATION
 
 | Estado | Clase | Significado |
 | --- | --- | --- |
 | `ARBITRATION_ACTIVE` | Activo (extensión) | Disputa externa abierta; corre el arbitration deadline |
-| `RESOLVED_BY_ARBITRATION` | Terminal (extensión) | Ruling autenticado holder-win o provider-win |
+| `RESOLVED_BY_ARBITRATION` | Terminal (extensión) | Cierre del jurado: Holder gana, Provider gana, o no gana ninguno (50/50 + completion fee). Incluye el timeout si el tribunal no contestó |
 
 Si ARBITRATION no está seleccionado, esas aristas **rechazan o están ausentes**. No deben existir como stubs muertos presentados como capacidad.
 
@@ -229,12 +229,10 @@ stateDiagram-v2
     DISPUTED --> CANCELLED: mutual cancel
     DISPUTED --> RELEASED: co-signed release
     DISPUTED --> RESOLVED_SPLIT: split dual-firmado
-    DISPUTED --> STALEMATE: timeout — cualquiera fuerza stalemate
+    DISPUTED --> STALEMATE: timeout — cualquiera fuerza stalemate (no abrieron corte)
     FUNDED --> RELEASED: payment proof
-    FIAT_SENT --> ARBITRATION_ACTIVE: Controller abre arbitraje
     DISPUTED --> ARBITRATION_ACTIVE: Controller abre arbitraje
-    ARBITRATION_ACTIVE --> RESOLVED_BY_ARBITRATION: ruling Holder o Provider
-    ARBITRATION_ACTIVE --> STALEMATE: refused o arbitration timeout
+    ARBITRATION_ACTIVE --> RESOLVED_BY_ARBITRATION: Holder / Provider / ninguno
     ARBITRATION_ACTIVE --> RELEASED: co-signed release
     ARBITRATION_ACTIVE --> RESOLVED_SPLIT: split dual-firmado
     ARBITRATION_ACTIVE --> CANCELLED: mutual cancel
@@ -246,7 +244,7 @@ Tres caminos Core que cualquier implementación conforme debe poder ejecutar **s
 2. **Contestación Core.** activar → `FUNDED` → `FIAT_SENT` → Controller abre `DISPUTED` → dual-sign (incluido split), o cualquiera fuerza stalemate tras `disputeDeadline`.
 3. **Fiat timeout en `FUNDED`.** A partir de `fiatDeadline`, cualquiera cancela y devuelve principal al Holder. Corre contra mark-fiat; no auto-cancela ni congela mark-fiat.
 
-Core no tiene tribunal externo. Abrir `DISPUTED` congela el claim; no adjudica si el fiat se pagó. Un ruling externo sobre `FIAT_SENT` exige el perfil ARBITRATION.
+Core no tiene tribunal externo. Abrir `DISPUTED` congela el claim; no adjudica si el fiat se pagó. Si el deal seleccionó ARBITRATION, el jurado se abre **desde** `DISPUTED` (no se salta). Desde ahí las partes dual-firman o van a corte. Si no abren corte y vence `disputeDeadline`, el kernel fuerza `STALEMATE`.
 
 El grafo no cambia porque el Holder sea una wallet de consumo o un contrato. Cambia cómo el Controller obtuvo `HolderAuthorization` (ECDSA o EIP-1271) y quién es el Controller.
 
@@ -263,9 +261,9 @@ Un frontend o un pool puede sugerir defaults. Eso no es máquina.
 | Reloj | Origen | Efecto permissionless |
 | --- | --- | --- |
 | `fiatDeadline` | timestamp de activación + fiat duration | Cualquiera cancela desde `FUNDED` (Holder-favorable). Corre contra mark-fiat. |
-| Release deadline | timestamp de `FUNDED` → `FIAT_SENT` + release duration | Cualquiera claim desde `FIAT_SENT` (silencio = no-contestación). Abrir `DISPUTED` o arbitraje solo **estrictamente antes**. |
-| `disputeDeadline` | timestamp de `FIAT_SENT` → `DISPUTED` + dispute duration | Cualquiera fuerza stalemate. Abrir arbitraje desde `DISPUTED` solo **estrictamente antes**. |
-| Arbitration deadline | timestamp de entrada a `ARBITRATION_ACTIVE` + arbitration duration | Solo si ARBITRATION está habilitado. Cualquiera ejecuta stalemate. Se deriva del duration snapshotado; no exige respuesta del adapter. |
+| Release deadline | timestamp de `FUNDED` → `FIAT_SENT` + release duration | Cualquiera claim desde `FIAT_SENT` (silencio = no-contestación). Abrir `DISPUTED` solo **estrictamente antes**. |
+| `disputeDeadline` | timestamp de `FIAT_SENT` → `DISPUTED` + dispute duration | Cualquiera fuerza stalemate si no abrieron corte. Abrir arbitraje desde `DISPUTED` solo **estrictamente antes**. |
+| Arbitration deadline | timestamp de entrada a `ARBITRATION_ACTIVE` + arbitration duration | Solo si ARBITRATION está habilitado. Cualquiera ejecuta “no gana ninguno” (`RESOLVED_BY_ARBITRATION`). Se deriva del duration snapshotado; no exige respuesta del adapter. |
 
 El stalemate de `DISPUTED` es 50/50 fijo; no usa `disputeTimeoutProviderBps`.
 
@@ -332,10 +330,8 @@ flowchart TD
 
     subgraph ep_edges [EP-EDGE — aristas nombradas]
         F -.->|PAYMENT_PROOF| R
-        FS -.->|ARBITRATION open| AA[ARBITRATION_ACTIVE]
-        D -.->|ARBITRATION open| AA
-        AA -.->|ruling| RA[RESOLVED_BY_ARBITRATION]
-        AA -.->|timeout / refused| ST[STALEMATE]
+        D -.->|ARBITRATION open| AA[ARBITRATION_ACTIVE]
+        AA -.->|Holder / Provider / ninguno| RA[RESOLVED_BY_ARBITRATION]
         AA -.->|dual-sign| R
         AA -.->|dual-sign| S
         AA -.->|dual-sign| C
@@ -395,28 +391,30 @@ Esta arista es permissionless en la ejecución: cualquiera puede someter un proo
 
 #### EP-EDGE-ARB — `ARBITRATION`
 
-Tribunal externo opcional. No reemplaza `DISPUTED`; escala a un ruling autenticado cuando las partes eligieron esa dependencia de confianza.
+Tribunal externo opcional. No reemplaza `DISPUTED`: un deal con ARBITRATION **siempre** entra a `DISPUTED` antes de abrir corte. Desde ahí las partes dual-firman o van al jurado.
 
 | Caso | Desde | Quién | Resultado |
 | --- | --- | --- | --- |
-| CASE-ARB-01 | `FIAT_SENT` | Controller paga fee acotado y abre | `ARBITRATION_ACTIVE`; arranca arbitration deadline |
-| CASE-ARB-02 | `DISPUTED` | Igual, estrictamente antes de `disputeDeadline` | `ARBITRATION_ACTIVE`; **retira** el dispute timeout Core |
-| CASE-ARB-03 | `ARBITRATION_ACTIVE` | Adapter autentica holder win | `RESOLVED_BY_ARBITRATION` |
-| CASE-ARB-04 | `ARBITRATION_ACTIVE` | Adapter autentica provider win | `RESOLVED_BY_ARBITRATION` |
-| CASE-ARB-05 | `ARBITRATION_ACTIVE` | Adapter autentica refused / no-decision | `STALEMATE` 50/50 |
-| CASE-ARB-06 | `ARBITRATION_ACTIVE` | Cualquiera ejecuta arbitration timeout | `STALEMATE` 50/50 |
+| CASE-ARB-01 | `FIAT_SENT` | Controller | Rechaza `openCourt`. Primero CASE-CORE-11 (`DISPUTED`) |
+| CASE-ARB-02 | `DISPUTED` | Controller paga fee acotado y abre, estrictamente antes de `disputeDeadline` | `ARBITRATION_ACTIVE`; **retira** el dispute timeout Core |
+| CASE-ARB-03 | `ARBITRATION_ACTIVE` | Adapter autentica Holder gana | `RESOLVED_BY_ARBITRATION` — 100% Holder, sin completion fee |
+| CASE-ARB-04 | `ARBITRATION_ACTIVE` | Adapter autentica Provider gana | `RESOLVED_BY_ARBITRATION` — 100% Provider, completion fee |
+| CASE-ARB-05 | `ARBITRATION_ACTIVE` | Adapter autentica que no gana ninguno (rehúsa) | `RESOLVED_BY_ARBITRATION` — 50/50 + completion fee |
+| CASE-ARB-06 | `ARBITRATION_ACTIVE` | Cualquiera ejecuta arbitration timeout | Igual que CASE-ARB-05: el tribunal no contestó es “no gana ninguno” |
 | CASE-ARB-07..09 | `ARBITRATION_ACTIVE` | Dual-sign cancel / split / co-signed release | Terminal Core correspondiente |
+
+El jurado **nunca** cierra en `STALEMATE`. Ese estado queda para el timeout de `DISPUTED` cuando no abrieron corte.
 
 Contrato de extensión:
 
 - Adapter y policy inmutables en los términos. Sin selección, abrir arbitraje rechaza.
-- **Solo el Controller** abre corte (`CASE-ARB-01` desde `FIAT_SENT`, `CASE-ARB-02` desde `DISPUTED`). El Provider no. Un relayer solo transporta el open del Controller.
-- Espacio de rulings cerrado: holder win, provider win, o refused/no-decision. Un ruling parcial, receptor alterno, o fee discrecional rechaza.
+- **Solo el Controller** abre corte (`CASE-ARB-02` desde `DISPUTED`). El Provider no. Un relayer solo transporta el open del Controller. Desde `FIAT_SENT` el verbo rechaza.
+- Espacio de rulings cerrado: Holder gana, Provider gana, o no gana ninguno. Un ruling parcial, receptor alterno, o fee discrecional rechaza.
 - El adapter **no** mueve custodia. Comunica un significado; el kernel aplica el mapa económico predeterminado.
 - Fee de corte lo paga la **wallet del caller que abre** (el Controller), no el principal ni el Holder.
-- Slash de bonds, si hay: lock del perdedor a la address de firma del ganador (Holder o Provider). Nunca al Controller.
-- Abrir desde `DISPUTED` abandona el stalemate Core de `disputeDeadline` y lo reemplaza por el mapa de arbitraje (win o stalemate 50/50 fijo).
-- Si el adapter o el tribunal desaparecen, el timeout de arbitraje es la liveness de **ese** path. Las salidas Core siguen siendo la liveness cuando ARBITRATION no está seleccionado.
+- Slash de bonds, si hay: lock del perdedor a la address de firma del ganador (Holder o Provider). Nunca al Controller. Si no gana ninguno, unlock de ambos.
+- Abrir desde `DISPUTED` abandona el stalemate Core de `disputeDeadline` y lo reemplaza por el mapa del jurado (los tres cierres de arriba).
+- Si el adapter o el tribunal desaparecen **después** de abrir, el timeout de arbitraje es la liveness de **ese** path (CASE-ARB-06). Si nunca abrieron corte, `forceStalemate` sigue siendo la liveness de `DISPUTED`.
 - Delisting, pause, o overwrite de policy no pueden hacer que el protocolo rechace un ruling auténtico bajo la policy snapshotada, ni pueden deshabilitar las salidas Core independientes.
 
 ### 9.2 EP-HOOK — ganchos acotados, sin nuevos estados
@@ -533,9 +531,9 @@ Entre transacciones simultáneamente elegibles, gana la primera que cambia estad
 | Caso | Competidores |
 | --- | --- |
 | CASE-RACE-01 | Desde `FUNDED`: mark-fiat, cancel Provider, fiat timeout, mutual cancel; payment proof solo si está habilitado |
-| CASE-RACE-02 | Desde `FIAT_SENT`: release del Controller, claim, abrir `DISPUTED`, dual-sign, payment proof si está, abrir arbitraje si está |
-| CASE-RACE-03 | Abrir `DISPUTED` o arbitraje vs claim en el borde del release deadline: opens solo **antes**; claim solo **en o después** y aún en `FIAT_SENT`. Nunca elegibles al mismo timestamp observado |
-| CASE-RACE-04 | Desde `ARBITRATION_ACTIVE`: ruling, timeout, dual-sign |
+| CASE-RACE-02 | Desde `FIAT_SENT`: release del Controller, claim, abrir `DISPUTED`, dual-sign. Payment proof no: un deal ZK no llega aquí. Abrir corte no: exige `DISPUTED` |
+| CASE-RACE-03 | Abrir `DISPUTED` vs claim en el borde del release deadline: open solo **antes**; claim solo **en o después** y aún en `FIAT_SENT`. Nunca elegibles al mismo timestamp observado |
+| CASE-RACE-04 | Desde `ARBITRATION_ACTIVE`: ruling, timeout (ambos → `RESOLVED_BY_ARBITRATION`), dual-sign |
 | CASE-RACE-05 | Desde `DISPUTED`: dual-sign, stalemate tras `disputeDeadline`, abrir arbitraje si está |
 | CASE-RACE-06 | Ruling final vs arbitration timeout: a partir del deadline ambos pueden someterse; gana el primero |
 | CASE-RACE-07 | Relays duplicados: tras éxito, el siguiente call que cambie estado rechaza |
@@ -563,11 +561,11 @@ El Controller no aparece en esta tabla. No es un lado económico del escrow.
 | OUT-06 Fiat-timeout cancel | `CANCELLED` | 100% Holder | Core |
 | OUT-07 Mutual cancel | `CANCELLED` | 100% Holder | Core |
 | OUT-08 Mutual split | `RESOLVED_SPLIT` | bps firmados, **después** del completion fee sobre el principal completo | Core; también desde `DISPUTED` |
-| OUT-09 Arb holder win | `RESOLVED_BY_ARBITRATION` | 100% Holder | `ARBITRATION` |
-| OUT-10 Arb provider win | `RESOLVED_BY_ARBITRATION` | 100% Provider | `ARBITRATION` |
-| OUT-11 Arb refused | `STALEMATE` | 50/50 protocolo | `ARBITRATION` |
-| OUT-12 Arb timeout | `STALEMATE` | 50/50 protocolo | `ARBITRATION` |
-| OUT-13 Dispute timeout | `STALEMATE` | 50/50 protocolo; cualquiera lo ejecuta | Core (off si `PAYMENT_PROOF`) |
+| OUT-09 Arb Holder gana | `RESOLVED_BY_ARBITRATION` | 100% Holder; sin completion fee | `ARBITRATION` |
+| OUT-10 Arb Provider gana | `RESOLVED_BY_ARBITRATION` | 100% Provider; completion fee | `ARBITRATION` |
+| OUT-11 Arb no gana ninguno (rehúsa) | `RESOLVED_BY_ARBITRATION` | 50/50 + completion fee | `ARBITRATION` |
+| OUT-12 Arb timeout (no contestó) | `RESOLVED_BY_ARBITRATION` | Igual que OUT-11 | `ARBITRATION` |
+| OUT-13 Dispute timeout | `STALEMATE` | 50/50 protocolo; cualquiera lo ejecuta. Solo si **no** abrieron corte | Core (off si `PAYMENT_PROOF`) |
 
 **Completion fee.** Lo declara el paquete que lo cobra, no un campo libre del deal. La base es siempre el **principal completo**, nunca la tajada de un split. Si el fee no cabe en el leftover (`fee > left`), **no se cobra**. El terminal Core sigue. Un paquete no puede revertir release, split, proof ni arb-win.
 
@@ -575,7 +573,7 @@ En un split (OUT-08), incluido el que sale de `DISPUTED`: se deduce el fee sobre
 
 En timeout / cancel Holder-positivo no hay completion fee. En proof ZK, el fee del paquete ZK se cobra al verificar (OUT-03).
 
-**Bonds** (si el paquete está seleccionado): viven en el BondVault, no en el escrow. Cada deal traba un lock hasta su terminal. Se sueltan (vuelven a `available`) en todo terminal pacífico. Slash solo en OUT-09 / OUT-10: lock del perdedor a la address de firma del ganador (Holder o Provider; nunca el Controller) y en todo `STALEMATE` (OUT-11, OUT-12, OUT-13) → **quema** de ambos locks a un sink inmutable, no a la DAO ni a una parte. El timeout de `DISPUTED` sin tribunal **es** stalemate: cualquiera lo llama tras `disputeDeadline`. Detalle en `PACKAGES.md` §5.
+**Bonds** (si el paquete está seleccionado): viven en el BondVault, no en el escrow. Cada deal traba un lock hasta su terminal. Se sueltan (vuelven a `available`) en todo terminal pacífico y cuando el jurado no declara culpable (OUT-11 / OUT-12). Slash solo en OUT-09 / OUT-10: lock del perdedor a la address de firma del ganador (Holder o Provider; nunca el Controller). Quema solo en OUT-13 (`STALEMATE` de `DISPUTED` sin corte): ambos locks a un sink inmutable, no a la DAO ni a una parte. Detalle en `PACKAGES.md` §5.
 
 Claim no autentica fiat. Fiat timeout no es culpa del Provider. En un deal ZK, fiat timeout es la única salida si no hay proof: esperado, no un fallback extra.
 
@@ -591,7 +589,7 @@ Claim no autentica fiat. Fiat timeout no es culpa del Provider. En un deal ZK, f
 - Una acción anyone-callable tiene destinos y economía predeterminados.
 - Mientras `DISPUTED`, release unilateral y claim son imposibles.
 - Un deal con `PAYMENT_PROOF` no entra a `DISPUTED`. Proof o fiat-timeout; no hay otra opción.
-- Tras `disputeDeadline`, cualquiera fuerza `STALEMATE` (50/50). Si hay bonds, se queman. El split dual-firmado es la salida pacífica *antes* de ese reloj.
+- Tras `disputeDeadline`, si no abrieron corte, cualquiera fuerza `STALEMATE` (50/50). Si hay bonds, se queman. El split dual-firmado es la salida pacífica *antes* de ese reloj. Si abrieron corte, el cierre forzado es CASE-ARB-06 (`RESOLVED_BY_ARBITRATION`, no gana ninguno), no `STALEMATE`.
 - En un split, el completion fee se calcula sobre el principal completo y se deduce antes de los bps.
 - Abrir `DISPUTED` no exige fee ni bond de Core.
 - Todo deal snapshottea Holder, Provider y Controller. La activación consume una `HolderAuthorization` EIP-712. Si `Holder == Controller`, esa firma cubre ambos roles. Si no, el Holder nombra al Controller y hace falta `ControllerAcceptance`.
@@ -610,7 +608,7 @@ Una extensión nueva es conforme solo si encaja en una fila de esta tabla. Si no
 | Quiero… | Punto de extensión | Test de no-regresión |
 | --- | --- | --- |
 | Autorelease cuando un rail autentica el pago | EP-EDGE-PROOF | Deal con ZK: proof o fiat-timeout; `DISPUTED`/claim/release unilateral off. Sin el paquete, el grafo Core completo sigue |
-| Un tribunal externo sobre `FIAT_SENT` | EP-EDGE-ARB | Sin ARBITRATION, Core llega a terminal; con adapter muerto, arbitration timeout es ejecutable por cualquiera |
+| Un tribunal externo sobre `DISPUTED` | EP-EDGE-ARB | Sin ARBITRATION, Core llega a `STALEMATE`. Con ARB: siempre `DISPUTED` primero; el jurado cierra en `RESOLVED_BY_ARBITRATION` (tres veredictos). Adapter mudo tras abrir: CASE-ARB-06 |
 | Que otra wallet gestione el deal del Holder | Core (`HolderAuthorization` EIP-712 / EIP-1271) | Mismo typed data para EOA y contrato; holder-gross vuelve al Holder; Provider cobra en su address de firma |
 | Liquidez reutilizable | Servicio de pool como Holder (`POOLS.md`) | El kernel no añade estados ni fees de Controller; el pool produce el mismo `HolderAuthorization` vía EIP-1271 |
 | Entrar o salir de Arbitrum | Composer de rampa (`RAMPS.md`), no Core | Sin la rampa, un Holder ya en Arbitrum activa igual. Stargate caído no congela deals fondeados. Cero fee de protocolo |

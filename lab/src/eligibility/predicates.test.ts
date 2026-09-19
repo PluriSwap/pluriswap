@@ -125,7 +125,7 @@ describe("Deal matrix (CASE-CORE)", () => {
     expect(evalOpenCourt(ctx).reason).toBe(R.PackageNotSelected);
   });
 
-  it("ARB mock without court allowance is InexactPull, not ENABLED", () => {
+  it("ARB from FIAT_SENT → openCourt WrongStatus", () => {
     const d = deal({
       status: Status.FIAT_SENT,
       kinds: PKG.ARB,
@@ -133,6 +133,22 @@ describe("Deal matrix (CASE-CORE)", () => {
         activatedAt: 10n,
         fiatSentAt: 20n,
         disputedAt: 0n,
+        arbitrationOpenedAt: 0n,
+      },
+      blockTimestamp: 30n,
+    });
+    const ctx = { deal: d, sender: controller, credit: null, ruling: null, dualSign: null };
+    expect(evalOpenCourt(ctx).reason).toBe(R.WrongStatus);
+  });
+
+  it("ARB mock without court allowance is InexactPull, not ENABLED", () => {
+    const d = deal({
+      status: Status.DISPUTED,
+      kinds: PKG.ARB,
+      clocks: {
+        activatedAt: 10n,
+        fiatSentAt: 20n,
+        disputedAt: 25n,
         arbitrationOpenedAt: 0n,
       },
       blockTimestamp: 30n,

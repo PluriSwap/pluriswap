@@ -368,17 +368,14 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         _close(dealId, d, left, _released());
     }
 
+    /// @dev Court only opens from DISPUTED. FIAT_SENT must go through openDisputed first.
     function openCourt(bytes32 dealId) external payable nonReentrant {
         Deal storage d = deals[dealId];
         if ((d.pkgs & Packages.ARB) == 0) revert PackageNotSelected();
         _requireNotZk(d);
-        if (d.status != Status.FIAT_SENT && d.status != Status.DISPUTED) revert WrongStatus();
+        if (d.status != Status.DISPUTED) revert WrongStatus();
         if (msg.sender != d.terms.controller) revert Unauthorized();
-        if (d.status == Status.FIAT_SENT) {
-            Clocks.requireStrictlyBefore(d.fiatSentAt, d.terms.releaseDuration);
-        } else {
-            Clocks.requireStrictlyBefore(d.disputedAt, d.terms.disputeDuration);
-        }
+        Clocks.requireStrictlyBefore(d.disputedAt, d.terms.disputeDuration);
         ICourt c = Packages.court(d);
         c.openCourt{value: msg.value}(dealId, msg.sender);
         emit Transitioned(dealId, d.status, Status.ARBITRATION_ACTIVE);
@@ -387,7 +384,8 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     }
 
     /// @dev 1 = Holder wins (refund, Provider's lock to the Holder), 2 = Provider wins (payout, Holder's lock to
-    ///      the Provider), 3 = the court would not decide: half each, no lock moves, both scores record it.
+    ///      the Provider), 3 = neither wins: half each, completion fee, locks back. Never STALEMATE — that
+    ///      status is only the kernel timeout of DISPUTED when the parties did not open court.
     function readRuling(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.ARBITRATION_ACTIVE) revert WrongStatus();
@@ -419,19 +417,19 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
                 )
             );
         } else if (ruling == 3) {
-            _close(dealId, d, d.terms.principal, _stalemate(BondAction.Unlock, IReputation.Close.Stalemate));
+            _close(dealId, d, d.terms.principal, _arbNeither(IReputation.Close.Stalemate));
         } else {
             revert NotRuled();
         }
     }
 
-    /// @dev The court never answered: half each, locks back, nobody's score moves. The court's failure is not
-    ///      the parties' fault.
+    /// @dev The court never answered: same "neither wins" as a refuse. Half each, completion fee, locks
+    ///      back, nobody's score moves. The court's failure is not the parties' fault.
     function forceArbitrationTimeout(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.ARBITRATION_ACTIVE) revert WrongStatus();
         Clocks.requireDue(d.arbitrationOpenedAt, d.terms.arbitrationDuration);
-        _close(dealId, d, d.terms.principal, _stalemate(BondAction.Unlock, IReputation.Close.Silent));
+        _close(dealId, d, d.terms.principal, _arbNeither(IReputation.Close.Silent));
     }
 
     // --- settlement --------------------------------------------------------------------------------------------
@@ -457,6 +455,11 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
 
     function _stalemate(BondAction bond, IReputation.Close close) private pure returns (Outcome memory) {
         return Outcome(Status.STALEMATE, HALF, close, close, bond);
+    }
+
+    /// @dev Jury path: neither side won. Same split and fee as a kernel stalemate, distinct status.
+    function _arbNeither(IReputation.Close close) private pure returns (Outcome memory) {
+        return Outcome(Status.RESOLVED_BY_ARBITRATION, HALF, close, close, BondAction.Unlock);
     }
 
     /// @dev One exit for every terminal. The completion fee is invoiced on the whole pot whenever any of it

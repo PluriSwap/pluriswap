@@ -19,7 +19,7 @@ import {TestToken} from "../src/TestToken.sol";
 import {IArbitratorV2} from "../src/packages/interfaces/IKlerosV2.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 
-/// @dev Core-only except ARBITRATION: activate → markFiat → openCourt on live Kleros.
+/// @dev Core-only except ARBITRATION: activate → markFiat → openDisputed → openCourt on live Kleros.
 contract KlerosDeal is Script {
     using stdJson for string;
 
@@ -56,6 +56,7 @@ contract KlerosDeal is Script {
         escrow.markFiat(id);
         vm.stopBroadcast();
         vm.startBroadcast(holderPk);
+        escrow.openDisputed(id);
         escrow.openCourt{value: cost}(id);
         vm.stopBroadcast();
 

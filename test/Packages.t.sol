@@ -213,15 +213,20 @@ contract PackagesTest is BaseTest {
     }
 
     /// Decision: the court refusing to decide is not proven fault. Locks come back; both scores record the dispute.
-    function test_courtRefuses_unlocksBonds_recordsStalemate() public {
+    function test_courtRefuses_unlocksBonds_recordsNeither() public {
         _fundBonds();
         bytes32 id = _activateArbTrio();
         _markFiat(id);
+        _openDisputed(id);
         vm.prank(holder);
         escrow.openCourt{value: COURT_ETH}(id);
         arbitrator.giveRuling(court.disputeOf(id), 0);
         escrow.readRuling(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
+        uint256 pot = PRINCIPAL - COMP_FEE;
+        assertEq(token.balanceOf(provider), pot / 2);
+        assertEq(token.balanceOf(holder), pot - pot / 2);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE);
         assertEq(token.balanceOf(sink), 0, "court tie burned a bond");
         assertEq(vault.available(SUB_H, address(token)), BOND);
         assertEq(vault.available(SUB_P, address(token)), BOND);
@@ -236,11 +241,16 @@ contract PackagesTest is BaseTest {
         _fundBonds();
         bytes32 id = _activateArbTrio();
         _markFiat(id);
+        _openDisputed(id);
         vm.prank(holder);
         escrow.openCourt{value: COURT_ETH}(id);
         vm.warp(block.timestamp + 1 days);
         escrow.forceArbitrationTimeout(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
+        uint256 pot = PRINCIPAL - COMP_FEE;
+        assertEq(token.balanceOf(provider), pot / 2);
+        assertEq(token.balanceOf(holder), pot - pot / 2);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + COMP_FEE);
         assertEq(token.balanceOf(sink), 0);
         assertEq(vault.available(SUB_H, address(token)), BOND);
         assertEq(vault.available(SUB_P, address(token)), BOND);
@@ -256,6 +266,7 @@ contract PackagesTest is BaseTest {
         _fundBonds();
         bytes32 id = _activateArbTrio();
         _markFiat(id);
+        _openDisputed(id);
         vm.prank(holder);
         escrow.openCourt{value: COURT_ETH}(id);
         arbitrator.giveRuling(court.disputeOf(id), 2);
@@ -326,6 +337,7 @@ contract PackagesTest is BaseTest {
         terms.arbitrationDuration = 1 days;
         bytes32 id = _activateWith(terms, _courtMods(), 1, 1);
         _markFiat(id);
+        _openDisputed(id);
         vm.prank(holder);
         escrow.openCourt{value: COURT_ETH}(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.ARBITRATION_ACTIVE));
@@ -353,6 +365,7 @@ contract PackagesTest is BaseTest {
         mods.court = address(court);
         bytes32 id = _activateWith(terms, mods, 1, 1);
         _markFiat(id);
+        _openDisputed(id);
         vm.prank(holder);
         escrow.openCourt{value: COURT_ETH}(id);
         arbitrator.giveRuling(court.disputeOf(id), 1);
@@ -367,21 +380,16 @@ contract PackagesTest is BaseTest {
         assertEq(vault.available(SUB_H, address(token)), BOND);
     }
 
-    function test_openCourt_fromFiatSent_strictlyBeforeReleaseDeadline() public {
+    function test_openCourt_revertsFromFiatSent() public {
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _one(court.packageId());
-        terms.releaseDuration = 100;
         terms.arbitrationDuration = 1 days;
         bytes32 id = _activateWith(terms, _courtMods(), 1, 1);
         _markFiat(id);
-        vm.warp(block.timestamp + 100);
-
         vm.prank(holder);
-        vm.expectRevert(Clocks.TooLate.selector);
+        vm.expectRevert(Escrow.WrongStatus.selector);
         escrow.openCourt{value: COURT_ETH}(id);
-
-        escrow.claim(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.CLAIMED));
+        assertEq(uint8(escrow.status(id)), uint8(Status.FIAT_SENT));
     }
 
     function test_openCourt_fromDisputed_strictlyBeforeDisputeDeadline() public {

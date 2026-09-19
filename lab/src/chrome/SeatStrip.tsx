@@ -6,7 +6,7 @@ import { Badge, Button, Input, short } from "../ui/atoms.tsx";
 const HINT: Record<string, string> = {
   Holder: "Pone el principal. Firma HolderAuthorization. En P2P también es Controller.",
   Provider: "Paga el fiat offchain. markFiat, cancelByProvider, firma dual-sign.",
-  Controller: "Juzga si el fiat llegó: release / openDisputed / openCourt. Firma dual-sign.",
+  Controller: "Juzga si el fiat llegó: release / openDisputed. Desde DISPUTED: openCourt. Firma dual-sign.",
   Relayer: "Envía las txs que llevan firmas (activate, dual-sign) y los verbos permissionless.",
 };
 

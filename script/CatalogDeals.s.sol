@@ -17,7 +17,7 @@ import {Escrow} from "../src/Escrow.sol";
 import {TestToken} from "../src/TestToken.sol";
 import {ArbitrationMock} from "../src/packages/ArbitrationMock.sol";
 
-/// @dev Sepolia catalog: ZK FUNDED→verifyProof→RELEASED, then arb markFiat→openCourt→holder win.
+/// @dev Sepolia catalog: ZK FUNDED→verifyProof→RELEASED, then arb markFiat→openDisputed→openCourt→holder win.
 contract CatalogDeals is Script {
     using stdJson for string;
 
@@ -93,6 +93,7 @@ contract CatalogDeals is Script {
         escrow.markFiat(arbDeal);
         vm.stopBroadcast();
         vm.startBroadcast(holderPk);
+        escrow.openDisputed(arbDeal);
         escrow.openCourt(arbDeal);
         vm.stopBroadcast();
         require(escrow.status(arbDeal) == Status.ARBITRATION_ACTIVE, "court open");

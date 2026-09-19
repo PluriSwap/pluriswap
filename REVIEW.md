@@ -195,4 +195,5 @@ El recinto Core (firmas, nonce atómico, pull exacto, credit-first del principal
    - Completion fee iff el Provider cobra algo, sobre el pot entero, antes del split. Refund nunca paga.
    - `Status.CLAIMED`: Provider Peaceful, Holder Silent, bonds unlock.
    - Bonds: slash siempre al ganador (address de firma). Tribunal rehúsa → unlock + stalemate en el score. Arbitration timeout → unlock, silencio. Sólo el stalemate de `DISPUTED` quema.
+   - ARBITRATION (2026-09-19): el deal siempre entra a `DISPUTED`; `openCourt` solo desde ahí. El jurado cierra en `RESOLVED_BY_ARBITRATION` (Holder / Provider / ninguno, incluido timeout). `STALEMATE` solo si no abrieron corte.
    - `Terms.hashTerms` rechaza roles/token en cero y `controller == provider`. Zero-checks en `Reputation`, `BondVault`, `KlerosAdapter` (que además pierde el modo standalone), `StargateV2Ramp`. Eventos en `BondVault` y `cancelNonce`.

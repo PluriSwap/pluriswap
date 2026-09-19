@@ -55,18 +55,18 @@ contract ArbitrationMockTest is Test {
 
         bytes32 d3 = keccak256("deal-3");
         _open(d3);
-        arb.submitRuling(d3, ArbitrationMock.Ruling.Stalemate);
-        assertEq(uint8(arb.rulingOf(d3)), uint8(ArbitrationMock.Ruling.Stalemate));
+        arb.submitRuling(d3, ArbitrationMock.Ruling.Neither);
+        assertEq(uint8(arb.rulingOf(d3)), uint8(ArbitrationMock.Ruling.Neither));
     }
 
-    function test_timeoutStalemate() public {
+    function test_timeoutNeither() public {
         _open(DEAL);
         vm.expectRevert(ArbitrationMock.DeadlineNotDue.selector);
         arb.forceTimeout(DEAL);
         vm.warp(block.timestamp + DURATION);
         vm.prank(provider);
         arb.forceTimeout(DEAL);
-        assertEq(uint8(arb.rulingOf(DEAL)), uint8(ArbitrationMock.Ruling.Stalemate));
+        assertEq(uint8(arb.rulingOf(DEAL)), uint8(ArbitrationMock.Ruling.Neither));
     }
 
     function _open(bytes32 dealId) internal {

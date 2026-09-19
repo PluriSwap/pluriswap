@@ -72,8 +72,8 @@ Todo lo que dice **LAB** es mock: `PassportMock.setHuman` no verifica humanidad;
 
 ## Recorrido 3: tribunal
 
-- **ArbitrationMock** (`PATH-ARB-MOCK`): Controller `approve(court, courtFee)` → `markFiat` → `openCourt` → Laboratorio `submitRuling` → `readRuling`.
-- **Kleros** (`PATH-KLEROS`, Sepolia/One): `openCourt` con `msg.value == arbitrationCost(extraData)`; la evidencia se sube en la dApp de Kleros; PluriSwap solo hace `readRuling` cuando `KlerosCore.rule` dejó la sentencia. `submitRuling` se deshabilita si el court es Kleros.
+- **ArbitrationMock** (`PATH-ARB-MOCK`): Controller `approve(court, courtFee)` → `markFiat` → `openDisputed` → `openCourt` → Laboratorio `submitRuling` → `readRuling`.
+- **Kleros** (`PATH-KLEROS`, Sepolia/One): `openDisputed` y después `openCourt` con `msg.value == arbitrationCost(extraData)`; la evidencia se sube en la dApp de Kleros; PluriSwap solo hace `readRuling` cuando `KlerosCore.rule` dejó la sentencia. `submitRuling` se deshabilita si el court es Kleros. El jurado nunca cierra en `STALEMATE`.
 
 ## Flags
 

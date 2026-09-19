@@ -204,16 +204,11 @@ export function evalOpenCourt(input: MatrixInput): Eval {
   const { deal, sender } = input;
   if (!isArb(deal)) return disabled(R.PackageNotSelected);
   if (isZk(deal)) return disabled(R.EdgeOff);
-  if (deal.status !== Status.FIAT_SENT && deal.status !== Status.DISPUTED) {
-    return disabled(R.WrongStatus);
-  }
+  if (deal.status !== Status.DISPUTED) return disabled(R.WrongStatus);
   const missing = requireSender(sender);
   if (missing) return missing;
   if (!eq(sender!, deal.terms.controller)) return disabled(R.Unauthorized);
-  const clock =
-    deal.status === Status.FIAT_SENT
-      ? clockStrictlyBefore(deal.clocks.fiatSentAt, deal.terms.releaseDuration, deal.blockTimestamp)
-      : clockStrictlyBefore(deal.clocks.disputedAt, deal.terms.disputeDuration, deal.blockTimestamp);
+  const clock = clockStrictlyBefore(deal.clocks.disputedAt, deal.terms.disputeDuration, deal.blockTimestamp);
   if (clock) return clock;
   if (input.driftArb) return disabled(R.PackageDrift);
   const pref = input.courtPref;

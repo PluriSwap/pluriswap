@@ -133,9 +133,9 @@ export function buildMatrix(input: MatrixInput): MatrixRow[] {
     {
       verb: "openCourt",
       class: "rol",
-      requiredStatus: "FIAT_SENT|DISPUTED",
+      requiredStatus: "DISPUTED",
       kinds: "ARB ¬ZK",
-      clock: "strictly-before",
+      clock: "strictly-before disputeDeadline",
       senderSeat: "Controller",
     },
     {

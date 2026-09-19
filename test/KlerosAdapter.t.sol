@@ -101,10 +101,10 @@ contract KlerosAdapterTest is Test {
         adapter.openCourt{value: COST}(DEAL, controller);
     }
 
-    function test_rulingMapsZeroToStalemate() public {
+    function test_rulingMapsZeroToNeither() public {
         _open(DEAL);
         arbitrator.giveRuling(0, 0);
-        assertEq(uint8(adapter.readRuling(DEAL)), uint8(KlerosAdapter.Ruling.Stalemate));
+        assertEq(uint8(adapter.readRuling(DEAL)), uint8(KlerosAdapter.Ruling.Neither));
     }
 
     function test_rulingMapsOneToHolderWin() public {

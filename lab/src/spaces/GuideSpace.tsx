@@ -31,8 +31,9 @@ export function GuideSpace() {
           <div>
             <h4>Controller</h4>
             <p>
-              Juzga si el fiat llegó: <code>release</code>, <code>openDisputed</code> u <code>openCourt</code>. En un deal P2P es el mismo
-              Holder; en un deal con agente es otra address y firma un tercer envelope.
+              Juzga si el fiat llegó: <code>release</code> o <code>openDisputed</code>. Desde <code>DISPUTED</code> puede abrir
+              tribunal con <code>openCourt</code>. En un deal P2P es el mismo Holder; en un deal con agente es otra address y firma un
+              tercer envelope.
             </p>
           </div>
         </div>
@@ -209,7 +210,7 @@ export function GuideSpace() {
               <td>
                 <code>readRuling</code> 3, <code>forceArbitrationTimeout</code>
               </td>
-              <td>50 / 50</td>
+              <td>50 / 50 — <code>RESOLVED_BY_ARBITRATION</code></td>
               <td>Sí</td>
               <td>unlock</td>
               <td>Stalemate / Silent</td>
@@ -241,8 +242,9 @@ export function GuideSpace() {
             <h4>ZK o Tribunal (nunca ambos)</h4>
             <p>
               ZK apaga <code>markFiat</code>/<code>claim</code>/<code>openDisputed</code>: el pago se demuestra con <code>verifyProof</code>.
-              Tribunal habilita <code>openCourt</code> (mock o Kleros V2). Con Kleros, PluriSwap abre el caso y lee la sentencia; la
-              evidencia se sube en la dapp de Kleros.
+              Tribunal: siempre <code>openDisputed</code> y después <code>openCourt</code> (mock o Kleros V2). El jurado cierra en{" "}
+              <code>RESOLVED_BY_ARBITRATION</code> (Holder, Provider o ninguno). Con Kleros, PluriSwap abre el caso y lee la sentencia;
+              la evidencia se sube en la dapp de Kleros.
             </p>
           </div>
         </div>

@@ -135,7 +135,7 @@ export function LabSpace() {
               <select value={f.ruling} onChange={(e) => set({ ruling: (e.currentTarget as HTMLSelectElement).value })}>
                 <option value="1">1 · HolderWin (refund, bond Provider → Holder)</option>
                 <option value="2">2 · ProviderWin (payout, bond Holder → Provider)</option>
-                <option value="3">3 · Stalemate (50/50, bonds unlock)</option>
+                <option value="3">3 · Neither (50/50, bonds unlock, RESOLVED_BY_ARBITRATION)</option>
               </select>
             </Field>
             <Button tone="lab" disabled={!!busy || !hasPk || S.courtPref.value?.kind === "kleros"} busy={busy === "submitRuling"} onClick={() => void runLab("submitRuling")}>

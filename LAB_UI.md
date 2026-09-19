@@ -337,7 +337,7 @@ Disposición del lock por terminal (`Packages.disposeBond`, decisión de kernel 
 | `forceStalemate` (DISPUTED vencido sin acuerdo ni tribunal) | **`Burn` ambos** → `sink` | Stalemate / Stalemate |
 | Tribunal: HolderWin | `slash` del Provider → **al Holder** (address firmante) | Peaceful / Faulty |
 | Tribunal: ProviderWin | `slash` del Holder → **al Provider** | Faulty / Peaceful |
-| Tribunal: empate (`Stalemate`) o `forceArbitrationTimeout` | `Unlock` ambos (no hay falta probada) | Silent / Silent |
+| Tribunal: no gana ninguno (`readRuling` 3) o `forceArbitrationTimeout` | `Unlock` ambos (no hay falta probada). Status: `RESOLVED_BY_ARBITRATION` | Stalemate / Silent |
 
 Solo quema el estancamiento voluntario en `DISPUTED`; una sentencia que no encuentra culpable no castiga. El slash paga al ganador, no al sink.
 
@@ -366,9 +366,9 @@ Derivados (UI, misma aritmética que `Clocks.sol`):
 | Reloj absoluto | Fórmula | Predicado kernel |
 | --- | --- | --- |
 | `fiatDeadline` | `activatedAt + fiatDuration` | `timeoutFiat`: `requireDue` → `timestamp >= deadline`. `TooEarly` si no. |
-| `releaseDeadline` | `fiatSentAt + releaseDuration` | `claim`: due. `openDisputed` / `openCourt` desde FIAT_SENT: `requireStrictlyBefore` → `timestamp < deadline`. `TooLate` si no. |
-| `disputeDeadline` | `disputedAt + disputeDuration` | `forceStalemate`: due. `openCourt` desde DISPUTED: strictly-before. |
-| `arbitrationDeadline` | `arbitrationOpenedAt + arbitrationDuration` | `forceArbitrationTimeout`: due. |
+| `releaseDeadline` | `fiatSentAt + releaseDuration` | `claim`: due. `openDisputed`: `requireStrictlyBefore` → `timestamp < deadline`. `TooLate` si no. `openCourt` desde FIAT_SENT: `WrongStatus`. |
+| `disputeDeadline` | `disputedAt + disputeDuration` | `forceStalemate`: due (si no abrieron corte). `openCourt` desde DISPUTED: strictly-before. |
+| `arbitrationDeadline` | `arbitrationOpenedAt + arbitrationDuration` | `forceArbitrationTimeout`: due → `RESOLVED_BY_ARBITRATION` (no gana ninguno), no `STALEMATE`. |
 
 Origen `0` = el reloj no arrancó. No se muestra un deadline fantasma.
 
@@ -377,7 +377,7 @@ Origen `0` = el reloj no arrancó. No se muestra un deadline fantasma.
 | Predicado | `duration = 0` | `duration > 0` |
 | --- | --- | --- |
 | `requireDue` (`timeoutFiat`, `claim`, `forceStalemate`, `forceArbitrationTimeout`) | Enabled **en el mismo bloque** en que se escribe el origen (`timestamp >= origin + 0`) | Enabled cuando `now >= origin + duration` |
-| `requireStrictlyBefore` (`openDisputed`, `openCourt` desde FIAT_SENT o DISPUTED) | **Ya cerrado.** Tras `markFiat`, `fiatSentAt = block.timestamp`, luego `timestamp < fiatSentAt + 0` es imposible en ese bloque y en todos los posteriores. Matriz: `TooLate` de inmediato. Igual para `openCourt` desde DISPUTED si `disputeDuration = 0`. | Enabled mientras `now < origin + duration` |
+| `requireStrictlyBefore` (`openDisputed` desde FIAT_SENT; `openCourt` desde DISPUTED) | **Ya cerrado.** Tras `markFiat`, `fiatSentAt = block.timestamp`, luego `timestamp < fiatSentAt + 0` es imposible en ese bloque y en todos los posteriores. Matriz: `TooLate` de inmediato. Igual para `openCourt` si `disputeDuration = 0`. | Enabled mientras `now < origin + duration` |
 
 Copy en Consentimiento: *«0 = due inmediato **y** strictly-before ya `TooLate`»*. No defaultar plantillas de lab a `0` en un reloj que el Path todavía necesita para una arista strictly-before. `script/Paths.s.sol` ya lo hace: timeout/claim usan `0` en **ese** reloj; `openDisputed` usa `releaseDuration = 100`; stalemate usa `disputeDuration = 0` **después** de una ventana de release no nula (`_terms(3600, 100, 0)`).
 
@@ -406,7 +406,7 @@ Líneas derivadas del panel (no son storage; se etiquetan *proyectado* antes del
 | Tribunal ProviderWin | 10000 | completion sobre el pot | 100% al Provider |
 | Tribunal HolderWin | 0 | **no** hay completion | 100% Holder |
 | `cancelByProvider`, `timeoutFiat`, `mutualCancel` | 0 | **no** hay completion | 100% Holder |
-| `forceStalemate`, tribunal empate, `forceArbitrationTimeout` | 5000 | completion sobre el pot (el Provider recibe algo) | mitades del resto |
+| `forceStalemate` (`STALEMATE`); jurado no gana ninguno (`RESOLVED_BY_ARBITRATION`) | 5000 | completion sobre el pot (el Provider recibe algo) | mitades del resto |
 
 PATH-TRIO se juzga así: activation fee sale en `activate` (pull extra); completion fee sale en `release` **o** en `claim` (misma factura, distinto `Status` y distinto `Close`); bonds `unlock`.
 
@@ -599,7 +599,7 @@ Verbos (nombres on-chain, nunca eufemismos):
 | --- | --- | --- | --- |
 | `PassportMock.setHuman(wallet, subject)` | `src/packages/PassportMock.sol` | Mapa wallet→bytes32. Sin auth. | “Verificar humanidad”. “Passport oficial”. |
 | Ensamblar `proof = abi.encode(dealId, nullifier)` | `src/mocks/VerifierMock.sol` | `verify` hace `abi.decode`. | “Generar ZK proof”. “Circuit V”. |
-| `ArbitrationMock.submitRuling(dealId, ruling)` | `src/packages/ArbitrationMock.sol` | Escribe `Ruling` {None, HolderWin, ProviderWin, Stalemate}. Sin auth. | “El tribunal dictó”. |
+| `ArbitrationMock.submitRuling(dealId, ruling)` | `src/packages/ArbitrationMock.sol` | Escribe `Ruling` {None, HolderWin, ProviderWin, Neither}. Sin auth. | “El tribunal dictó”. |
 | `TestToken.mint` | `src/TestToken.sol` | Faucet de lab. | Activo real. |
 | Reloj RPC Anvil | `evm_increaseTime` / `evm_setNextBlockTimestamp` | Avance de `block.timestamp` en `31337`. Default **off**. | Verbo kernel. No se muestra en Sepolia. |
 
@@ -732,9 +732,9 @@ Checks **kernel** en orden (`Escrow.openCourt`):
 
 1. `PackageNotSelected` si `kinds & ARB == 0`
 2. `EdgeOff` si ZK
-3. `WrongStatus` si no `FIAT_SENT` y no `DISPUTED`
+3. `WrongStatus` si no `DISPUTED` (desde `FIAT_SENT` hay que `openDisputed` primero)
 4. `Unauthorized` si `msg.sender ≠ controller`
-5. `Clocks.TooLate` — FIAT_SENT: strictly-before `fiatSentAt+releaseDuration`; DISPUTED: strictly-before `disputedAt+disputeDuration`. `duration=0` ⇒ `TooLate` inmediato.
+5. `Clocks.TooLate` — strictly-before `disputedAt+disputeDuration`. `disputeDuration=0` ⇒ `TooLate` inmediato.
 6. `PackageDrift` si `PackageId.arbitration(court, partner, key)` no está en `packageIds` (getters vivos de `packageBinding()`)
 7. `court.openCourt{value: msg.value}(dealId, msg.sender)`
 
@@ -876,8 +876,8 @@ Plantillas que `script/*.s.sol` recorren en lote. Un paso = una tx (dual-sign = 
 | `PATH-TRIO` | packages + **su** `testToken` | `(3600, 1800, 7200, 0)` — `TrioDeal.s.sol` | no | LAB `setHuman` ×2, `vault.deposit`, slots P+R+B, activate P2P (dummy CA), preflight `NoPassport`/`InsufficientAvailable`/`CapExceeded`, markFiat, **release** (no claim) | activationFee cobrado; completionFee en release; score Peaceful; bonds unlock |
 | `PATH-ZK-PROOF` | packages | `(3600, 1800, 7200, 0)` | no | slot ZK, FUNDED, LAB `abi.encode(dealId,nullifier)`, `verifyProof` | `RELEASED`; `markFiat` DISABLED `EdgeOff`; verifyFee |
 | `PATH-ZK-TIMEOUT` | packages | `(0, 1800, 7200, 0)` | no | ZK, timeoutFiat | `CANCELLED`, sin fee ZK |
-| `PATH-ARB-MOCK` | packages | **`(3600, 1800, 7200, 1 days)`** — `CatalogDeals.s.sol` (`disputeDuration=7200`, **`arbitrationDuration=1 days`**, no mezclar) | no | court=ArbitrationMock; Controller **approve court** ≥ `courtFee`; `msg.value=0`; markFiat; openCourt; LAB `submitRuling`; `readRuling` | `RESOLVED_BY_ARBITRATION` o `STALEMATE`. `forceArbitrationTimeout` **no** due al abrir (arbDuration ≠ 0). Matriz no ENABLED sin allowance al módulo. |
-| `PATH-KLEROS` | kleros-packages | **`(3600, 1800, 7200, 7 days)`** — `KlerosDeal.s.sol` | no | P2P dummy CA; `KlerosAdapter.kernel()` vs Recinto; `msg.value == arbitrationCost(extraData)` exacto; markFiat; `openCourt` | `ARBITRATION_ACTIVE`; no `submitRuling`. `releaseDuration=1800` deja `openCourt` strictly-before abierto. |
+| `PATH-ARB-MOCK` | packages | **`(3600, 1800, 7200, 1 days)`** — `CatalogDeals.s.sol` (`disputeDuration=7200`, **`arbitrationDuration=1 days`**, no mezclar) | no | court=ArbitrationMock; Controller **approve court** ≥ `courtFee`; `msg.value=0`; markFiat; **openDisputed**; openCourt; LAB `submitRuling`; `readRuling` | `RESOLVED_BY_ARBITRATION` (1, 2 o 3). `forceArbitrationTimeout` **no** due al abrir (arbDuration ≠ 0). Matriz no ENABLED sin allowance al módulo. |
+| `PATH-KLEROS` | kleros-packages | **`(3600, 1800, 7200, 7 days)`** — `KlerosDeal.s.sol` | no | P2P dummy CA; `KlerosAdapter.kernel()` vs Recinto; `msg.value == arbitrationCost(extraData)` exacto; markFiat; **openDisputed**; `openCourt` | `ARBITRATION_ACTIVE`; no `submitRuling`. `disputeDuration=7200` deja `openCourt` strictly-before abierto. |
 | `PATH-POOL-HOLDER` | pool.json cuyo `escrow` == Recinto | `(3600, 1800, 7200, 0)` — `PoolDeal.s.sol` | no | deposit; `authorize(ha)`; **`holder = pool`, `controller = owner` (`holder != controller`)**; `holderSig = ""` (EIP-1271); **CA hashed y firmada** (no dummy); PA del Provider; markFiat; release; `reconcile` | Holder=pool; idle/locked/credits. Dummy CA **revierte** (`ControllerAcceptanceRequired` / `InvalidControllerSignature`). |
 | `PATH-RAMP-TAXI` | ramp.json (USDC, no TestToken) | n/a al Core | no | deal Core con USDC ya en Holder, release, `IRamp.send` | sin compose |
 | `PATH-DRIFT` | packages | — | — | recompute vivo vs `packageIds` | Core exits enabled; badge `DRIFT` |

@@ -41,8 +41,8 @@ El kernel, en un punto nombrado, hace una de estas cosas. Nada más.
 | `invoice` | Activación / contest-open / verificar / completion | `(amount, recipient, payer)` del **paquete**, no del deal | Reject si no se puede cobrar |
 | `reserveBond` | Activación | Lock `dealId → amount` en el BondVault del sujeto | Reject atómico |
 | `verifyProof` | `FUNDED` + ZK | `dealId` ok + `paymentNullifier` fresco de V | Ignore / reject; el deal no cambia |
-| `openCourt` | `FIAT_SENT` o `DISPUTED` | Disputa creada bajo adapter snapshotado | Reject; estado igual |
-| `readRuling` | `ARBITRATION_ACTIVE` | `holder_win` / `provider_win` / `stalemate` | Ignore si no es de esa terna |
+| `openCourt` | `DISPUTED` | Disputa creada bajo adapter snapshotado | Reject; estado igual |
+| `readRuling` | `ARBITRATION_ACTIVE` | `holder_win` / `provider_win` / `neither` | Ignore si no es de esa terna |
 | `disposeBond` | Terminal | Nada: unlock del lock, slash al ganador, o quema | El terminal Core ya commitió |
 | `notifyTerminal` | Después del commit | Sujeto snapshotado (`IEscrow.subjects`), no un `identify` en vivo | Fallo **no** revierte el escrow |
 
@@ -98,11 +98,11 @@ El kernel corre `STATE_MACHINE.md`. Los paquetes no tienen tick.
 | Proof ZK de V | `verifyProof` → `RELEASED` | Cobra `invoice` al verificar (oficial: DAO) |
 | Proof que no es V | Ignore | — |
 | Controller abre `DISPUTED` | Si ZK está on: **reject**. Si no: entra `DISPUTED` | `invoice` contest-open solo si el paquete lo declara |
-| Controller abre arbitraje | Solo si ARBITRATION on y ZK off | Court fee de la wallet del opener al tribunal; contest-open opcional a la DAO |
-| `disputeDeadline` | Cualquiera fuerza `STALEMATE` | — |
+| Controller abre arbitraje | Solo si ARBITRATION on, ZK off, y el deal está en `DISPUTED` | Court fee de la wallet del opener al tribunal; contest-open opcional a la DAO |
+| `disputeDeadline` | Si no abrieron corte: cualquiera fuerza `STALEMATE` | — |
 | Fiat timeout (deal ZK) | `CANCELLED`; principal al Holder | ZK no cobra |
 
-Un deal ZK no llega a `FIAT_SENT` ni a `DISPUTED`. Un deal con arbitraje no usa el stalemate Core de `DISPUTED` una vez abierto el tribunal: lo reemplaza el mapa del adapter (win o stalemate).
+Un deal ZK no llega a `FIAT_SENT` ni a `DISPUTED`. Un deal con ARBITRATION siempre pasa por `DISPUTED`. El stalemate Core de `DISPUTED` corre solo si no abrieron el tribunal. Una vez abierto, el mapa es el del jurado: Holder gana / Provider gana / no gana ninguno — los tres en `RESOLVED_BY_ARBITRATION`.
 
 ### 4.3 Terminal (un solo commit)
 
@@ -160,7 +160,7 @@ Gobernanza de la DAO (tesorería, listados, frontends) es fuera de este archivo.
 | Reputación | `admit` + `invoice` en activación; `notifyTerminal` | Sujeto, principal, bond, `inFlight` | cap / ok / fee | Mutar un deal vivo; revertir settlement |
 | Bonds | `reserveBond` / `disposeBond` | Vault del sujeto, `dealId`, outcome | Lock; unlock/slash/quema | Mezclar con principal; withdraw de `locked`; elegir destinos fuera de la fórmula |
 | ZK | `verifyProof`; apaga CASE-CORE-11/07/06 | Proof de V, `dealId`, `paymentNullifier` | `RELEASED` + invoice | Aceptar otro verifier; reusar nullifier o proof de otro deal; bloquear fiat-timeout |
-| Arbitraje | `openCourt` / `readRuling` | Fee del Controller | Estado `ARBITRATION_ACTIVE` o terna holder_win / provider_win / stalemate | Mover custodia; ruling parcial; que abra alguien que no es el Controller |
+| Arbitraje | `openCourt` / `readRuling` | Fee del Controller | Estado `ARBITRATION_ACTIVE` o terna Holder gana / Provider gana / no gana ninguno | Mover custodia; ruling parcial; que abra alguien que no es el Controller; abrir desde `FIAT_SENT` |
 | DAO | Ninguno propio | — | Crédito si es recipient | Inyectarse en un deal que no eligió su paquete |
 
 Pool no está en esta matriz. Es un Holder (`POOLS.md`). Habla `HolderAuthorization`, no un perfil de protección.
@@ -175,7 +175,7 @@ Rampa tampoco. Es un composer delante o detrás del escrow (`RAMPS.md`). No tien
 | --- | --- |
 | Paquete requerido ausente, revert, o evidencia stale en activación | No hay deal |
 | ZK no produce proof | Fiat-timeout / cancel; no `DISPUTED` |
-| Adapter de arbitraje mudo | Arbitration timeout → `STALEMATE`; cualquiera lo ejecuta |
+| Adapter de arbitraje mudo | Arbitration timeout → `RESOLVED_BY_ARBITRATION` (no gana ninguno); cualquiera lo ejecuta |
 | `notifyTerminal` (reputación) revierte | Escrow intacto; retry permissionless |
 | Paquete deriva su policy post-activación (el `packageId` firmado deja de matchear) | `verifyProof` / `openCourt`: reject (`PackageDrift`). Completion fee: el paquete pierde el cobro (fee 0) y el terminal Core sigue. `disposeBond`: fail-open, el lock queda en el vault (TRUST-03) |
 | Fee de verificación o completion mayor que el leftover | No se cobra ese fee. El terminal Core se commitea. Nunca revert |
@@ -193,5 +193,5 @@ Rampa tampoco. Es un composer delante o detrás del escrow (`RAMPS.md`). No tien
 - Fees: el paquete declara; el kernel cobra en un momento de la lista cerrada.
 - La DAO es address de crédito, no autoridad.
 - Admisión fail-closed. Post-terminal fail-open respecto del escrow.
-- Un deal ZK no entra a `DISPUTED`. Un deal sin ZK puede; el timeout de esa disputa es `STALEMATE`.
+- Un deal ZK no entra a `DISPUTED`. Un deal sin ZK puede; el timeout de esa disputa, si no abrieron corte, es `STALEMATE`. El jurado nunca cierra en `STALEMATE`.
 - Protección nunca reescribe Holder, Provider, Controller, ni el retorno del principal al Holder.

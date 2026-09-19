@@ -64,6 +64,8 @@ contract PoolArbTest is BaseTest {
         vm.prank(provider);
         escrow.markFiat(id);
         vm.prank(controller);
+        escrow.openDisputed(id);
+        vm.prank(controller);
         escrow.openCourt{value: COURT_ETH}(id);
         arbitrator.giveRuling(court.disputeOf(id), 2);
         escrow.readRuling(id);
@@ -85,6 +87,8 @@ contract PoolArbTest is BaseTest {
         bytes32 id = _activateArb(1, 1, 1);
         vm.prank(provider);
         escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.openDisputed(id);
         vm.prank(controller);
         escrow.openCourt{value: COURT_ETH}(id);
         arbitrator.giveRuling(court.disputeOf(id), 1);

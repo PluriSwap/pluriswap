@@ -40,7 +40,7 @@ contract KlerosAdapter is ICourt {
         None,
         HolderWin,
         ProviderWin,
-        Stalemate
+        Neither
     }
 
     IArbitratorV2 public immutable arbitrator;
@@ -140,8 +140,9 @@ contract KlerosAdapter is ICourt {
         return (dealId, t.holder, t.provider, t.token, _amount(t.token, t.principal));
     }
 
+    /// @dev Kleros 0 (refuse) → ICourt 3 (neither). The kernel never closes that path as STALEMATE.
     function _map(uint256 klerosRuling) internal pure returns (Ruling) {
-        if (klerosRuling == 0) return Ruling.Stalemate;
+        if (klerosRuling == 0) return Ruling.Neither;
         if (klerosRuling == 1) return Ruling.HolderWin;
         if (klerosRuling == 2) return Ruling.ProviderWin;
         revert InvalidRuling();

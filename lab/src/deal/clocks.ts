@@ -46,7 +46,7 @@ export function deriveClocks(clocks: DealClocks, terms: DealTerms, now: bigint):
       duration: terms.releaseDuration,
       durationField: "releaseDuration",
       dueVerb: "claim",
-      strictlyBeforeVerb: "openDisputed / openCourt from FIAT_SENT",
+      strictlyBeforeVerb: "openDisputed",
     },
     {
       name: "disputeDeadline",

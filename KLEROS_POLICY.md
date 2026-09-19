@@ -10,7 +10,7 @@ The only question is: **who should receive the escrowed amount?**
 
 - **Holder** (option 1): the payment was not completed as agreed. The escrowed amount returns to the Holder.
 - **Provider** (option 2): the payment was completed as agreed. The escrowed amount is released to the Provider.
-- **Refuse to Arbitrate** (option 0): the case cannot be decided on the evidence, or the request is invalid. The escrow splits 50/50; no party is penalised.
+- **Refuse to Arbitrate** (option 0): the case cannot be decided on the evidence, or the request is invalid. Neither side wins: the escrow splits 50/50 and a completion fee is charged if the package declares one. Bonds, if any, return to both parties. The deal closes as `RESOLVED_BY_ARBITRATION`, not as a Core `STALEMATE`.
 
 There is no partial award. Jurors do not set amounts, fees, or damages; the smart contract applies the outcome.
 
@@ -48,7 +48,7 @@ Refusing is not a tie-break in favour of either party: the contract splits the e
 
 ## 6. What happens after the ruling
 
-The ruling is delivered to the PluriSwap contract by Kleros once appeals are exhausted. The contract then releases the escrowed amount according to the option chosen, applies any protocol completion fee (only if the Provider receives funds), settles collateral (the losing party's bond, if any, goes to the winning party; on a refusal both bonds are returned) and records the outcome in the parties' on-chain reputation. None of this requires further action by jurors.
+The ruling is delivered to the PluriSwap contract by Kleros once appeals are exhausted. The contract then releases the escrowed amount according to the option chosen, applies any protocol completion fee (only if the Provider receives funds — including a 50/50 when neither wins), settles collateral (the losing party's bond, if any, goes to the winning party; on a refusal both bonds are returned) and records the outcome in the parties' on-chain reputation. All three jury outcomes close as `RESOLVED_BY_ARBITRATION`. None of this requires further action by jurors.
 
 ## 7. Evidence handling
 

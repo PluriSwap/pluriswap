@@ -210,10 +210,7 @@ contract PackagesHandler is HandlerBase {
 
     function _canOpenCourt(bytes32 id) internal view returns (bool) {
         if (!_arb(id) || _zk(id)) return false;
-        Status s = _status(id);
-        if (s == Status.FIAT_SENT) return !_releaseDue(id);
-        if (s == Status.DISPUTED) return !_disputeDue(id);
-        return false;
+        return _status(id) == Status.DISPUTED && !_disputeDue(id);
     }
 
     function _canRule(bytes32 id) internal view returns (bool) {

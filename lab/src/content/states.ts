@@ -29,15 +29,15 @@ export const STATE_DOCS: Record<number, StateDoc> = {
     name: "FIAT_SENT",
     kind: "active",
     meaning: "El Provider dice que pagó. El Controller debe confirmar (release) o negar (openDisputed).",
-    clock: "releaseDuration desde fiatSentAt → claim (due) / openDisputed y openCourt (strictly-before)",
+    clock: "releaseDuration desde fiatSentAt → claim (due) / openDisputed (strictly-before)",
     ball: "Controller. Si se vence, cualquiera: claim (paga al Provider).",
   },
   [Status.DISPUTED]: {
     name: "DISPUTED",
     kind: "active",
-    meaning: "El Controller negó el pago. Ventana para acordar por dual-sign o escalar a tribunal.",
+    meaning: "El Controller negó el pago. Ventana para acordar por dual-sign o, si hay ARB, abrir el jurado.",
     clock: "disputeDuration desde disputedAt → forceStalemate (due) / openCourt (strictly-before)",
-    ball: "Provider + Controller (dual-sign) o Controller (openCourt). Si se vence: forceStalemate, 50/50 y bonds quemados.",
+    ball: "Provider + Controller (dual-sign) o Controller (openCourt). Si se vence sin corte: forceStalemate, 50/50 y bonds quemados.",
   },
   [Status.ARBITRATION_ACTIVE]: {
     name: "ARBITRATION_ACTIVE",
@@ -67,7 +67,7 @@ export const STATE_DOCS: Record<number, StateDoc> = {
   [Status.STALEMATE]: {
     name: "STALEMATE",
     kind: "terminal",
-    meaning: "50/50 sin culpable: disputa vencida (bonds quemados), tribunal que se negó, o tribunal que no respondió (bonds devueltos).",
+    meaning: "50/50 del kernel: disputa vencida sin abrir corte. Bonds quemados. El jurado nunca cierra acá.",
     ball: "Nadie.",
   },
   [Status.CANCELLED]: {
@@ -79,7 +79,7 @@ export const STATE_DOCS: Record<number, StateDoc> = {
   [Status.RESOLVED_BY_ARBITRATION]: {
     name: "RESOLVED_BY_ARBITRATION",
     kind: "terminal",
-    meaning: "El tribunal decidió a favor de una parte. El bond del perdedor fue al ganador.",
+    meaning: "Cierre del jurado: gana Holder, gana Provider, o no gana ninguno (50/50 + completion fee). Incluye el timeout si el tribunal no contestó.",
     ball: "Nadie.",
   },
 };
@@ -127,15 +127,13 @@ export const EDGES: Edge[] = [
   { verb: "mutualCancel", from: Status.FIAT_SENT, to: Status.CANCELLED },
   { verb: "coSignedRelease", from: Status.FIAT_SENT, to: Status.RELEASED },
   { verb: "mutualSplit", from: Status.FIAT_SENT, to: Status.RESOLVED_SPLIT },
-  { verb: "openCourt", from: Status.FIAT_SENT, to: Status.ARBITRATION_ACTIVE, needs: "arb", notZk: true },
   { verb: "forceStalemate", from: Status.DISPUTED, to: Status.STALEMATE },
   { verb: "mutualCancel", from: Status.DISPUTED, to: Status.CANCELLED },
   { verb: "coSignedRelease", from: Status.DISPUTED, to: Status.RELEASED },
   { verb: "mutualSplit", from: Status.DISPUTED, to: Status.RESOLVED_SPLIT },
   { verb: "openCourt", from: Status.DISPUTED, to: Status.ARBITRATION_ACTIVE, needs: "arb", notZk: true },
   { verb: "readRuling", from: Status.ARBITRATION_ACTIVE, to: Status.RESOLVED_BY_ARBITRATION, needs: "arb" },
-  { verb: "readRuling", from: Status.ARBITRATION_ACTIVE, to: Status.STALEMATE, needs: "arb" },
-  { verb: "forceArbitrationTimeout", from: Status.ARBITRATION_ACTIVE, to: Status.STALEMATE, needs: "arb" },
+  { verb: "forceArbitrationTimeout", from: Status.ARBITRATION_ACTIVE, to: Status.RESOLVED_BY_ARBITRATION, needs: "arb" },
   { verb: "mutualCancel", from: Status.ARBITRATION_ACTIVE, to: Status.CANCELLED, needs: "arb" },
   { verb: "coSignedRelease", from: Status.ARBITRATION_ACTIVE, to: Status.RELEASED, needs: "arb" },
   { verb: "mutualSplit", from: Status.ARBITRATION_ACTIVE, to: Status.RESOLVED_SPLIT, needs: "arb" },
