@@ -15,7 +15,8 @@ import {
     CoSignedRelease,
     MutualSplit,
     PackageMods,
-    BondAction
+    BondAction,
+    isTerminal
 } from "./libraries/Types.sol";
 import {IEscrow} from "./interfaces/IEscrow.sol";
 import {Terms} from "./libraries/Terms.sol";
@@ -464,7 +465,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     ///      can never apply a reputation delta twice or dispose the same lock twice.
     function retryPostTerminal(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
-        if (!_isTerminal(d.status)) revert WrongStatus();
+        if (!isTerminal(d.status)) revert WrongStatus();
         uint8 pending = d.postPending;
         if (pending == 0) revert NothingPending();
         d.postPending = Packages.runPostTerminal(d, dealId, d.closeH, d.closeP, d.bondAction, pending);
@@ -476,14 +477,6 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     }
 
     // --- internals -------------------------------------------------------------------------------------------------
-
-    /// @dev The six statuses `_close` can write. `Pool._terminal` hand-duplicates this set with no
-    ///      compile-time coupling; the kernel is the source of truth, so if a seventh terminal is ever added
-    ///      this is the function to change and the pool is the one that will silently mis-handle it.
-    function _isTerminal(Status s) private pure returns (bool) {
-        return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
-            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
-    }
 
     function _released() private pure returns (Outcome memory) {
         return Outcome(Status.RELEASED, ALL, IReputation.Close.Peaceful, IReputation.Close.Peaceful, BondAction.Unlock);

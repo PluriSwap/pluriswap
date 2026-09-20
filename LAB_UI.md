@@ -308,7 +308,7 @@ Servicio Holder-contrato (`POOLS.md`). **No** es un perfil del kernel.
 | **Firmado** | El mismo `HolderAuthorization`. El pool responde EIP-1271 `isValidSignature(digest, bytes) == 0x1626ba7e`. Bytes vacías. |
 | **Vivo (espacio propio)** | `life` (`NONE, ACTIVE, DEFICIENT, RUNOFF, WINDING_DOWN, CLOSED`), `idle`, `locked`, `credits`, `consumed`, `nav()`, `totalShares`, `sharesOf`, `sponsors`, `designated`, `auths[nonce]`, `controllerFeeBps`, `escrow`, `token`. |
 
-Verbos de *este* objeto, no del Deal: `deposit`, `redeem`, `authorize(ha, mods)`, `unlock(nonce)`, `reconcile(nonce, providerNonce, controllerNonce)`, `setController` (kick de designated, futuro-only), `startRunoff`, `endRunoff`, `windDown`, `withdrawCredit`, `sync`.
+Verbos de *este* objeto, no del Deal: `deposit`, `redeem`, `authorize(ha, mods)`, `unlock(nonce)`, `reconcile(nonce)`, `setController` (kick de designated, futuro-only), `startRunoff`, `endRunoff`, `windDown`, `withdrawCredit`, `sync`.
 
 La vista kernel del deal sigue mostrando `Holder = 0xpool…`. No se inyectan NAV ni Sponsors en el panel de términos.
 

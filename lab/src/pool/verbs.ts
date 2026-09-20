@@ -82,14 +82,12 @@ export async function poolReconcile(args: {
   pool: HexAddress;
   pk: string;
   nonce: bigint;
-  providerNonce: bigint;
-  controllerNonce: bigint;
 }): Promise<Hex> {
   return writeContractTx({
     ...args,
     address: args.pool,
     abi: poolAbi,
     functionName: "reconcile",
-    functionArgs: [args.nonce, args.providerNonce, args.controllerNonce],
+    functionArgs: [args.nonce],
   });
 }

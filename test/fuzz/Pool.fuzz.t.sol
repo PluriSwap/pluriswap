@@ -147,7 +147,7 @@ contract PoolFuzzTest is BaseTest {
         (, uint256 returned,) = escrow.settlementOf(id);
         assertEq(pool.nav(), deposit - (principal - returned), "preview NAV != deposit - consumed principal");
 
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         uint256 feePaid = returned < principal ? fee : 0;
         assertEq(pool.nav(), deposit - (principal - returned) - feePaid, "NAV after reconcile");
         assertEq(pool.consumed(), (principal - returned) + feePaid, "consumed");

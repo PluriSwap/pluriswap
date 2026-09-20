@@ -86,8 +86,10 @@ contract PoolHandler is HandlerBase {
         uint256 have = pool.sharesOf(lp);
         if (have == 0) return;
         sharesIn = bound(sharesIn, 1, have);
-        uint256 out = sharesIn * pool.nav() / pool.totalShares();
-        if (out == 0 || out > pool.idle()) return;
+        uint256 n = pool.nav();
+        uint256 out = sharesIn * n / pool.totalShares();
+        if (out > pool.idle()) return;
+        if (out == 0 && n != 0) return;
         uint256 before = token.balanceOf(lp);
         vm.prank(lp);
         pool.redeem(sharesIn);
@@ -181,8 +183,7 @@ contract PoolHandler is HandlerBase {
         (uint256 i, bool ok) = _pickAuth(seed, _canReconcile);
         if (!ok) return;
         Auth storage a = auths[i];
-        Ghost storage g = ghosts[a.dealId];
-        pool.reconcile(a.nonce, g.providerNonce, g.controllerNonce);
+        pool.reconcile(a.nonce);
         a.reconciled = true;
     }
 
@@ -201,7 +202,8 @@ contract PoolHandler is HandlerBase {
 
     function _canUnlock(uint256 i) internal view returns (bool) {
         Auth storage a = auths[i];
-        return a.dealId == bytes32(0) && !a.unlocked && block.timestamp > a.deadline;
+        return
+            a.dealId == bytes32(0) && !a.unlocked && (block.timestamp > a.deadline || pool.life() != Pool.Life.ACTIVE);
     }
 
     function _canReconcile(uint256 i) internal view returns (bool) {

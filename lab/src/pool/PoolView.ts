@@ -10,8 +10,6 @@ export function renderPoolView(
     holderIsPool: boolean;
     depositAmt: string;
     unlockNonce: string;
-    reconP: string;
-    reconC: string;
     error: string | null;
     suggested: string | null;
   },
@@ -21,8 +19,6 @@ export function renderPoolView(
     holderIsPool: () => void;
     depositAmt: (v: string) => void;
     unlockNonce: (v: string) => void;
-    reconP: (v: string) => void;
-    reconC: (v: string) => void;
     probe: () => void;
     useSuggested: () => void;
     fillHolder: () => void;
@@ -78,13 +74,11 @@ export function renderPoolView(
       }
       <div class="form-grid">
         <label>deposit amount <input id="depositAmt" value="${esc(model.depositAmt)}" /></label>
-        <label>unlock nonce <input id="unlockNonce" value="${esc(model.unlockNonce)}" /></label>
-        <label>reconcile providerNonce <input id="reconP" value="${esc(model.reconP)}" /></label>
-        <label>reconcile controllerNonce <input id="reconC" value="${esc(model.reconC)}" /></label>
+        <label>holder nonce (unlock / reconcile) <input id="unlockNonce" value="${esc(model.unlockNonce)}" /></label>
       </div>
       <p>
         <button type="button" id="deposit" ${model.poolFlag ? "" : "disabled"}>deposit</button>
-        <button type="button" id="authorize" ${model.poolFlag ? "" : "disabled"}>authorize(ha)</button>
+        <button type="button" id="authorize" ${model.poolFlag ? "" : "disabled"}>authorize(ha, mods)</button>
         <button type="button" id="unlock" ${model.poolFlag ? "" : "disabled"}>unlock</button>
         <button type="button" id="reconcile" ${model.poolFlag ? "" : "disabled"}>reconcile</button>
       </p>
@@ -101,12 +95,6 @@ export function renderPoolView(
   });
   root.querySelector("#unlockNonce")?.addEventListener("change", (e) => {
     on.unlockNonce((e.target as HTMLInputElement).value.trim());
-  });
-  root.querySelector("#reconP")?.addEventListener("change", (e) => {
-    on.reconP((e.target as HTMLInputElement).value.trim());
-  });
-  root.querySelector("#reconC")?.addEventListener("change", (e) => {
-    on.reconC((e.target as HTMLInputElement).value.trim());
   });
   root.querySelector("#probe")?.addEventListener("click", () => on.probe());
   root.querySelector("#usePool")?.addEventListener("click", () => on.useSuggested());

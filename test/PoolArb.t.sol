@@ -73,7 +73,7 @@ contract PoolArbTest is BaseTest {
         assertEq(holderAmt, 0);
         assertEq(providerAmt, PRINCIPAL);
 
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         assertEq(pool.consumed(), PRINCIPAL + fee);
         assertEq(pool.idle(), 0);
         assertEq(pool.nav(), 0);
@@ -94,7 +94,7 @@ contract PoolArbTest is BaseTest {
         assertEq(uint8(st), uint8(Status.RESOLVED_BY_ARBITRATION));
         assertEq(holderAmt, PRINCIPAL);
 
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         assertEq(pool.consumed(), 0);
         assertEq(pool.idle(), PRINCIPAL + fee);
         assertEq(pool.nav(), PRINCIPAL + fee);

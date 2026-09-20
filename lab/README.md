@@ -117,7 +117,7 @@ PATH-KLEROS `(3600,1800,7200,7 days)`: `kernel()` vs Recinto; `msg.value == arbi
 
 Flag `pool`. PATH-POOL-HOLDER `(3600,1800,7200,0)` contra el JSON cuyo `escrow` es el Recinto. Banner si `pool.escrow() ≠ Recinto`.
 
-Tres envelopes: HA vía EIP-1271 (`holderSig = ""`), PA del Provider, **CA hashed** (dummy revierte). `holder = pool`, `controller = agente`. `authorize(ha)` en el vault **antes** de activate. Constitución (NAV, shares, deposit) no entra en la matriz del deal. Kick futuro-only: no hay botón.
+Tres envelopes: HA vía EIP-1271 (`holderSig = ""`), PA del Provider, **CA hashed** (dummy revierte). `holder = pool`, `controller = agente`. `authorize(ha, mods)` en el vault **antes** de activate. Constitución (NAV, shares, deposit) no entra en la matriz del deal. Kick futuro-only: no hay botón.
 
 ## Demo PR-12: rampa taxi + catálogo
 

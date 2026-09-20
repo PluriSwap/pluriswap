@@ -141,7 +141,7 @@ Un crédito del pool cuenta una vez. Vuelve a estar disponible para un deal nuev
 
 Settlement Core commitea el record **antes** de cualquier journal del pool. Un callback del pool no corre en el path de settlement. Si el journal local revierte, el outcome del deal no se toca.
 
-El vault oficial deriva NAV de ese record en `reconcile` (permissionless, lee `settlementOf`). Un custom untrusted puede consumir el record después, una vez. Su fallo es su problema.
+El vault oficial deriva NAV de ese record en `reconcile(nonce)` (permissionless, lee `dealOf` + `settlementOf` del nonce del Holder). Un custom untrusted puede consumir el record después, una vez. Su fallo es su problema.
 
 ---
 
@@ -172,7 +172,7 @@ stateDiagram-v2
 | `WINDING_DOWN` | No | No | Igual |
 | `CLOSED` | No | No | No |
 
-`nav = idle + credits + locked`. Redeem paga `shares * nav / totalShares` y revierte si eso supera idle. El locked es receivable: salir a NAV completo con deals vivos exige esperar (`RUNOFF`).
+`nav = idle + credits + locked`. Redeem paga `shares * nav / totalShares` y revierte si eso supera idle. Si `nav == 0` (el pozo se consumió), `redeem` quema shares y no paga: así el vault puede cerrar o aceptar un primer depósito nuevo. El locked es receivable: salir a NAV completo con deals vivos exige esperar (`RUNOFF`). Un `authorize` pendiente cuyo digest ya no validaría (kick, runoff, wind-down) se `unlock`ea sin esperar el deadline de la HA.
 
 Deficiencia: `onHand < idle + credits`. Un `deposit` tapa primero el agujero (sin mint de shares) y después invierte el resto. El principal en escrow es receivable, no liquidez. `WINDING_DOWN` y `CLOSED` no vuelven a `ACTIVE`. `RUNOFF` sí, si `locked == 0` y quedan shares. Otra identidad si cambian los Sponsors.
 

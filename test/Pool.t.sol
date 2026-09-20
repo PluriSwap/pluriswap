@@ -272,6 +272,30 @@ contract PoolTest is BaseTest {
         assertEq(pool.isValidSignature(_typed(Consent.hashHolderAuthorization(ha)), ""), bytes4(0));
     }
 
+    function test_kick_unlocksBeforeDeadline() public {
+        HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
+        vm.prank(controller);
+        pool.authorize(ha, _noMods());
+        vm.prank(holder);
+        pool.setController(controller, false);
+
+        pool.unlock(1);
+        assertEq(pool.idle(), PRINCIPAL);
+        assertEq(pool.locked(), 0);
+    }
+
+    function test_runoff_unlocksBeforeDeadline() public {
+        HolderAuthorization memory ha = _holderAuth(_poolHolderTerms(), 1);
+        vm.prank(controller);
+        pool.authorize(ha, _noMods());
+        vm.prank(holder);
+        pool.startRunoff();
+
+        pool.unlock(1);
+        assertEq(pool.idle(), PRINCIPAL);
+        assertEq(pool.locked(), 0);
+    }
+
     function test_unlock_revertsIfActivated() public {
         _activatePool(1, 1, 1);
         vm.warp(block.timestamp + 2 days);
@@ -283,7 +307,7 @@ contract PoolTest is BaseTest {
         bytes32 id = _activatePool(1, 1, 1);
         vm.prank(provider);
         escrow.cancelByProvider(id);
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         assertEq(pool.idle(), PRINCIPAL);
         assertEq(pool.locked(), 0);
         assertEq(pool.consumed(), 0);
@@ -296,7 +320,7 @@ contract PoolTest is BaseTest {
         escrow.markFiat(id);
         vm.prank(controller);
         escrow.release(id);
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         assertEq(pool.idle(), 0);
         assertEq(pool.locked(), 0);
         assertEq(pool.consumed(), PRINCIPAL);
@@ -333,7 +357,7 @@ contract PoolTest is BaseTest {
         escrow.markFiat(id);
         vm.prank(controller);
         escrow.release(id);
-        p.reconcile(1, 1, 1);
+        p.reconcile(1);
         assertEq(p.consumed(), PRINCIPAL + fee);
         assertEq(p.idle(), 0);
         assertEq(token.balanceOf(controller), fee);
@@ -361,7 +385,7 @@ contract PoolTest is BaseTest {
         bytes32 id = escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
         vm.prank(provider);
         escrow.cancelByProvider(id);
-        p.reconcile(1, 1, 1);
+        p.reconcile(1);
         assertEq(p.idle(), PRINCIPAL + fee);
         assertEq(p.consumed(), 0);
         assertEq(token.balanceOf(controller), 0);
@@ -410,7 +434,7 @@ contract PoolTest is BaseTest {
 
         vm.prank(provider);
         escrow.cancelByProvider(id);
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         vm.prank(holder);
         pool.redeem(PRINCIPAL);
         assertEq(uint8(pool.life()), uint8(Pool.Life.CLOSED));
@@ -465,13 +489,44 @@ contract PoolTest is BaseTest {
         escrow.markFiat(id);
         vm.prank(controller);
         escrow.release(id);
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         assertEq(pool.nav(), 0);
         assertTrue(pool.totalShares() > 0);
         token.mint(holder, PRINCIPAL);
         vm.prank(holder);
         vm.expectRevert(Pool.ZeroNav.selector);
         pool.deposit(PRINCIPAL);
+
+        uint256 shares = pool.sharesOf(holder);
+        vm.prank(holder);
+        pool.redeem(shares);
+        assertEq(pool.sharesOf(holder), 0);
+        assertEq(pool.totalShares(), 0);
+        assertEq(pool.nav(), 0);
+
+        token.mint(holder, PRINCIPAL);
+        vm.prank(holder);
+        pool.deposit(PRINCIPAL);
+        assertEq(pool.sharesOf(holder), PRINCIPAL);
+        assertEq(pool.idle(), PRINCIPAL);
+    }
+
+    function test_redeem_zeroNavThenClosed() public {
+        bytes32 id = _activatePool(1, 1, 1);
+        vm.prank(provider);
+        escrow.markFiat(id);
+        vm.prank(controller);
+        escrow.release(id);
+        pool.reconcile(1);
+
+        vm.prank(holder);
+        pool.windDown();
+        uint256 shares = pool.sharesOf(holder);
+        vm.prank(holder);
+        pool.redeem(shares);
+        assertEq(uint8(pool.life()), uint8(Pool.Life.CLOSED));
+        assertEq(pool.totalShares(), 0);
+        assertEq(pool.locked(), 0);
     }
 
     function test_fee_maxBps_controllerTakesPrincipal() public {
@@ -491,7 +546,7 @@ contract PoolTest is BaseTest {
         escrow.markFiat(id);
         vm.prank(controller);
         escrow.release(id);
-        p.reconcile(1, 1, 1);
+        p.reconcile(1);
         assertEq(token.balanceOf(controller), PRINCIPAL);
         assertEq(token.balanceOf(provider), PRINCIPAL);
         assertEq(p.consumed(), PRINCIPAL * 2);
@@ -583,7 +638,7 @@ contract PoolTest is BaseTest {
         escrow.release(id);
 
         vm.mockCallRevert(address(token), abi.encodeCall(IERC20.transfer, (controller, fee)), "blocked");
-        p.reconcile(1, 1, 1);
+        p.reconcile(1);
         assertEq(p.consumed(), PRINCIPAL + fee);
         assertEq(p.nav(), 0);
         assertEq(token.balanceOf(controller), 0);
@@ -600,15 +655,15 @@ contract PoolTest is BaseTest {
     function test_reconcile_twiceAndBeforeTerminalRevert() public {
         bytes32 id = _activatePool(1, 1, 1);
         vm.expectRevert(Pool.StillLive.selector);
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
 
         vm.prank(provider);
         escrow.markFiat(id);
         vm.prank(controller);
         escrow.release(id);
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         vm.expectRevert(Pool.NoAuth.selector);
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
     }
 
     function test_authorize_expiredDeadlineReverts() public {
@@ -658,7 +713,7 @@ contract PoolTest is BaseTest {
         escrow.markFiat(id);
         vm.prank(controller);
         escrow.release(id);
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         assertEq(pool.controllerFeeBps(), 0);
         assertEq(token.balanceOf(controller), 0);
         assertEq(pool.consumed(), PRINCIPAL);
@@ -694,7 +749,7 @@ contract PoolTest is BaseTest {
         assertEq(returned, PRINCIPAL / 2);
         assertTrue(returned < PRINCIPAL);
 
-        p.reconcile(1, 1, 1);
+        p.reconcile(1);
         assertEq(p.consumed(), PRINCIPAL - returned + fee);
         assertEq(p.idle(), returned);
         assertEq(p.nav(), returned);
@@ -720,7 +775,7 @@ contract PoolTest is BaseTest {
         escrow.markFiat(id);
         vm.prank(controller);
         escrow.release(id);
-        p.reconcile(1, 1, 1);
+        p.reconcile(1);
 
         assertEq(p.idle(), PRINCIPAL);
         assertEq(p.locked(), 0);
@@ -763,7 +818,7 @@ contract PoolTest is BaseTest {
         escrow.markFiat(id);
         vm.prank(controller);
         escrow.release(id);
-        p.reconcile(1, 1, 1);
+        p.reconcile(1);
 
         assertEq(token.balanceOf(controller), fee);
         assertEq(p.consumed(), PRINCIPAL + fee);
@@ -1126,7 +1181,7 @@ contract PoolTest is BaseTest {
         assertTrue(escrow.contestPaid(id));
         vm.warp(block.timestamp + 7200);
         escrow.forceStalemate(id);
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         assertEq(token.balanceOf(controller), floor_, "pool reimburses the opener");
         assertEq(pool.consumed(), PRINCIPAL / 2 + floor_);
         assertEq(pool.idle(), PRINCIPAL / 2);
@@ -1159,7 +1214,7 @@ contract PoolTest is BaseTest {
         escrow.markFiat(id);
         vm.prank(controller);
         escrow.release(id);
-        pool.reconcile(1, 1, 1);
+        pool.reconcile(1);
         assertFalse(escrow.contestPaid(id));
         assertEq(token.balanceOf(controller), 0);
         assertEq(pool.idle(), floor_);
@@ -1210,7 +1265,7 @@ contract PoolTest is BaseTest {
         bytes32 id = escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
         vm.prank(provider);
         escrow.cancelByProvider(id);
-        p.reconcile(1, 1, 1);
+        p.reconcile(1);
         assertEq(p.idle(), PRINCIPAL);
         assertEq(p.consumed(), fee);
         assertEq(token.balanceOf(controller), fee);

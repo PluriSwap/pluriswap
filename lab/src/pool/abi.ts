@@ -87,11 +87,7 @@ export const poolAbi = [
     type: "function",
     name: "reconcile",
     stateMutability: "nonpayable",
-    inputs: [
-      { name: "nonce", type: "uint256" },
-      { name: "providerNonce", type: "uint256" },
-      { name: "controllerNonce", type: "uint256" },
-    ],
+    inputs: [{ name: "nonce", type: "uint256" }],
     outputs: [],
   },
 ] as const;

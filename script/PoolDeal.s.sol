@@ -94,7 +94,7 @@ contract PoolDeal is Script {
 
         vm.startBroadcast(holderPk);
         escrow.release(id);
-        pool.reconcile(HOLDER_NONCE, PROVIDER_NONCE, CONTROLLER_NONCE);
+        pool.reconcile(HOLDER_NONCE);
         vm.stopBroadcast();
 
         require(escrow.status(id) == Status.RELEASED, "released");

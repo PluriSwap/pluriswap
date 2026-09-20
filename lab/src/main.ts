@@ -139,8 +139,6 @@ const state = {
   poolError: null as string | null,
   poolDepositAmt: "1000000",
   poolUnlockNonce: "1",
-  poolReconP: "1",
-  poolReconC: "1",
   rampFlag: true,
   rampForm: emptyRampForm() as RampForm,
   rampQuote: null as { nativeFee: string; amountOut: string } | null,
@@ -376,8 +374,6 @@ function paint(): void {
       holderIsPool: state.holderIsPool,
       depositAmt: state.poolDepositAmt,
       unlockNonce: state.poolUnlockNonce,
-      reconP: state.poolReconP,
-      reconC: state.poolReconC,
       error: state.poolError,
       suggested: suggestedPool(),
     },
@@ -405,12 +401,6 @@ function paint(): void {
       },
       unlockNonce: (v) => {
         state.poolUnlockNonce = v;
-      },
-      reconP: (v) => {
-        state.poolReconP = v;
-      },
-      reconC: (v) => {
-        state.poolReconC = v;
       },
       probe: () => void refreshPool(),
       useSuggested: () => {
@@ -1073,12 +1063,7 @@ async function runPool(kind: "deposit" | "authorize" | "unlock" | "reconcile"): 
     } else if (kind === "unlock") {
       await poolUnlock({ ...common, nonce: BigInt(state.poolUnlockNonce || "0") });
     } else {
-      await poolReconcile({
-        ...common,
-        nonce: BigInt(state.poolUnlockNonce || "0"),
-        providerNonce: BigInt(state.poolReconP || "0"),
-        controllerNonce: BigInt(state.poolReconC || "0"),
-      });
+      await poolReconcile({ ...common, nonce: BigInt(state.poolUnlockNonce || "0") });
     }
     state.poolError = null;
     await refreshPool();

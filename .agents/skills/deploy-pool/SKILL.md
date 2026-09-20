@@ -64,8 +64,10 @@ Do not POST to a backend. Listing/registry is a later factory deploy, when that 
 
 To fund: an allowed depositor (or anyone, if open) `approve`s the pool, then `deposit(amount)`. First deposit ≥ `1e6`.
 
-To open a deal: an agent `authorize(holderAuthorization)` then `escrow.activate` with empty holder signature (EIP-1271). Idle must cover `principal + controllerFee`. If the deal includes reputation, call `authorize(ha, reputation)` so idle also covers `activationFee`.
+To open a deal: an agent `authorize(ha, mods)` then `escrow.activate` with empty holder signature (EIP-1271). `mods` must name every module the signed `packageIds` refer to — the vault runs the same `Packages.resolve` as the kernel. Idle must cover `principal + controllerFee` (and `activationFee` if the deal includes reputation).
 
-`reconcile` is permissionless and does not take `returned`. It reads `settlementOf`.
+`reconcile(nonce)` is permissionless. It reads `dealOf` + `settlementOf` for the Holder nonce; it does not take provider/controller nonces or `returned`.
+
+A kicked or runoff pending auth can `unlock(nonce)` before the HA deadline: the digest would no longer validate, so the reservation is dead. After a total consume (`nav == 0`), LPs `redeem` to burn worthless shares so the vault can close or take a new first deposit.
 
 Fee to list and backend registry: not in this skill.

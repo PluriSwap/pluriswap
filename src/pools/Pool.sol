@@ -5,7 +5,7 @@ import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
-import {DealTerms, HolderAuthorization, PackageMods, Status} from "../libraries/Types.sol";
+import {DealTerms, HolderAuthorization, PackageMods, Status, isTerminal} from "../libraries/Types.sol";
 import {Consent} from "../libraries/Consent.sol";
 import {Settlement} from "../libraries/Settlement.sol";
 import {IEscrow} from "../interfaces/IEscrow.sol";
@@ -216,13 +216,18 @@ contract Pool is ReentrancyGuardTransient {
         if (sharesIn == 0 || sharesIn > sharesOf[msg.sender]) revert InsufficientShares();
         uint256 n = nav();
         uint256 assetsOut = sharesIn * n / totalShares;
-        if (assetsOut > idle) revert RedeemExceedsIdle();
-        if (assetsOut == 0) revert InsufficientShares();
+        if (n == 0) {
+            // Books empty: a share is not a claim on idle (there is none). Burn so the vault can
+            // close or take a new first deposit. Surplus token sitting off-book is recap buffer, not NAV.
+        } else {
+            if (assetsOut > idle) revert RedeemExceedsIdle();
+            if (assetsOut == 0) revert InsufficientShares();
+        }
 
         sharesOf[msg.sender] -= sharesIn;
         totalShares -= sharesIn;
         idle -= assetsOut;
-        IERC20(token).safeTransfer(msg.sender, assetsOut);
+        if (assetsOut != 0) IERC20(token).safeTransfer(msg.sender, assetsOut);
         _maybeClose();
         _sync();
     }
@@ -285,7 +290,10 @@ contract Pool is ReentrancyGuardTransient {
         Auth storage a = auths[nonce];
         if (!a.exists || a.unlocked || a.reconciled) revert NoAuth();
         if (IEscrow(escrow).used(address(this), nonce)) revert NonceConsumed();
-        if (block.timestamp <= a.deadline) revert DeadlineActive();
+        // Same predicate as `isValidSignature`: if the digest would no longer validate, the
+        // reservation is dead and capital must not wait out a long HA deadline (kick, runoff).
+        bool digestDead = life != Life.ACTIVE || !isAgent(a.controller);
+        if (!digestDead && block.timestamp <= a.deadline) revert DeadlineActive();
         a.unlocked = true;
         delete nonceOf[a.digest];
         uint256 amt = a.terms.principal + a.fee + a.activationFee + a.contestReserve;
@@ -297,14 +305,14 @@ contract Pool is ReentrancyGuardTransient {
         _sync();
     }
 
-    function reconcile(uint256 nonce, uint256 providerNonce, uint256 controllerNonce) external nonReentrant {
+    function reconcile(uint256 nonce) external nonReentrant {
         _recognizeLive();
         Auth storage a = auths[nonce];
         if (!a.exists || a.unlocked || a.reconciled) revert NoAuth();
-        if (!IEscrow(escrow).used(address(this), nonce)) revert StillLive();
-        bytes32 id = Consent.dealId(IEscrow(escrow).domainSeparator(), a.terms, nonce, providerNonce, controllerNonce);
+        bytes32 id = IEscrow(escrow).dealOf(address(this), nonce);
+        if (id == 0) revert StillLive();
         (Status st, uint256 returned,) = IEscrow(escrow).settlementOf(id);
-        if (!_terminal(st)) revert StillLive();
+        if (!isTerminal(st)) revert StillLive();
         if (returned > a.terms.principal) revert BadReturn();
         if (!a.recognized) _applyTerminal(a, returned);
 
@@ -435,7 +443,7 @@ contract Pool is ReentrancyGuardTransient {
             if (!a.activated) locked_ -= a.activationFee;
             if (a.recognized) continue;
             (Status st, uint256 returned,) = kernel.settlementOf(id);
-            if (!_terminal(st)) continue;
+            if (!isTerminal(st)) continue;
             locked_ -= a.terms.principal;
             credits_ += returned;
         }
@@ -466,7 +474,7 @@ contract Pool is ReentrancyGuardTransient {
             }
             if (a.recognized) continue;
             (Status st, uint256 returned,) = kernel.settlementOf(id);
-            if (!_terminal(st)) continue;
+            if (!isTerminal(st)) continue;
             _applyTerminal(a, returned);
             dirty = true;
         }
@@ -518,11 +526,6 @@ contract Pool is ReentrancyGuardTransient {
     function _maybeClose() internal {
         if (life != Life.RUNOFF && life != Life.WINDING_DOWN) return;
         if (locked == 0 && totalShares == 0) life = Life.CLOSED;
-    }
-
-    function _terminal(Status s) internal pure returns (bool) {
-        return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
-            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
     }
 
     function _unique(address[] calldata xs) internal pure {
