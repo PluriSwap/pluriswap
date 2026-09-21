@@ -772,7 +772,7 @@ El sujeto privado del **operador** lleva la reputación y el bond de los deals d
 | --- | --- | --- |
 | F0 | Higiene de direcciones: docs + frontend. Sin código | Documentado y facilitado |
 | F1 | `PoseidonTree` + `register` (insert, replay de `hn`, ring buffer) | Árbol y registro verdes (2026-09-20) |
-| F2 | `prepare`/`admit`/`claim`: cap in-circuit, consumo único, delta atómico | Verdes con verifier real |
+| F2 | `prepare`/`admit`/`claim`: cap in-circuit, consumo único, delta atómico | Capa contractual verde contra el kernel real con mocks (2026-09-21); el verifier real sigue pendiente |
 | F3 | Vault: split, `reabsorb` con gating, `withdraw` sin passport | Vault verde |
 | F4 | Attestations verificables off-chain | Capa de divulgación verificable |
 
@@ -995,6 +995,7 @@ Registro fechado de decisiones cerradas. Una entrada posterior pisa a una anteri
 | 2026-09-20 | Contest fee sin devolución | Confirmado: no se devuelve al ganador. Una disputa implica que ambas partes fallaron en elegir contraparte. Quema de bonds en stalemate se mantiene |
 | 2026-09-20 | Documentación | `PLURISWAP.md` absorbe toda la documentación de protocolo (monolito). `KLEROS_POLICY.md` y `LAB_UI.md` quedan como artefactos operativos. Citas legacy resueltas por el Apéndice A |
 | 2026-09-20 | Privacidad F1 | `PoseidonTree` (insert incremental, ring de 64 raíces, nullifiers, owner-only, cero-hoja rechazada) + `PrivatePassport.register`/`PrivateReputation.register` (bundle passport→reputation, replay de `hn`, árbol de cuentas depth 32 propiedad del módulo). Poseidon: `poseidon-solidity` (chancehudson/vimwitch, MIT) — circomlib-compatible, el test fija el vector oficial de circomlibjs. 25 tests TDD. El kernel y los `packageId` vivos quedan intactos: nada de esto entra aún en `Packages.resolve` (F2) |
+| 2026-09-21 | Privacidad F2 | Capa contractual de prepare/admit/claim contra el kernel intacto (resolve/engage/postTerminal sin cambios): bundle atómico verificado (4 prepares + `activate` en una tx; un `activate` que falla revierte inserts y nullifiers), `admit` borra el buffer (muere el replay de cap) y cross-chequea contra el passport, `notifyTerminal` → `pending[dealSubject]`, `claim` aplica el delta una vez y marca `claimed` (gating de F3). Árbol standalone con owner predicho (CREATE) para romper la circularidad passport↔árbol. Firma EIP-712 de wallet sobre `(dealId, dealSubject, módulo, deadline)`, dominio "PluriSwap"/"1" por módulo. Edge documentado: el mismo humano a ambos lados de un deal → el segundo notify falla cerrado (la cuenta se castiga sola). El set privado firma `packageIds` ordenados (`Terms`). 35 tests nuevos, suite 435/0. F2 no está cerrada: los mocks de verifier no son privacidad; falta el verifier real (Noir/BB) |
 
 ---
 
@@ -1049,7 +1050,7 @@ test/                       un área de catálogo por archivo
 test/fuzz/                  propiedades stateless
 test/invariant/             handlers stateful (solvency, conservation, immutability, books)
 test/fork/                  checks on-chain (Human Passport decoder, Kleros core + registry; opt-in vía *_RPC_URL)
-mocks/                      TestToken, FeeOnTransferToken, RevertingReceiver, Mock1271, VerifierMock, ZkMock, ArbitrationMock, PassportDecoderMock, PassportMock, HumanityVerifierMock, AccountVerifierMock
+mocks/                      TestToken, FeeOnTransferToken, RevertingReceiver, Mock1271, VerifierMock, ZkMock, ArbitrationMock, PassportDecoderMock, PassportMock, HumanityVerifierMock, AccountVerifierMock, PreparePassportVerifierMock, PrepareAdmitVerifierMock, ClaimVerifierMock, RelayerMock
 ```
 
 ### 5.4 Calidad y CI

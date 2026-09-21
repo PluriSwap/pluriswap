@@ -6,14 +6,15 @@ import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
 /// @title PoseidonTree
 /// @notice Incremental binary Merkle tree over the BN254 scalar field, Poseidon-hashed and
 ///         circomlib-compatible (PLURISWAP.md §3.15.3).
-/// @dev One contract is one tree: `PrivateReputation` (depth 32) and `PrivateBondVault`
-///      (depth 20, F3) deploy their own tree and own it — `insert` and `spend` are
-///      owner-only, so nothing outside the module can move roots or burn nullifiers.
-///      Roots live in a `ROOT_HISTORY`-slot ring buffer; proofs may reference any root
-///      still in the ring (`isKnownRoot`). The empty-tree root is seeded into the ring at
-///      deploy, so it is "known" too. A zero leaf is rejected: a real leaf must never
-///      alias the zero element. Leaf, root and nullifier values are BN254 field elements
-///      passed as bytes32 and hashed as uint256 internally.
+/// @dev One contract is one tree: the accounts tree (depth 32, owner `PrivateReputation`) and the
+///      notes tree (depth 20, owner `PrivateBondVault` in F3). The owner is passed explicitly and
+///      predicted at deploy, because the tree must be wired into the passports of the bundle before
+///      its owning module exists. `insert` and `spend` are owner-only, so nothing outside the module
+///      can move roots or burn nullifiers. Roots live in a `ROOT_HISTORY`-slot ring buffer; proofs
+///      may reference any root still in the ring (`isKnownRoot`). The empty-tree root is seeded into
+///      the ring at deploy, so it is "known" too. A zero leaf is rejected: a real leaf must never
+///      alias the zero element. Leaf, root and nullifier values are BN254 field elements passed as
+///      bytes32 and hashed as uint256 internally.
 contract PoseidonTree {
     uint256 public constant ROOT_HISTORY = 64;
     uint256 public constant MAX_DEPTH = 32;
@@ -35,6 +36,7 @@ contract PoseidonTree {
     event NullifierSpent(bytes32 indexed nullifier);
 
     error BadDepth();
+    error ZeroOwner();
     error TreeFull();
     error ZeroLeaf();
     error NotOwner();
@@ -45,10 +47,11 @@ contract PoseidonTree {
         _;
     }
 
-    constructor(uint8 depth_) {
+    constructor(uint8 depth_, address owner_) {
         if (depth_ == 0 || depth_ > MAX_DEPTH) revert BadDepth();
+        if (owner_ == address(0)) revert ZeroOwner();
         depth = depth_;
-        owner = msg.sender;
+        owner = owner_;
 
         zeros.push(0);
         for (uint8 level = 1; level <= depth_; level++) {

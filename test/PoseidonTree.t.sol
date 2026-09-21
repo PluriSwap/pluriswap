@@ -22,7 +22,7 @@ contract PoseidonTreeTest is Test {
     PoseidonTree internal tree;
 
     function setUp() public {
-        tree = new PoseidonTree(DEPTH);
+        tree = new PoseidonTree(DEPTH, address(this));
     }
 
     // ---------------------------------------------------------------- primitives
@@ -35,11 +35,16 @@ contract PoseidonTreeTest is Test {
 
     function test_constructor_rejectsBadDepth() public {
         vm.expectRevert(PoseidonTree.BadDepth.selector);
-        new PoseidonTree(0);
+        new PoseidonTree(0, address(this));
         // 33 = PoseidonTree.MAX_DEPTH + 1 (qualified contract-constant reads from
         // another file trip solc 9582 here; the contract re-checks the bound itself).
         vm.expectRevert(PoseidonTree.BadDepth.selector);
-        new PoseidonTree(33);
+        new PoseidonTree(33, address(this));
+    }
+
+    function test_constructor_rejectsZeroOwner() public {
+        vm.expectRevert(PoseidonTree.ZeroOwner.selector);
+        new PoseidonTree(DEPTH, address(0));
     }
 
     function test_initialRoot_isKnownAndNonZero() public view {
@@ -71,7 +76,7 @@ contract PoseidonTreeTest is Test {
     }
 
     function test_insert_isDeterministic() public {
-        PoseidonTree other = new PoseidonTree(DEPTH);
+        PoseidonTree other = new PoseidonTree(DEPTH, address(this));
         (, bytes32 root1) = tree.insert(LEAF_A);
         (, bytes32 root1b) = other.insert(LEAF_A);
         assertEq(root1, root1b);
@@ -93,7 +98,7 @@ contract PoseidonTreeTest is Test {
     }
 
     function test_insert_treeFull() public {
-        PoseidonTree tiny = new PoseidonTree(1);
+        PoseidonTree tiny = new PoseidonTree(1, address(this));
         tiny.insert(LEAF_A);
         tiny.insert(LEAF_B);
         vm.expectRevert(PoseidonTree.TreeFull.selector);
@@ -139,7 +144,7 @@ contract PoseidonTreeTest is Test {
 
     function test_maxDepth_tree() public {
         // 32 = PoseidonTree.MAX_DEPTH (see note in test_constructor_rejectsBadDepth).
-        PoseidonTree deep = new PoseidonTree(32);
+        PoseidonTree deep = new PoseidonTree(32, address(this));
         bytes32 before = deep.root();
         (uint256 index, bytes32 newRoot) = deep.insert(LEAF_A);
         assertEq(index, 0);
