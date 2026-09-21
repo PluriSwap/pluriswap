@@ -2,11 +2,11 @@
 // toolchain (nargo + bb, see circuits/README.md) end to end for the circuits of the current
 // phase and writes, per circuit:
 //
-//   * crates/<circuit>/Prover.toml      — the witness, from the registry section of
-//                                         test/fixtures/vectors.json (all keccak-derived
-//                                         inputs REDUCED mod p: nargo rejects raw values
-//                                         >= p, so the prover boundary is where the pinned
-//                                         mod-p rule reduces);
+//   * crates/<circuit>/Prover.toml      — the witness, from the registry and prepare
+//                                         sections of test/fixtures/vectors.json (all
+//                                         keccak-derived inputs REDUCED mod p: nargo
+//                                         rejects raw values >= p, so the prover boundary
+//                                         is where the pinned mod-p rule reduces);
 //   * test/fixtures/proofs/<name>.json — {"proof_with_public_inputs": <bare hex of proof ||
 //                                         public_inputs>} (the exact blob the adapters split;
 //                                         BARE hex because vm.parseJsonBytes prepends its
@@ -50,8 +50,8 @@ type Circuit = {
   contract: string;
   /** public input count in the proof blob (order = the circuit's pub signature order) */
   pubs: number;
-  /** Prover.toml content, from the registry vectors (reduced where keccak-derived) */
-  proverToml: (registry: RegistryVectors) => string;
+  /** Prover.toml content, from the vectors fixture (reduced where keccak-derived) */
+  proverToml: (v: Vectors) => string;
 };
 
 type RegistryVectors = {
@@ -69,32 +69,107 @@ type RegistryVectors = {
   sample_leaf0: string;
 };
 
+type PrepareVectors = {
+  depth: number;
+  decimals: string;
+  principal: string;
+  token: string;
+  sk_id: string;
+  deal_id: string;
+  salt: string;
+  new_salt: string;
+  s: string;
+  leaf0: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
+  deal_subject: string;
+  null_rep: string;
+  new_leaf: string;
+  score: string;
+  cap: string;
+};
+
+type Vectors = { registry: RegistryVectors; prepare: PrepareVectors };
+
 const CIRCUIT_LIST: Circuit[] = [
   {
     name: "register_humanity",
     contract: "RegisterHumanityVerifier",
     pubs: 3,
-    proverToml: (r) =>
+    proverToml: (v) =>
       toml([
-        `h_n = ${str(r.sample_hn)}`,
-        `root = ${str(r.root)}`,
-        `registry_id = ${str(modP(BigInt(r.registry_id)))}`,
-        `hsk = ${str(modP(BigInt(r.hsk)))}`,
-        `siblings = [${r.siblings.map(str).join(", ")}]`,
-        `indices = [${r.indices.join(", ")}]`,
+        `h_n = ${str(v.registry.sample_hn)}`,
+        `root = ${str(v.registry.root)}`,
+        `registry_id = ${str(modP(BigInt(v.registry.registry_id)))}`,
+        `hsk = ${str(modP(BigInt(v.registry.hsk)))}`,
+        `siblings = [${v.registry.siblings.map(str).join(", ")}]`,
+        `indices = [${v.registry.indices.join(", ")}]`,
       ]),
   },
   {
     name: "register_account",
     contract: "RegisterAccountVerifier",
     pubs: 3,
-    proverToml: (r) =>
+    proverToml: (v) =>
       toml([
-        `h_n = ${str(r.sample_hn)}`,
-        `leaf0 = ${str(r.sample_leaf0)}`,
-        `registry_id = ${str(modP(BigInt(r.registry_id)))}`,
-        `hsk = ${str(modP(BigInt(r.hsk)))}`,
-        `sk_id = ${str(r.sample_sk_id)}`,
+        `h_n = ${str(v.registry.sample_hn)}`,
+        `leaf0 = ${str(v.registry.sample_leaf0)}`,
+        `registry_id = ${str(modP(BigInt(v.registry.registry_id)))}`,
+        `hsk = ${str(modP(BigInt(v.registry.hsk)))}`,
+        `sk_id = ${str(v.registry.sample_sk_id)}`,
+      ]),
+  },
+  {
+    name: "prepare_passport",
+    contract: "PreparePassportVerifier",
+    pubs: 2,
+    proverToml: (v) =>
+      toml([
+        `subject = ${str(v.prepare.deal_subject)}`,
+        `rep_root = ${str(v.prepare.root)}`,
+        `sk_id = ${str(v.prepare.sk_id)}`,
+        `deal_id = ${str(modP(BigInt(v.prepare.deal_id)))}`,
+        // The account's current leaf is the registered genesis leaf0: all counters zero,
+        // token zero, salt = the reduced hsk, version zero.
+        `count = "0"`,
+        `volume = "0"`,
+        `penalty = "0"`,
+        `in_flight = "0"`,
+        `leaf_token = "0"`,
+        `salt = ${str(modP(BigInt(v.prepare.salt)))}`,
+        `version = "0"`,
+        `siblings = [${v.prepare.siblings.map(str).join(", ")}]`,
+        `indices = [${v.prepare.indices.join(", ")}]`,
+      ]),
+  },
+  {
+    name: "prepare_admit",
+    contract: "PrepareAdmitVerifier",
+    pubs: 8,
+    proverToml: (v) =>
+      toml([
+        `subject = ${str(v.prepare.deal_subject)}`,
+        `new_leaf = ${str(v.prepare.new_leaf)}`,
+        `nullifier = ${str(v.prepare.null_rep)}`,
+        `token = ${str(v.prepare.token)}`,
+        `principal = ${str(v.prepare.principal)}`,
+        // V2 has no vault: the base cap column, lockCommit identically zero.
+        `lock_commit = "0"`,
+        `rep_root = ${str(v.prepare.root)}`,
+        `decimals = ${str(v.prepare.decimals)}`,
+        `sk_id = ${str(v.prepare.sk_id)}`,
+        `deal_id = ${str(modP(BigInt(v.prepare.deal_id)))}`,
+        `count = "0"`,
+        `volume = "0"`,
+        `penalty = "0"`,
+        `in_flight = "0"`,
+        `leaf_token = "0"`,
+        `salt = ${str(modP(BigInt(v.prepare.salt)))}`,
+        `version = "0"`,
+        `new_salt = ${str(modP(BigInt(v.prepare.new_salt)))}`,
+        `siblings = [${v.prepare.siblings.map(str).join(", ")}]`,
+        `indices = [${v.prepare.indices.join(", ")}]`,
       ]),
   },
 ];
@@ -123,15 +198,13 @@ function hex(bytes: Buffer): string {
 // ---------------------------------------------------------------- main
 
 function main() {
-  const registry = JSON.parse(
-    readFileSync(join(REPO, "test/fixtures/vectors.json"), "utf8"),
-  ).registry as RegistryVectors;
+  const vectors = JSON.parse(readFileSync(join(REPO, "test/fixtures/vectors.json"), "utf8")) as Vectors;
 
   console.log("compiling circuits...");
   sh(CIRCUITS, "nargo compile");
   for (const circuit of CIRCUIT_LIST) {
     console.log(`=== ${circuit.name} ===`);
-    writeFileSync(join(CIRCUITS, "crates", circuit.name, "Prover.toml"), circuit.proverToml(registry));
+    writeFileSync(join(CIRCUITS, "crates", circuit.name, "Prover.toml"), circuit.proverToml(vectors));
     sh(join(CIRCUITS, "crates", circuit.name), "nargo execute");
 
     const vkDir = join(CIRCUITS, "target", `${circuit.name}_vk`);

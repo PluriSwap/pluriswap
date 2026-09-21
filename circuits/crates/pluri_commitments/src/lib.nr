@@ -13,4 +13,5 @@ pub mod constants_p3;
 pub mod merkle;
 pub mod poseidon2;
 pub mod poseidon3;
+pub mod tiers;
 pub mod vectors;

@@ -19,6 +19,7 @@ import circomlibConstants from "../../node_modules/circomlibjs/src/poseidon_cons
 import { P, dec, field, keccak } from "./lib/fields.ts";
 import { poseidon1, poseidon2 } from "./lib/poseidon.ts";
 import * as c from "./lib/commitments.ts";
+import * as tiers from "./lib/tiers.ts";
 import { IncrementalPoseidonTree } from "./lib/merkle.ts";
 
 const REPO = join(import.meta.dir, "../..");
@@ -52,6 +53,14 @@ const TREE_DEPTH = 8;
 // registry domain id, and the depth-20 enrollment tree. Pinned like everything else.
 const REGISTRY_HSK = BigInt(keccak("pluri:registry-hsk:1"));
 const REGISTRY_DEPTH = 20;
+
+// The prepare flow of V2 (PLURISWAP.md §3.15.4): the account tree is depth 32 (§3.15.3),
+// the pinned test token has 6 decimals (USDC-like), and the sample deal takes 100 units of
+// principal in flight from the just-registered genesis leaf — T1's base cap (250 units)
+// admits it. The new leaf's salt is fresh: prepare_admit rotates it.
+const ACCOUNT_DEPTH = 32;
+const PREPARE_DECIMALS = 6n;
+const PREPARE_PRINCIPAL = 100_000_000n;
 
 async function main() {
   // ---------------------------------------------------------------- zero gate
@@ -176,6 +185,79 @@ async function main() {
     sample_leaf0: dec(sampleLeaf0),
   };
 
+  // ---------------------------------------------------------------- tier vectors (V2)
+  // The §3.14.7 table as vectors: score (truncated volume lots, saturating penalty) and the
+  // two cap columns, one row per tier plus the satSub edge and a truncated-division row.
+  // The same rows pin the circuit's `tiers.nr` and the test mirror of the on-chain table.
+  const tierRows: [bigint, bigint, bigint, bigint][] = [
+    // count, volume, penalty, decimals — the five tiers, boundary-anchored.
+    [0n, 0n, 0n, 6n], // score 0 -> T1
+    [0n, 9n * 250_000_000n + 249_999_999n, 0n, 6n], // 9 lots (remainder dropped) -> still T1
+    [0n, 10n * 250_000_000n, 0n, 6n], // 10 lots -> T2, exactly at the threshold
+    [25n, 0n, 0n, 6n], // count alone -> T3
+    [50n, 0n, 0n, 18n], // 18-dec scale -> T4
+    [100n, 0n, 0n, 6n], // score 100 -> T5, unbounded
+    [5n, 0n, 7n, 6n], // penalty 7 > base 5 -> satSub to 0 -> T1
+    [250n, 250_000_001n, 0n, 6n], // count + one lot with remainder -> 251 -> T5
+  ];
+  const tierVectors = tierRows.map(([count, volume, penalty, decimals]) => {
+    const sc = tiers.score(count, volume, penalty, decimals);
+    return {
+      count: dec(count),
+      volume: dec(volume),
+      penalty: dec(penalty),
+      decimals: dec(decimals),
+      score: dec(sc),
+      cap_base: dec(tiers.capRaw(sc, false, decimals) ?? 0n),
+      cap_bond: dec(tiers.capRaw(sc, true, decimals) ?? 0n),
+      unbounded: sc >= 100n,
+    };
+  });
+
+  // ---------------------------------------------------------------- prepare vectors (V2)
+  // The prepare circuits' pinned sample (§3.15.4): the registered genesis leaf of the
+  // registry sample account (leaf0: all counters zero, token zero, salt = hsk, version 0)
+  // goes into the depth-32 account tree; both prepares prove against that root —
+  // passport.prepare and reputation.prepare run in one bundle, and reputation's own
+  // insert happens inside, so both proofs see the same post-register tree.
+  // The admission transition is the genesis branch of prepare_admit: leaf0 (token 0,
+  // all-zero stats) admits a deal of the pinned token, taking PREPARE_PRINCIPAL in
+  // flight under the T1 base cap, rotating the salt and bumping the version.
+  const accountTree = await IncrementalPoseidonTree.create(ACCOUNT_DEPTH);
+  const prepareRoot = await accountTree.insert(sampleLeaf0);
+  const prepareProof = accountTree.proofOf(0);
+  const prepareDealId = BigInt(keccak("pluri:prepare-deal:1"));
+  const prepareNewSalt = BigInt(keccak("pluri:prepare-new-salt:1"));
+  const prepareDealSubject = await c.dealSubject(SK_ID, prepareDealId);
+  const prepareNullRep = await c.nullRep(SK_ID, 0n);
+  const prepareNewLeaf =
+    await c.leafRep(sampleS, 0n, 0n, 0n, PREPARE_PRINCIPAL, TOKEN_ID, prepareNewSalt, 1n);
+  const prepareScore = tiers.score(0n, 0n, 0n, PREPARE_DECIMALS);
+  const prepareCap = tiers.capRaw(prepareScore, false, PREPARE_DECIMALS);
+  if (prepareCap === null || PREPARE_PRINCIPAL > prepareCap) {
+    throw new Error(`prepare sample over its own cap: principal ${PREPARE_PRINCIPAL} > cap ${prepareCap}`);
+  }
+  const prepareVectors = {
+    depth: ACCOUNT_DEPTH,
+    decimals: dec(PREPARE_DECIMALS),
+    principal: dec(PREPARE_PRINCIPAL),
+    token: dec(TOKEN_ID),
+    sk_id: dec(SK_ID),
+    deal_id: dec(prepareDealId),
+    salt: dec(REGISTRY_HSK),
+    new_salt: dec(prepareNewSalt),
+    s: dec(sampleS),
+    leaf0: dec(sampleLeaf0),
+    siblings: prepareProof.siblings.map(dec),
+    indices: prepareProof.indices,
+    root: dec(prepareRoot),
+    deal_subject: dec(prepareDealSubject),
+    null_rep: dec(prepareNullRep),
+    new_leaf: dec(prepareNewLeaf),
+    score: dec(prepareScore),
+    cap: dec(prepareCap ?? 0n),
+  };
+
   const vectors = {
     provenance: {
       generator: "circuits/js/vectors.ts (bun circuits:vectors)",
@@ -187,6 +269,11 @@ async function main() {
     builders,
     tree: treeVectors,
     registry: registryVectors,
+    tiers: tierVectors,
+    // The row count as a scalar: the foundry parity mirror cannot count an array of
+    // objects (this forge has no working array-length cheatcode), so the fixture names it.
+    tiers_rows: dec(BigInt(tierRows.length)),
+    prepare: prepareVectors,
   };
 
   // ---------------------------------------------------------------- write vectors.json
@@ -275,6 +362,38 @@ type RegistryVectors = {
   sample_sk_id: string;
   sample_s: string;
   sample_leaf0: string;
+};
+
+type TierVectors = {
+  count: string;
+  volume: string;
+  penalty: string;
+  decimals: string;
+  score: string;
+  cap_base: string;
+  cap_bond: string;
+  unbounded: boolean;
+}[];
+
+type PrepareVectors = {
+  depth: number;
+  decimals: string;
+  principal: string;
+  token: string;
+  sk_id: string;
+  deal_id: string;
+  salt: string;
+  new_salt: string;
+  s: string;
+  leaf0: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
+  deal_subject: string;
+  null_rep: string;
+  new_leaf: string;
+  score: string;
+  cap: string;
 };
 
 type Sample = {
@@ -378,6 +497,59 @@ function renderNoirVectors(
   nr.push(...r.siblings.map((x) => `    ${x},`));
   nr.push("];");
   nr.push(`pub global REGISTRY_INDICES: [u8; ${r.indices.length}] = [${r.indices.join(", ")}];`);
+  nr.push("");
+  // Tiers section (V2): the §3.14.7 table rows as arrays, one index per row. `unbounded`
+  // (score >= 100) pins the sentinel: both cap columns emit 0 for it and the flag carries
+  // the meaning — a cap of 0 with unbounded false would otherwise be a nonsensical row.
+  const ti = (v as { tiers: TierVectors }).tiers;
+  nr.push(`pub global TIER_COUNT: u32 = ${ti.length};`);
+  nr.push(`pub global TIER_COUNTS: [Field; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.count},`));
+  nr.push("];");
+  nr.push(`pub global TIER_VOLUMES: [Field; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.volume},`));
+  nr.push("];");
+  nr.push(`pub global TIER_PENALTIES: [Field; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.penalty},`));
+  nr.push("];");
+  nr.push(`pub global TIER_DECIMALS: [Field; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.decimals},`));
+  nr.push("];");
+  nr.push(`pub global TIER_SCORES: [Field; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.score},`));
+  nr.push("];");
+  nr.push(`pub global TIER_CAPS_BASE: [Field; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.cap_base},`));
+  nr.push("];");
+  nr.push(`pub global TIER_CAPS_BOND: [Field; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.cap_bond},`));
+  nr.push("];");
+  nr.push(`pub global TIER_UNBOUNDED: [bool; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.unbounded},`));
+  nr.push("];");
+  nr.push("");
+  // Prepare section (V2): the pinned sample of the prepare circuits. salt and new_salt are
+  // keccak-derived (raw >= p) — reduced here, as everywhere else, per the mod-p rule;
+  // deal_id likewise. The other witnesses are already canonical field-sized values.
+  const p = (v as { prepare: PrepareVectors }).prepare;
+  nr.push(`pub global PREPARE_DEPTH: u32 = ${p.depth};`);
+  nr.push(`pub global PREPARE_DECIMALS: Field = ${p.decimals};`);
+  nr.push(`pub global PREPARE_PRINCIPAL: Field = ${p.principal};`);
+  nr.push(`pub global PREPARE_TOKEN: Field = ${p.token};`);
+  nr.push(`pub global PREPARE_SK_ID: Field = ${p.sk_id};`);
+  nr.push(`pub global PREPARE_DEAL_ID: Field = ${dec(field(p.deal_id))};`);
+  nr.push(`pub global PREPARE_SALT: Field = ${dec(field(p.salt))};`);
+  nr.push(`pub global PREPARE_NEW_SALT: Field = ${dec(field(p.new_salt))};`);
+  nr.push(`pub global PREPARE_S: Field = ${p.s};`);
+  nr.push(`pub global PREPARE_LEAF0: Field = ${p.leaf0};`);
+  nr.push(`pub global PREPARE_ROOT: Field = ${p.root};`);
+  nr.push(`pub global PREPARE_DEAL_SUBJECT: Field = ${p.deal_subject};`);
+  nr.push(`pub global PREPARE_NULL_REP: Field = ${p.null_rep};`);
+  nr.push(`pub global PREPARE_NEW_LEAF: Field = ${p.new_leaf};`);
+  nr.push(`pub global PREPARE_SIBLINGS: [Field; ${p.siblings.length}] = [`);
+  nr.push(...p.siblings.map((x) => `    ${x},`));
+  nr.push("];");
+  nr.push(`pub global PREPARE_INDICES: [u8; ${p.indices.length}] = [${p.indices.join(", ")}];`);
   nr.push("");
   return nr.join("\n");
 }

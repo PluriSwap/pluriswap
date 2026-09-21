@@ -76,3 +76,23 @@ optimizer-only. Therefore:
 - Module-level constants are `pub global` (`const` is function-local; `pub const` does not parse).
 - Numeric generics: `<let N: u32>`; turbofish wants literals (`compute_root::<8>(...)`).
 - No `&&`/`||` — use `&`/`|` on bools; `use` is module-level only.
+- No relational or bitwise operators on `Field` — compare through a cast round-trip:
+  `assert((x as u128) as Field == x)` proves "x < 2^128" while `x as u128 > y` does the
+  ordered comparison in the integer domain.
+- `&` binds tighter than `==` — parenthesize every `(a == b) & (c == d)` conjunction.
+
+## The negated-guard codegen bug (read before writing any circuit with a conditional check)
+
+A **statement-if whose guard is negated** (`if !cond { ... }`) around a large constrained
+body makes `bb write_solidity_verifier --optimized` emit an EVM verifier that **rejects its
+own valid proofs**: `bb verify` passes natively, the deployed Honk contract returns false.
+Bisected on prepare_admit with the identical pinned pipeline: excising the body passes,
+making the body unconditional passes, and only the negated guard around it fails. LOG_N,
+the public-input count and array witnesses are all exonerated.
+
+The protocol's circuits therefore never wrap a bound check in a negated guard. Where §3.14.7
+needs "unbounded" (T5), `tiers.nr` encodes it as the sentinel `T5_SENTINEL = 2^128 - 1` and
+`prepare_admit` runs the cap comparison **unconditionally** — `cap_raw()` returns the
+sentinel for T5, so `newLeaf's principal <= cap` holds for every tier in one flat check.
+Keep that shape: conditional logic belongs in the sentinel arithmetic, not in the control flow.
+
