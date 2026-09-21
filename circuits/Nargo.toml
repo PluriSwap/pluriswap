@@ -1,2 +1,2 @@
 [workspace]
-members = ["crates/pluri_commitments"]
+members = ["crates/pluri_commitments", "crates/register_humanity", "crates/register_account"]

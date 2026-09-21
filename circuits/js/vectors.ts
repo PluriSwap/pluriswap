@@ -48,6 +48,11 @@ const VERSION = 1n;
 
 const TREE_DEPTH = 8;
 
+// The humanity registry of V1: a per-human secret (never enrolled in the clear), the
+// registry domain id, and the depth-20 enrollment tree. Pinned like everything else.
+const REGISTRY_HSK = BigInt(keccak("pluri:registry-hsk:1"));
+const REGISTRY_DEPTH = 20;
+
 async function main() {
   // ---------------------------------------------------------------- zero gate
   const zero = await poseidon2(1n, 2n);
@@ -140,6 +145,37 @@ async function main() {
     memberships,
   };
 
+  // ---------------------------------------------------------------- registry vectors (V1)
+  // The humanity registry (Semaphore-style, §3.15.3 "Registro"): one enrollment per Passport
+  // anchor; the enrolled value is an identity commitment `PoseidonT2(hsk)` for a per-human
+  // secret hsk the registry never learns. The register circuits prove membership of that
+  // commitment in this depth-20 tree, and derive `hn = PoseidonT3(hsk, registryId)` from it —
+  // the registry model's reading of the pinned formula (the anchor is revealed at enroll, so
+  // deriving hn from the anchor would be enumerable; hsk stays secret, so hn does not leak it).
+  // The account link: the initial leaf's salt IS the hsk (§3.15.9 register_account as-built),
+  // binding the burned hn to the account leaf through the shared secret.
+  const regTree = await IncrementalPoseidonTree.create(REGISTRY_DEPTH);
+  const identityCommitment = await c.accountCommitment(REGISTRY_HSK);
+  const regRoot = await regTree.insert(identityCommitment);
+  const regProof = regTree.proofOf(0);
+  const sampleHn = await c.hn(REGISTRY_HSK, REGISTRY_ID);
+  const sampleS = await c.accountCommitment(SK_ID);
+  const sampleLeaf0 = await c.leafRep(sampleS, 0n, 0n, 0n, 0n, 0n, REGISTRY_HSK, 0n);
+  const registryVectors = {
+    depth: REGISTRY_DEPTH,
+    registry_id: dec(REGISTRY_ID),
+    hsk: dec(REGISTRY_HSK),
+    identity_commitment: dec(identityCommitment),
+    empty_root: dec(regTree.rootHistory()[0]),
+    siblings: regProof.siblings.map(dec),
+    indices: regProof.indices,
+    root: dec(regRoot),
+    sample_hn: dec(sampleHn),
+    sample_sk_id: dec(SK_ID),
+    sample_s: dec(sampleS),
+    sample_leaf0: dec(sampleLeaf0),
+  };
+
   const vectors = {
     provenance: {
       generator: "circuits/js/vectors.ts (bun circuits:vectors)",
@@ -150,6 +186,7 @@ async function main() {
     tags: { rep: dec(c.TAG_REP), bond: dec(c.TAG_BOND), handle: dec(c.TAG_HANDLE) },
     builders,
     tree: treeVectors,
+    registry: registryVectors,
   };
 
   // ---------------------------------------------------------------- write vectors.json
@@ -224,6 +261,21 @@ function renderConstantsModule(name: string, t: number, c: string[], m: string[]
   ];
   return lines.join("\n");
 }
+
+type RegistryVectors = {
+  depth: number;
+  registry_id: string;
+  hsk: string;
+  identity_commitment: string;
+  empty_root: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
+  sample_hn: string;
+  sample_sk_id: string;
+  sample_s: string;
+  sample_leaf0: string;
+};
 
 type Sample = {
   SK_ID: bigint;
@@ -308,6 +360,24 @@ function renderNoirVectors(
     nr.push(`pub global TREE_INDICES_${i}: [u8; ${m.indices.length}] = [${m.indices.join(", ")}];`);
     nr.push(`pub global TREE_MEMBERSHIP_ROOT_${i}: Field = ${m.root};`);
   }
+  nr.push("");
+  // Registry section (V1): the humanity registry vectors the register circuits prove against.
+  // The registry domain id is already emitted above as REGISTRY_ID (same pinned constant);
+  // hsk is keccak-derived (raw >= p), so it is reduced like every other .nr input.
+  const r = (v as { registry: RegistryVectors }).registry;
+  nr.push(`pub global REGISTRY_DEPTH: u32 = ${r.depth};`);
+  nr.push(`pub global REGISTRY_HSK: Field = ${dec(field(r.hsk))};`);
+  nr.push(`pub global REGISTRY_IDENTITY_COMMITMENT: Field = ${r.identity_commitment};`);
+  nr.push(`pub global REGISTRY_EMPTY_ROOT: Field = ${r.empty_root};`);
+  nr.push(`pub global REGISTRY_ROOT: Field = ${r.root};`);
+  nr.push(`pub global REGISTRY_SAMPLE_HN: Field = ${r.sample_hn};`);
+  nr.push(`pub global REGISTRY_SAMPLE_SK_ID: Field = ${r.sample_sk_id};`);
+  nr.push(`pub global REGISTRY_SAMPLE_S: Field = ${r.sample_s};`);
+  nr.push(`pub global REGISTRY_SAMPLE_LEAF0: Field = ${r.sample_leaf0};`);
+  nr.push(`pub global REGISTRY_SIBLINGS: [Field; ${r.siblings.length}] = [`);
+  nr.push(...r.siblings.map((x) => `    ${x},`));
+  nr.push("];");
+  nr.push(`pub global REGISTRY_INDICES: [u8; ${r.indices.length}] = [${r.indices.join(", ")}];`);
   nr.push("");
   return nr.join("\n");
 }
