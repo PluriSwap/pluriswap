@@ -561,7 +561,7 @@ Lista cerrada. Un paquete no inventa un quinto momento.
 | Momento | Cuándo | De dónde |
 | --- | --- | --- |
 | Activación | Al entrar a `FUNDED` | Extra al principal (Holder). Reputación usa este |
-| Abrir contest | Al abrir `DISPUTED` o arbitraje desde `FIAT_SENT` | Wallet del opener, una vez (`contestPaid`). Core-only: 0. Oficial: `max(principal × 1%, contestFloor)` (`contestBps=100`) con **piso bajo por paquete** (§3.14.7). Fail-closed si no alcanza; fail-open si el módulo drifted. Muerto en deals ZK |
+| Abrir contest | Al abrir `DISPUTED` o arbitraje desde `FIAT_SENT` | Wallet del opener, una vez (`contestPaid`). Core-only: 0. Oficial: `max(principal × 1%, contestFloor)` (`contestBps=100`) con **piso bajo por paquete** (§3.14.6). Fail-closed si no alcanza; fail-open si el módulo drifted. Muerto en deals ZK |
 | Al verificar | Proof ZK → `RELEASED` | Lo declara el paquete ZK |
 | Completion | Cualquier terminal donde el Provider cobre algo y no sea `STALEMATE` | Sobre el **pot completo**, deducido antes de partir |
 

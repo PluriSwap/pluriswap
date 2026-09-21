@@ -26,7 +26,10 @@ contract DeployKlerosPackages is PassportPicker, KlerosConfig {
     uint256 internal constant ACT_FEE = 100_000;
     uint256 internal constant COMP_FEE = 50_000;
     uint256 internal constant CONTEST_BPS = 100;
-    uint256 internal constant CONTEST_FLOOR = 10_000_000;
+    /// @dev PLURISWAP.md §3.14.6: the official floor is low and global (~2 USDC). The old 10 USDC floor was
+    ///      regressive against the T1 cap (250); a per-tier/per-deal floor is not implementable without a
+    ///      kernel bump (`contestFloor` is a stateless getter that lives inside the packageId).
+    uint256 internal constant CONTEST_FLOOR = 2_000_000;
     uint256 internal constant ZK_FEE = 10_000;
     address internal constant FEE_RECIPIENT = address(0xFEE);
     address internal constant SINK = address(0xdeaD);
