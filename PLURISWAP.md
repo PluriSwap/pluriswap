@@ -1,0 +1,1124 @@
+# PluriSwap — Protocolo
+
+Este es **el** documento del protocolo: visión, espíritu, diseño y decisiones de implementación. Absorbe y reemplaza la documentación que vivía en archivos separados: `ARCHITECTURE.md`, `STATE_MACHINE.md`, `ENCODING.md`, `PACKAGES.md`, `PROTECTION.md`, `PRIVACY.md`, `PRIVACY_IMPL.md`, `POOLS.md`, `POOL_SHARES_IMPL.md`, `POOL_IMPL.md`, `RAMPS.md`, `IMPLEMENTATION.md`, `PLAN.md`, `REVIEW.md`, `TESTNET_PLAN.md`. El historial de cada uno queda en git; el mapa de citas legacy está en el Apéndice A.
+
+Dos archivos quedan fuera del monolito por necesidad operativa, no por fragmentación:
+
+- `KLEROS_POLICY.md` — la policy que leen los jurados de Kleros. Se pinea a IPFS como `KLEROS_POLICY_URI` (parte V.8). Es un artefacto servido a un tribunal, no documentación de protocolo.
+- `LAB_UI.md` — referencia de la consola de laboratorio. Herramienta, no protocolo.
+
+Cómo leerlo. Parte I (visión) y II (espíritu) son el porqué. Parte III es el diseño normativo: si un comportamiento no está ahí, está prohibido. Parte IV es el registro de decisiones cerradas, fechado. Parte V es la implementación. Los conflictos se resuelven hacia arriba: una decisión posterior (IV) pisa el diseño (III); el espíritu (II) le gana a todo.
+
+---
+
+## Parte I — Visión
+
+### 1.1 Qué es PluriSwap
+
+Un escrow de principal cripto contra fiat offchain. Dos personas acuerdan fuera de la chain — una entrega stablecoins, la otra paga fiat — y el protocolo custodia la pata cripto hasta que el acuerdo se cierra: pago probado, acuerdo firmado, reloj vencido o veredicto. El protocolo no toca fiat, no autentica pagos por sí solo y no conoce a las personas.
+
+### 1.2 El mundo que quiere
+
+Comercio cripto↔fiat persona a persona sin un intermediario que te conozca, te catalogue o pueda cerrarte la puerta. Las ramps custodiadas exigen entregar identidad e historial a cambio de acceso; el OTC "de confianza" sin escrow es una estafa esperando turno. PluriSwap existe para que dos extraños hagan negocio sin que ninguno — ni un tercero — rinda su privacidad.
+
+Mercado inicial: Europa y Latam. El dolor es compartido: cuentas congeladas por recibir transferencias de terceros, debanking del que vende cripto, KYC que convierte cada trade en un registro permanente. La respuesta de diseño es doble: un protocolo que nadie controla y una capa de reputación que no expone personas.
+
+### 1.3 Los cuatro pilares
+
+1. **Kernel muerto.** Un contrato sin dueño, sin pausa, sin allowlist, sin upgrade. La neutralidad no es un estilo: es la defensa legal del protocolo y la garantía de que nadie puede cerrar el recinto.
+2. **Privacidad como valor de diseño.** Reputación sin identidad: sujetos desvinculables, stats ocultas, divulgación voluntaria. La privacidad no es un feature que se agrega; es un constraint que decide la arquitectura.
+3. **Todo opt-in por firma.** Protección, fees, tribunales: nada se impone. El deal nombra `packageId`s; lo que no se firmó no existe para ese deal.
+4. **Sin entidad detrás del protocolo.** Quien monetiza u opera puntos de acceso es visible y asumido: la DAO administra fees, Labs provee infraestructura, los Sponsors operan pools. El protocolo en sí no tiene a quién demandar.
+
+### 1.4 Quién es quién
+
+| Actor | Qué es | Qué no es |
+| --- | --- | --- |
+| Protocolo (kernel) | Máquina de estados + caja, inmutable | Una empresa, una plataforma, un servicio |
+| Partes del deal | Holder, Provider, Controller | Usuarios "de" alguien |
+| DAO | Gnosis Safe M-de-N, recipient de fees | Un operador, un gate, un actor del escrow |
+| PluriSwap Labs | Entidad de infraestructura (paquetes, backend, frontend) bajo MSA con la DAO | El dueño del protocolo, un exchange, un custodio |
+| Sponsors de pool | Operadores de liquidez de terceros, responsables de su propio cumplimiento | Perfiles del kernel |
+| Kleros / Human Passport | Dependencias externas, elegidas por firma en el `packageId` | Partes del protocolo |
+
+### 1.5 La pata fiat
+
+Offchain, siempre. El protocolo autentica proofs (ZK), espera acuerdos (dual-sign), respeta relojes o recibe veredictos (Kleros). La finalidad del fiat — chargebacks, Pix MED, transferencias reversibles — es riesgo de las partes, declarado en la política de disputas: la pata cripto es final, la pata fiat no lo es nunca.
+
+---
+
+## Parte II — Espíritu
+
+Catorce principios. Si un diseño propuesto viola uno, no es una extensión: es otro protocolo.
+
+1. **El kernel está muerto.** Sin dueño, sin pausa, sin allowlist, sin upgrade, constructor vacío. Neutralidad = defensa legal.
+2. **Mandatory Core.** Cualquier Holder y cualquier Provider activan, fondean y llegan a terminal sin paquetes, pool, rampa, DAO ni frontend. Core no es un modo degradado: es el recinto.
+3. **Publicar ≠ usar.** Cualquiera publica un paquete compatible (PERM-03); usarlo exige que las partes firmen ese `packageId` (TRUST-02).
+4. **Privacidad por diseño.** Sujeto ≠ wallet. Dos deals del mismo sujeto no se linkean on-chain. Disputar = salir a la luz: declarado, raro y caro.
+5. **Quien firma es quien cobra.** Las addresses de firma son los destinos. No hay campo receiver, no hay payout redirigido, el Controller nunca cobra principal.
+6. **El dinero se mueve con culpa probada o acuerdo probado.** Sin veredicto no hay slash. El stalemate por inacción quema bonds: ambas partes tenían salida y ninguna la tomó.
+7. **El happy path es gratis; desviarse cuesta.** Contest fee no-cero y sin devolución al ganador (una disputa implica que ambas partes fallaron en elegir contraparte). Completion fee sólo si el Provider cobró algo y el terminal no es `STALEMATE`. Refund y stalemate nunca pagan.
+8. **La DAO es recipient, nunca actor.** El kernel no la nombra. Sin verbo on-chain sobre nada. Fee policy nueva = módulo nuevo + `packageId` nuevo + firmas nuevas.
+9. **Labs es infraestructura, no plataforma.** Backend read-only, open source, corrible por terceros, sin custodia de fondos ni claves, sin matching, sin contacto fiat. Cobra por MSA a la DAO; nunca es `feeRecipient`.
+10. **Los pools son de sus Sponsors.** El protocolo no cobra por pools ni opera el descubrimiento. El cumplimiento de cada pool es local a quien lo abre.
+11. **Fees en el paquete, no en el deal.** El deal nombra IDs; los paquetes nombran montos y recipients. Un clon con fee cero es otro hash.
+12. **Un escritor, un motor.** El escrow escribe todo estado del deal y mueve todo principal. Credit-first: un `transfer` fallido no reescribe el terminal. EP-POST nunca revierte el escrow.
+13. **Los relojes son de las partes y los ejecuta cualquiera.** Duraciones firmadas, timeouts permissionless, sin liveness privilegiada. Los derechos no caducan porque un keeper no actuó.
+14. **Completitud.** Una transición no definida está prohibida; un rol no tiene autoridad no definida y consentida; un movimiento económico no definido está prohibido. En una carrera, gana la primera transacción exitosa.
+
+---
+
+## Parte III — Diseño
+
+### 3.1 Recinto y capas
+
+El recinto de settlement es **una chain y un deployment**. Hoy: Arbitrum, dominio EIP-712 `PluriSwap` / `1`.
+
+```
+                    ┌─────────────────────────────────────┐
+  Holder ──pull──►  │  Escrow = máquina + caja del deal   │
+  Provider ◄─credit │  único escritor de estado Core      │
+  Controller opera  │  único que mueve principal          │
+                    └──────────────┬─────────────────────┘
+                                   │ verbos (unidireccional)
+                                   ▼
+                    cualquier impl compatible (opt-in por deal)
+                    Passport / Reputation / Bonds / ZK / Court
+                    BondVault es otra caja (skin, no principal)
+
+  Pool  = Holder-contrato (EIP-1271 + pull). No es un perfil del kernel.
+  Rampa = composer delante o detrás. No tiene verbo.
+  DAO   = recipient que *un* paquete puso en su hash. Nunca caller.
+```
+
+Cinco capas. El kernel no absorbe las otras.
+
+| Capa | Qué es | Qué no es |
+| --- | --- | --- |
+| **Kernel** | Máquina + custodia de principal. Consentimiento, catálogo, pull exacto, créditos, clocks | Identidad, tribunal, verifier, NAV, bridge, catálogo de vendors |
+| **Paquetes** | Módulos opt-in detrás de verbos y *kinds* nombrados. El deal nombra `packageId`s | Escritores de estado Core. Cajas de principal. Un allowlist del constructor |
+| **BondVault** | Caja de skin, keyeada por sujeto | El escrow. Un fee. La DAO |
+| **Pool** | Servicio de liquidez que *es* el Holder | Un perfil `POOL`, un mandato, un fee de Controller en el kernel |
+| **Rampa** | Composer de token hacia/desde el Holder | Estados `BRIDGING_*`. `invoice` de protocolo |
+
+Reglas de borde:
+
+- El kernel llama a los paquetes. Los paquetes no llaman al kernel para escribir el deal.
+- Un paquete no devuelve receivers, outcomes ni destinos de principal.
+- Un pool no abre otro catálogo. Produce el mismo `HolderAuthorization`.
+- Una rampa termina antes de `activate` o después de `withdraw`.
+- Upgrade, pause o delisting de un paquete no mutan un deal ya snapshotado. Las salidas Core siguen.
+- No hay registry como gate de `activate`. Anunciar impls es un servicio; ejecutar no lo pide.
+
+El kernel no tiene dueño, no pausa, no lista paquetes, no endosa impls. Cualquiera despliega un escrow. Cualquiera publica un paquete. Las partes eligen IDs. El relayer trae las addresses. El kernel verifica y snapshottea.
+
+### 3.2 Superficie del kernel
+
+El kernel ve tres roles: **Holder**, **Provider**, **Controller**. No ve Sponsor, LP, rampa ni DAO.
+
+**Qué guarda.** Por `dealId`: status, `DealTerms`, orígenes de reloj, sujetos (si hay), addresses resueltas de los módulos de *ese* deal, bitmap de kinds, `holderAmt`/`providerAmt` al terminal, outcome paramétrico (`closeH`/`closeP`/`bondAction`), bits post-terminal pendientes. Por firmante: `used[signer][nonce]`. Por token y beneficiario: créditos maduros.
+
+No guarda un set mundial de paquetes. No guarda fees ni receivers: viven en el `packageId`.
+
+**Entrypoints por clase:**
+
+| Clase | Quién | Ejemplos |
+| --- | --- | --- |
+| Activación | Relayer cualquiera | `activate` (módulos en calldata, no en el digest) |
+| Autoridad de rol | Provider o Controller snapshotado | `markFiat`, `cancelByProvider`, `release`, `openDisputed`, `openCourt` |
+| Permissionless | Cualquiera | `timeoutFiat`, `claim`, `forceStalemate`, `forceArbitrationTimeout`, `verifyProof` |
+| Dual-sign | Relayer; firman Provider + Controller | `mutualCancel`, `coSignedRelease`, `mutualSplit` |
+| Lectura de extensión | Cualquiera, si el perfil está on | `readRuling` |
+| Crédito | Beneficiario | `withdraw` |
+| Nonce | `msg.sender` | `cancelNonce` |
+| Post-terminal | Cualquiera | `retryPostTerminal` — reintenta los consumidores EP-POST que fallaron en `_close` |
+
+**Dependencias.** El kernel no importa implementaciones: habla interfaces. OpenZeppelin sólo para crypto, ERC-20 y reentrancy. El borde con los paquetes (`resolve`, `engage`, invoice, `runPostTerminal`) vive en la librería externa `Packages` (DELEGATECALL, mismo contexto de storage y custodia): reparto de bytecode, no de confianza. El constructor del escrow no recibe paquetes: un escrow vacío es un recinto Core completo.
+
+**Lectura — `IEscrow`.** Cualquier contrato (paquete, pool, rampa, indexer) lee el recinto por `src/interfaces/IEscrow.sol`: `terms`, `clocks`, `subjects`, `modules`, `kinds`, `settlementOf`, `status`, `creditOf`, `domainSeparator`, `used`, `dealOf`. `notifyTerminal` recibe el sujeto snapshotado, no re-identifica.
+
+### 3.3 Resolución permissionless de `packageId`
+
+`DealTerms.packageIds`: identidades content-addressed, canónicas (únicas, orden ascendente). El deal no firma addresses, `daoFee` ni amounts.
+
+En `activate`, el calldata trae `PackageMods` — cinco slots, uno por kind, no firmados: `passport | reputation | bonds | zk | court`. Por cada slot no nulo, el kernel:
+
+1. Lee la policy pública del módulo (getters que entran al hash).
+2. Recomputa `id = PackageId.kind(address, policy)`.
+3. Exige que `id` esté en `terms.packageIds`.
+4. Si hay Reputation o Bonds, exige `module.passport() == mods.passport`.
+
+Y exige que **cada** `packageIds[i]` haya sido reclamado por exactamente un slot: si sobra un ID o un módulo, reject. Core-only: array vacío, slots nulos.
+
+`packageId = hash(kind, address del módulo, policy)`. La fórmula es del kernel, no un catálogo de vendors: cualquier impl cuyo hash esté firmado resuelve. Un relayer no puede colar otro módulo: el ID firmado bindea la address. Un módulo en el slot equivocado produce otro kind-hash y no matchea. Mentir sobre la policy solo produce *otro* ID; si las partes no lo firmaron, no hay deal.
+
+Incompatibles al resolver: ZK + ARBITRATION. Reputación sin Passport. Bonds sin Passport + Reputación.
+
+**Snapshot y drift.** En `FUNDED` quedan las addresses resueltas y el bitmap. Los verbos posteriores usan ese snapshot. El kernel re-verifica el ID contra los getters en vivo en cada invoice y dispose: un módulo que deriva su policy (proxy, fee mutable) pierde el cobro — fee 0 en completion, fail-open en la disposición de bonds — y `verifyProof`/`openCourt` lo rechazan (`PackageDrift`). Las salidas Core del deal siguen (KERNEL-04).
+
+| Invariante | Significado |
+| --- | --- |
+| PERM-03 | Cualquiera publica un contrato que cumple la interfaz, sin pedir permiso |
+| PERM-05 / PERM-08 | Endoso, frontend o registry no son gate de `activate` |
+| TRUST-02 | Usarlo exige que las tres partes firmen ese `packageId` |
+| EXT-10 | El kernel snapshottea address (+ kinds) en activación; drift posterior no muta el deal vivo |
+| KERNEL-04 | Sin paquete, o paquete hostil: las salidas Core de *ese* deal siguen; un fee que no cabe en el leftover (`fee >= left`, igualdad incluida) se omite |
+
+### 3.4 Contrato de paquete (interfaces)
+
+Los *kinds* son la superficie cerrada de extensión (EXT-01). Cinco. Un kind nuevo es versión nueva de kernel. Las impls de cada kind son permissionless.
+
+| Interfaz | Kind | Verbos | Policy que entra al `packageId` |
+| --- | --- | --- | --- |
+| `IPassport` | PASSPORT | `identify` | address del adapter (decoder y `minScore` inmutables) |
+| `IReputation` | REPUTATION | `admit`, `invoiceActivation`, `invoiceCompletion`, `invoiceContest`, `notifyTerminal` | module, feeRecipient, activationFee, completionFee, contestBps, contestFloor |
+| `IBondVault` | BONDS | `reserve`, `unlock`, `slash`, `burn` | vault, sink, lock bps |
+| `IPaymentProof` | ZK | `verifyProof`, `invoiceVerify` | module, verifier V, feeRecipient, verifyFee |
+| `IVerifier` | (no es paquete) | `verify → (dealId, nullifier)` | — |
+| `ICourt` | ARBITRATION | `openCourt`, `readRuling`, `packageBinding` | adapter, partner, key |
+
+`admit` / `notifyTerminal` / `verifyProof` / `reserve` / `dispose` / `openCourt` los llama el kernel. Un extraño no es el kernel. Cada impl bindea un `operator` inmutable (el escrow) al deploy.
+
+### 3.5 Roles y consentimiento
+
+| Rol | Dueño de | Sobre el deal puede | No puede |
+| --- | --- | --- | --- |
+| **Holder** | El principal | Producir la autorización EIP-712; ser fuente y destino del principal | Redirigir el retorno tras activación; operar si no es también Controller |
+| **Provider** | El fiat (offchain) | Firmar términos; marcar fiat, cancelar antes de fiat, dual-sign, claim tras deadline | Claim antes del deadline; marcar fiat sin activar |
+| **Controller** | Nada del principal | Obtener la autorización del Holder y operar: activar, release, `DISPUTED`, dual-sign, abrir arbitraje si está seleccionado | Inventar la firma del Holder; recibir principal; cambiar Holder o Provider |
+
+Persona a persona es el caso degenerado: `Holder == Controller`, una sola firma holder-side. Un pool es el caso contractual: el contrato es el Holder y nombra a un Controller en el mismo typed data. El kernel no tiene un path "pool" y otro "wallet".
+
+**Consentimiento.** El Controller recolecta: `HolderAuthorization` (EIP-712 del Holder, ECDSA o EIP-1271) + firma del Provider (mismos términos) + `ControllerAcceptance` (solo si `Holder ≠ Controller`, para no colgar el rol a quien no lo pidió). Activación atómica: verifica firmas → pull exacto desde el Holder → `FUNDED`. Después de `FUNDED`, el Holder no vuelve a firmar; el Controller hace todo el lado holder.
+
+La verificación es la misma para EOA y contrato: `ecrecover == Holder` o `IERC1271.isValidSignature(digest, bytes) == MAGICVALUE`. El kernel no interpreta las `bytes`.
+
+**Pull exacto.** El kernel verifica el digest y observa un movimiento exacto desde el Holder hacia sí mismo, en la misma tx. Cómo el Holder se volvió pullable es local: `approve` + `transferFrom`, Permit2, o transfer del propio contrato. ERC-2612 no alcanza si el Holder es un contrato. Fee-on-transfer y rebase no activan: el delta tiene que ser exacto.
+
+**Qué no cubre la autorización.** Redirigir holder-gross, nombrar otro payout del Provider, cambiar Holder/Provider después, reusar el nonce en otro fill, autorizar otro principal u otro Controller. Pull sin digest válido o digest con pull incompleto: rechaza atómico, sin nonce consumido.
+
+**Factibilidad.** Este recorte es un patrón existente (Safe, Permit2, Seaport). No es bloqueo de máquina: un 1271 que dice sí a todo solo puede vaciar *ese* Holder; un proxy upgradeable entre firma y activación es riesgo del Holder-contrato (o se bindea code hash en términos y el stale rechaza); tokens no estándar no activan.
+
+### 3.6 Estados
+
+Core (siempre presentes):
+
+| Estado | Clase | Significado |
+| --- | --- | --- |
+| `FUNDED` | Activo | Principal en custodia; fiat aún no marcado |
+| `FIAT_SENT` | Activo | El Provider afirmó envío fiat; corre el release deadline |
+| `DISPUTED` | Activo | Freeze abierto por el Controller; claim y release unilateral deshabilitados |
+| `RELEASED` | Terminal | Principal al Provider (release, co-signed release, o payment proof) |
+| `CLAIMED` | Terminal | Principal al Provider por timeout: fiat marcado, el Controller nunca liberó |
+| `RESOLVED_SPLIT` | Terminal | Split dual-firmado |
+| `STALEMATE` | Terminal | 50/50 de protocolo: timeout de `DISPUTED` sin tribunal, o arbitraje rehusado / arbitration timeout. Bonds: quema sólo en el primero; en los otros dos se devuelven |
+| `CANCELLED` | Terminal | Principal al Holder (cancel Provider, fiat timeout, o mutual cancel) |
+
+`CLAIMED` es estado propio (valor 10): misma economía que `RELEASED`, distinto origen y distinta lectura para reputación (Provider Peaceful, Holder Silent). `STALEMATE` no distingue origen en el estado; los bonds sí (§3.14.5).
+
+Solo perfil ARBITRATION:
+
+| Estado | Clase | Significado |
+| --- | --- | --- |
+| `ARBITRATION_ACTIVE` | Activo (extensión) | Disputa externa abierta; corre el arbitration deadline |
+| `RESOLVED_BY_ARBITRATION` | Terminal (extensión) | Ruling autenticado holder-win o provider-win |
+
+Si ARBITRATION no está seleccionado, esas aristas rechazan o están ausentes. No existen como stubs muertos presentados como capacidad.
+
+### 3.7 Grafo
+
+Líneas sólidas = Mandatory Core. Punteadas = sólo si el perfil está firmado.
+
+```mermaid
+stateDiagram-v2
+    [*] --> FUNDED: activación atómica
+    FUNDED --> FIAT_SENT: Provider marca fiat
+    FUNDED --> CANCELLED: cancel Provider, fiat timeout, mutual cancel
+    FIAT_SENT --> RELEASED: Controller release o co-signed release
+    FIAT_SENT --> CLAIMED: claim tras release deadline
+    FIAT_SENT --> RESOLVED_SPLIT: split dual-firmado
+    FIAT_SENT --> CANCELLED: mutual cancel
+    FIAT_SENT --> DISPUTED: Controller abre DISPUTED
+    DISPUTED --> CANCELLED: mutual cancel
+    DISPUTED --> RELEASED: co-signed release
+    DISPUTED --> RESOLVED_SPLIT: split dual-firmado
+    DISPUTED --> STALEMATE: timeout — cualquiera fuerza stalemate
+    FUNDED --> RELEASED: payment proof
+    FIAT_SENT --> ARBITRATION_ACTIVE: Controller abre arbitraje
+    DISPUTED --> ARBITRATION_ACTIVE: Controller abre arbitraje
+    ARBITRATION_ACTIVE --> RESOLVED_BY_ARBITRATION: ruling Holder o Provider
+    ARBITRATION_ACTIVE --> STALEMATE: refused o arbitration timeout
+    ARBITRATION_ACTIVE --> RELEASED: co-signed release
+    ARBITRATION_ACTIVE --> RESOLVED_SPLIT: split dual-firmado
+    ARBITRATION_ACTIVE --> CANCELLED: mutual cancel
+```
+
+Tres caminos Core que cualquier implementación conforme debe ejecutar **sin paquetes**:
+
+1. **Éxito no contestado.** activar → `FUNDED` → `FIAT_SENT` → release del Controller, dual-sign, o claim permissionless tras el release deadline.
+2. **Contestación Core.** activar → `FUNDED` → `FIAT_SENT` → Controller abre `DISPUTED` → dual-sign (incluido split), o cualquiera fuerza stalemate tras `disputeDeadline`.
+3. **Fiat timeout en `FUNDED`.** Desde `fiatDeadline`, cualquiera cancela y devuelve principal al Holder. Corre contra mark-fiat; no auto-cancela.
+
+Core no tiene tribunal externo. Abrir `DISPUTED` congela el claim; no adjudica si el fiat se pagó.
+
+### 3.8 Relojes
+
+Deadlines sobre el timestamp canónico de la chain. Cada origen se escribe una vez. Las **partes** eligen las duraciones (van en los términos, las cubre la firma, el snapshot las congela). Único bound del kernel: `duration >= 0`. Cero: elegible en cuanto existe el origen. Un reloj de años es riesgo de las partes.
+
+| Reloj | Origen | Efecto permissionless |
+| --- | --- | --- |
+| `fiatDeadline` | activación + fiat duration | Cualquiera cancela desde `FUNDED` (Holder-favorable). Corre contra mark-fiat |
+| Release deadline | `FIAT_SENT` + release duration | Cualquiera claim (silencio = no-contestación). Abrir `DISPUTED`/arbitraje sólo **estrictamente antes** |
+| `disputeDeadline` | `DISPUTED` + dispute duration | Cualquiera fuerza stalemate. Abrir arbitraje desde `DISPUTED` sólo **estrictamente antes** |
+| Arbitration deadline | `ARBITRATION_ACTIVE` + arbitration duration | Cualquiera ejecuta stalemate. No exige respuesta del adapter |
+
+El stalemate de `DISPUTED` es 50/50 fijo; no hay bps de residual. Los derechos de timeout no caducan porque un keeper no actuó: siguen ejecutables hasta que otra transición válida gane.
+
+### 3.9 Catálogo Core de transiciones
+
+| Caso | Desde | Quién / qué | Timing | Resultado |
+| --- | --- | --- | --- | --- |
+| CASE-CORE-01 | Sin deal | Relay de `HolderAuthorization` + firma Provider + pull exacto (+ `ControllerAcceptance` si `Holder ≠ Controller`) | Antes de creation expiry | Activa en `FUNDED` |
+| CASE-CORE-02 | `FUNDED` | Provider marca fiat sent | Antes de que gane otra transición | `FIAT_SENT`; arranca release deadline |
+| CASE-CORE-03 | `FUNDED` | Provider cancela | Antes de mark-fiat | Principal al Holder; `CANCELLED` |
+| CASE-CORE-04 | `FUNDED` | Cualquiera ejecuta fiat timeout | En o después de `fiatDeadline` | Principal al Holder; `CANCELLED` |
+| CASE-CORE-05 | `FUNDED` | Relay dual RES-01 (Provider + Controller) | Antes de expiry del payload | Mutual cancel |
+| CASE-CORE-06 | `FIAT_SENT` | Controller libera | Antes de otro terminal | `RELEASED` al Provider |
+| CASE-CORE-07 | `FIAT_SENT` | Cualquiera claim | En o después del release deadline | `CLAIMED` al Provider |
+| CASE-CORE-08 | `FIAT_SENT` | Relay mutual cancel | Antes de expiry | Mutual cancel |
+| CASE-CORE-09 | `FIAT_SENT` | Relay split RES-02 | Antes de otro terminal y expiry | `RESOLVED_SPLIT` |
+| CASE-CORE-10 | `FIAT_SENT` | Relay co-signed release RES-03 | Antes de otro terminal y expiry | `RELEASED` al Provider |
+| CASE-CORE-11 | `FIAT_SENT` | Controller abre `DISPUTED` | Estrictamente antes del release deadline; a lo sumo una vez | `DISPUTED`; arranca dispute deadline |
+| CASE-CORE-12 | `DISPUTED` | Mutual cancel | Antes de expiry | Mutual cancel |
+| CASE-CORE-13 | `DISPUTED` | Co-signed release | Antes de otro terminal y expiry | `RELEASED` al Provider |
+| CASE-CORE-14 | `DISPUTED` | Split dual-firmado | Antes de otro terminal y expiry | `RESOLVED_SPLIT` según bps firmados |
+| CASE-CORE-15 | `DISPUTED` | Cualquiera fuerza stalemate | En o después de `disputeDeadline` | `STALEMATE` 50/50; bonds, si hay, se queman |
+| CASE-CORE-16 | `DISPUTED` | Release unilateral o claim | Siempre | Rechaza; sin cambio económico |
+| CASE-CORE-17 | Cualquier terminal | Cualquier acción que cambie estado | Siempre | Rechaza; sin cambio económico |
+
+Dual-sign exige `MutualCancel` / `MutualSplit` / `CoSignedRelease` EIP-712 del Provider y del Controller snapshotados. Relayer cualquiera; cada uno trae su nonce.
+
+Abrir `DISPUTED` es gratis en Core: sin fee y sin bond. Es el freno defensivo del lado Holder contra un claim no autenticado. No es tribunal, no es un win, no quema principal. El paquete de reputación oficial cobra un contest fee no-cero, una vez, de la wallet del opener (§3.14.6). Un clon con fee cero es otro hash. Court-only sin reputación sigue gratis.
+
+Si el deal seleccionó `PAYMENT_PROOF`, CASE-CORE-11 rechaza: ese escrow no entra a `DISPUTED` (§3.12.1).
+
+### 3.10 Carreras
+
+Entre transiciones simultáneamente elegibles, gana la primera que cambia estado. Las incompatibles posteriores rechazan.
+
+| Caso | Competidores |
+| --- | --- |
+| CASE-RACE-01 | Desde `FUNDED`: mark-fiat, cancel Provider, fiat timeout, mutual cancel; proof si está habilitado |
+| CASE-RACE-02 | Desde `FIAT_SENT`: release, claim, abrir `DISPUTED`, dual-sign, proof, abrir arbitraje |
+| CASE-RACE-03 | Abrir `DISPUTED`/arbitraje vs claim en el borde del release deadline: opens sólo **antes**; claim sólo **en o después**. Nunca elegibles al mismo timestamp |
+| CASE-RACE-04 | Desde `ARBITRATION_ACTIVE`: ruling, timeout, dual-sign |
+| CASE-RACE-05 | Desde `DISPUTED`: dual-sign, stalemate tras `disputeDeadline`, abrir arbitraje |
+| CASE-RACE-06 | Ruling final vs arbitration timeout: gana el primero |
+| CASE-RACE-07 | Relays duplicados: tras éxito, el siguiente cambio de estado rechaza |
+| CASE-RACE-08 | Dual-sign vs stalemate en el borde de `disputeDeadline` |
+
+Carrera intencional en `fiatDeadline`: timeout cancel y mark-fiat son elegibles a la vez. Core no auto-cancela. La protección del Holder es **ejecutar** el timeout, no la expiración pasiva.
+
+### 3.11 Outcomes terminales
+
+Un deal produce a lo sumo un resultado económico terminal. Settlement reasigna la posición a créditos irrevocables. El fallo de un `transfer` no reescribe el outcome (credit-first). El Controller no aparece en esta tabla: no es un lado económico.
+
+| Outcome | Estado | Principal | Perfil |
+| --- | --- | --- | --- |
+| OUT-01 Voluntary release | `RELEASED` | 100% Provider | Core (off si `PAYMENT_PROOF`) |
+| OUT-02 Co-signed release | `RELEASED` | 100% Provider | Core |
+| OUT-03 Payment-proof release | `RELEASED` | 100% Provider | `PAYMENT_PROOF` |
+| OUT-04 Timeout claim | `CLAIMED` | 100% Provider | Core, desde `FIAT_SENT` (off si `PAYMENT_PROOF`) |
+| OUT-05 Provider cancel | `CANCELLED` | 100% Holder | Core |
+| OUT-06 Fiat-timeout cancel | `CANCELLED` | 100% Holder | Core |
+| OUT-07 Mutual cancel | `CANCELLED` | 100% Holder | Core |
+| OUT-08 Mutual split | `RESOLVED_SPLIT` | bps firmados, **después** del completion fee sobre el principal completo | Core; también desde `DISPUTED` |
+| OUT-09 Arb holder win | `RESOLVED_BY_ARBITRATION` | 100% Holder | `ARBITRATION` |
+| OUT-10 Arb provider win | `RESOLVED_BY_ARBITRATION` | 100% Provider | `ARBITRATION` |
+| OUT-11 Arb refused | `STALEMATE` | 50/50; **sin** completion fee | `ARBITRATION` |
+| OUT-12 Arb timeout | `STALEMATE` | 50/50; **sin** completion fee | `ARBITRATION` |
+| OUT-13 Dispute timeout | `STALEMATE` | 50/50; cualquiera lo ejecuta; **sin** completion fee | Core (off si `PAYMENT_PROOF`) |
+
+**Completion fee.** Lo declara el paquete, no un campo del deal. Base: siempre el **principal completo**, nunca la tajada de un split. Se cobra si el Provider cobra algo y el terminal no es `STALEMATE`; nunca en un refund. Si no cabe en el leftover (`fee >= left`, igualdad incluida), **no se cobra** y el terminal commitea igual: un fee igual al pot dejaría en cero a la parte que acaba de ganar. En split: fee sobre el principal entero, deducido primero, bps después. Un split chico no achica el fee.
+
+**Bonds** (si el paquete está seleccionado): viven en el BondVault, no en el escrow. Unlock en todo terminal pacífico. Slash sólo en OUT-09/OUT-10: lock del perdedor a la address de firma del ganador (nunca el Controller). **Quema** de ambos locks al sink inmutable en todo `STALEMATE` (OUT-11/12/13). Detalle en §3.14.5.
+
+Claim no autentica fiat. Fiat timeout no es culpa del Provider. En un deal ZK, fiat timeout es la única salida sin proof: esperado, no un fallback extra.
+
+### 3.12 Puntos de extensión
+
+Tres clases. Sólo la primera añade estados o aristas. Las otras tocan activación, reservas o consumidores post-terminal **sin** abrir el catálogo. Delegar el proceso en un Controller **no** es una extensión: es Core (§3.5).
+
+#### 3.12.1 EP-EDGE-PROOF — `PAYMENT_PROOF`
+
+Habilita release automático autenticado. El deal firmó un verifier V: sólo un proof de V cuenta; cualquier otro se ignora.
+
+Si el perfil está seleccionado, el escrow es **proof o timeout**. No entra a `DISPUTED`; tampoco hay claim ni release unilateral del Controller. El grafo de ese deal: `FUNDED` + proof de V → `RELEASED`; `FUNDED` + `fiatDeadline` (o cancel/mutual cancel) → `CANCELLED`. Si el fiat no se prueba a tiempo, el principal vuelve al Holder: las partes acordaron V y una no cumplió. El Provider que pagó offchain y no obtuvo proof no tiene claim.
+
+| Caso | Desde | Quién | Resultado |
+| --- | --- | --- | --- |
+| CASE-PAY-01 | `FUNDED` | Cualquiera con proof autenticado de V | `RELEASED` al Provider |
+
+Contrato de extensión:
+
+- Verifier y policy inmutables en los términos (identidad de paquete, no un address suelto). El verifier autentica evidencia; decodificar claims del caller no es verificación.
+- Public inputs incluyen el `dealId` de este escrow. Un proof de otro deal no verifica.
+- `paymentNullifier` del receipt autenticado: un pago liquida a lo sumo un deal bajo V. Gastado → reject. Distinto del nullifier de Passport.
+- Autenticación, consumo de nullifier, transición, principal y fee ZK commit o revert juntos.
+- El fee ZK se cobra **al verificar**, no en activación. Timeout: no hubo verificación, no hay fee.
+- El verifier no redirige settlement ni cambia términos.
+
+#### 3.12.2 EP-EDGE-ARB — `ARBITRATION`
+
+Tribunal externo opcional. No reemplaza `DISPUTED`: escala a un ruling autenticado cuando las partes eligieron esa dependencia.
+
+| Caso | Desde | Quién | Resultado |
+| --- | --- | --- | --- |
+| CASE-ARB-01 | `FIAT_SENT` | Controller paga fee y abre | `ARBITRATION_ACTIVE` |
+| CASE-ARB-02 | `DISPUTED` | Igual, estrictamente antes de `disputeDeadline` | `ARBITRATION_ACTIVE`; **retira** el dispute timeout Core |
+| CASE-ARB-03 | `ARBITRATION_ACTIVE` | Adapter autentica holder win | `RESOLVED_BY_ARBITRATION` |
+| CASE-ARB-04 | `ARBITRATION_ACTIVE` | Adapter autentica provider win | `RESOLVED_BY_ARBITRATION` |
+| CASE-ARB-05 | `ARBITRATION_ACTIVE` | Adapter autentica refused | `STALEMATE` 50/50 |
+| CASE-ARB-06 | `ARBITRATION_ACTIVE` | Cualquiera ejecuta arbitration timeout | `STALEMATE` 50/50 |
+| CASE-ARB-07..09 | `ARBITRATION_ACTIVE` | Dual-sign cancel / split / co-signed release | Terminal Core correspondiente |
+
+Contrato de extensión:
+
+- Adapter y policy inmutables en los términos. Sin selección, abrir arbitraje rechaza.
+- **Sólo el Controller** abre corte. El Provider no. Un relayer sólo transporta el open del Controller.
+- Espacio de rulings cerrado: holder win, provider win, refused. Ruling parcial, receptor alterno o fee discrecional rechazan.
+- El adapter no mueve custodia: comunica un significado; el kernel aplica el mapa económico predeterminado.
+- Fee de corte lo paga la **wallet del opener** (ETH a KlerosCore), no el principal ni el Holder.
+- Abrir desde `DISPUTED` abandona el stalemate Core y lo reemplaza por el mapa de arbitraje.
+- Si el adapter o el tribunal desaparecen, el timeout de arbitraje es la liveness de ese path. El costo de arbitraje ya pagado no se recupera.
+- Delisting, pause o overwrite de policy no pueden hacer que el protocolo rechace un ruling auténtico bajo la policy snapshotada, ni deshabilitar las salidas Core.
+
+#### 3.12.3 EP-HOOK — ganchos acotados, sin nuevos estados
+
+No añaden nodos al grafo. Reservan, validan o enriquecen. El kernel sigue siendo el único escritor y el único que ejecuta fórmulas de settlement.
+
+**EP-HOOK-ACTIVATE (EXT-02, EXT-04).** La activación crea custodia sólo cuando consentimiento, nonce/expiry, funding exacto y reservas seleccionadas succeden atómicamente. Hooks permitidos: `BONDS` reserva colateral con fórmula de slash snapshotada; admission progresiva reserva exposición para deals futuros. Un hook no puede devolver destinos, receivers, outcomes, estados, predicados ni disposiciones arbitrarias. Si una reserva o hook requerido falla, Core rechaza: no hay activación parcial, no se consume nonce, bond/fee sin cambio.
+
+**EP-HOOK-DISPUTE (DISPUTE-06).** La transición base CASE-CORE-11 es Core y ejecuta sin paquete. Un paquete puede exigir fee/bond de contest **sólo** si el deal lo seleccionó, y añadir evidencia enhanced fallando closed. No puede hacer de su disponibilidad un prerrequisito de abrir `DISPUTED`, ni inyectar duraciones no firmadas, ni convertir el open gratis de Core en peaje.
+
+**EP-HOOK-SLOTS (EXT-11).** Los términos llevan slots para proof, arbitration, bonds, humanity/reputation. Con el perfil apagado, ausentes o inertes: no se cobran ni se enforzan.
+
+**EP-HOOK-ADMISSION (EXT-10).** Todo componente custody-adjacent bindea chain, rol, address, identidad de código runtime, policy hash, terms hash y la autorización de admission **en activación**. El kernel snapshottea y no depende de approval posterior. Upgrade de proxy, pause de admin, delisting o drift no reescriben el snapshot ni deshabilitan las salidas Core. Admission gobierna deals futuros, no vivos.
+
+#### 3.12.4 EP-POST — consumidores post-terminal (EXT-12)
+
+Tras el commit, el kernel emite exactamente un terminal record inmutable (`settlementOf(dealId)` → `status`, `holderAmt`, `providerAmt`). En el mismo settlement atómico, reasigna la posición a créditos de beneficiario (EXT-08). El record se commitea **antes** de cualquier consumidor opcional y antes de un `transfer` que pueda revertir.
+
+Consumidores permitidos, permissionless, idempotentes, a lo sumo una vez: ledgers de exposición, materializers de reputación, journals locales de un Holder-contrato (pool) que reconcilia su tesorería. Su fallo no revierte settlement, no bloquea deals ajenos, no muta principal activo. Callbacks de un Holder-contrato no corren en el path de settlement Core.
+
+**El fallo sí se recupera.** `_close` corre una sola vez (la escritura de `status` hace revertir todo verbo posterior), así que un consumidor que falla ahí quedaría perdido si el kernel no guardara la deuda: `Deal.postPending` es un bitmask de llamadas pendientes, y `closeH`/`closeP`/`bondAction` conservan el outcome que las parametriza (no derivable de `status`: `STALEMATE` mapea a tres pares close/bond distintos). `retryPostTerminal(dealId)` es permissionless e idempotente: reintenta sólo los bits pendientes; un bit se limpia únicamente cuando su propia llamada tuvo éxito, así que un reintento no puede aplicar dos veces un delta ni disponer dos veces un lock.
+
+Dos límites deliberados. El bit de bond se **abandona** si el vault derivó de su `packageId` o dejó de responder: TRUST-03 lo hace fail-open permanente con el lock quedando en el vault. El bit de reputación **no** se abandona: una notificación no es un cobro, y soltarla en silencio escondería la fuga de capacidad del sujeto (`inFlight` consumido por un deal cerrado). Sin pendientes no se escribe storage: un terminal limpio o un deal Core-only no pagan el camino de retry.
+
+#### 3.12.5 Qué un punto de extensión nunca puede hacer
+
+| Prohibición | Por qué |
+| --- | --- |
+| Escribir estado del deal | KERNEL-07: un solo escritor |
+| Mover principal Core | Sólo el escrow, según el catálogo |
+| Bloquear, retrasar o tasar un path obligatorio | KERNEL-04 |
+| Inventar outcome, receptor o transición no listada | DEC-02, regla de completitud |
+| Pausar una salida válida de un deal activo | DEC-04 |
+| Mutar el snapshot de un deal vivo | DEC-03, EXT-05 |
+| Exigir un server/keeper/signer del protocolo para una transición elegible | DEC-07 |
+| Hacer endorsement, registry o frontend un gate de ejecución | PERM-05, PERM-08 |
+| Inyectar fee DAO o de paquete en un deal que no lo seleccionó | EXT-03 |
+| Callback de paquete después del commit terminal | EXT-04, EXT-06 |
+| Presentar una arista de perfil apagado como capacidad | §3.6 |
+| Quemar principal en un timeout Core | DISPUTE-05 |
+| Meter gestión de pool, mandato o fee de Controller en el kernel | El kernel ve tres roles y `HolderAuthorization` |
+
+### 3.13 Encoding EIP-712
+
+Principio: **el envelope es estable; la extensión es un array de `packageId`**. Un paquete nuevo no cambia el typehash de Core. Un campo nuevo de Core es versión nueva de dominio (deployment nuevo, deals viejos intactos).
+
+**Dominio.** `EIP712Domain(name "PluriSwap", version "1", chainId, verifyingContract)`. Sin `salt`. Replay cross-chain y cross-deploy lo corta el dominio. `version` es la del kernel, no la de un paquete. Verificación: `SignatureChecker.isValidSignatureNow` — EOA y EIP-1271, el mismo digest.
+
+**Qué se firma y qué no.** Se firma lo que el kernel snapshottea. No se firma: fees (viven en el `packageId`), receivers (las addresses de firma son los destinos), `dealId` (nace en activación), sujeto/score/cap. Tres mensajes de activación, un struct de negocio compartido. Dual-sign, después de `FUNDED`, son types distintos: el deal ya existe, se firma `dealId` + acción.
+
+**`DealTerms`:**
+
+```solidity
+struct DealTerms {
+    address holder;
+    address controller;
+    address provider;
+    address token;
+    uint256 principal;
+    uint256 fiatDuration;
+    uint256 releaseDuration;
+    uint256 disputeDuration;
+    uint256 arbitrationDuration; // ignorado si ARBITRATION no está en packageIds
+    bytes32[] packageIds;        // vacío = Core-only
+}
+```
+
+Reglas: `principal > 0`; duraciones `>= 0`; `holder != provider`; `controller` puede ser `holder` pero no `provider`; `packageIds` **únicos y ordenados ascendente** (el kernel rechaza si no: el mismo set no tiene dos hashes). Cada `packageId` es el hash de contenido (código + policy + fees + sink/V/adapter). Si ZK está en el set, `DISPUTED` apaga; ZK + ARBITRATION juntos rechazan la activación.
+
+`termsHash = hashStruct(DealTerms)` según EIP-712, nested: las wallets ven token, principal, roles, relojes y paquetes. Un `bytes32` opaco sería igual de extensible e ilegible para el firmante; campos de paquete sueltos romperían el typehash en cada experimento.
+
+**Nonce por party.** Cada firma de activación trae **su** nonce; el mapa es `used[signer][nonce]`, no secuencial: cada address elige el número. Sin nonce del Provider, el mismo `ProviderAgreement` llenaría N deals idénticos: eso no es un OTC, es una orden abierta. Si la activación revierte, no se marca ninguno. `cancelNonce(nonce)` invalida el del `msg.sender` sin activar. Dual-sign también lleva nonce por party: el `dealId` bindea el deal, el nonce impide reusar el payload, el estado terminal corta el replay.
+
+**Mensajes de activación:**
+
+```
+HolderAuthorization(DealTerms terms, uint256 nonce, uint256 deadline)
+ProviderAgreement (DealTerms terms, uint256 nonce, uint256 deadline)
+ControllerAcceptance(DealTerms terms, uint256 nonce, uint256 deadline)  // sólo si holder ≠ controller
+```
+
+`HolderAuthorization` autoriza pull exacto de `terms.principal` de `terms.token` desde `terms.holder` hacia el escrow, si se activa antes de `deadline` (expiry de la *autorización*, no reloj del deal). Si `holder == controller`, esa firma cubre ambos roles.
+
+**`dealId`**, determinístico, nace en activación:
+
+```
+dealId = keccak256(abi.encode(
+    DOMAIN_SEPARATOR,
+    hashStruct(terms),
+    holderNonce,
+    providerNonce,
+    holder == controller ? uint256(0) : controllerNonce
+))
+```
+
+Bindea el fill completo (las tres nonces), no un contador de bloque. Es precomputable: el patrón prepare-then-activate de §3.15.3 lo necesita y lo tiene.
+
+**Dual-sign (post-`FUNDED`).** Types distintos; firman el Provider y el Controller snapshotados; relayer cualquiera; mismas reglas de verificación. Cada party firma el mismo type con el mismo `dealId` y `deadline`, y su nonce. El kernel exige `dealId` y `deadline` idénticos entre copias; consume `used[provider][nonceP]` y `used[controller][nonceC]`.
+
+```
+MutualCancel(bytes32 dealId, uint256 nonce, uint256 deadline)
+CoSignedRelease(bytes32 dealId, uint256 nonce, uint256 deadline)
+MutualSplit(bytes32 dealId, uint16 providerBps, uint256 nonce, uint256 deadline)
+```
+
+`MutualSplit.providerBps` (0..10000) se aplica al resto **después** del completion fee. `providerBps = 10000` no sustituye a `CoSignedRelease`: type distinto, el wallet muestra otra intención. No hay dual-sign de "cambiar Holder". No hay payout. Cancel unilateral del Provider en `FUNDED` no usa estos types: es una llamada.
+
+**Invariantes de encoding.** Un solo domain separator por escrow. `DealTerms` es la unidad de acuerdo. `packageIds` vacío = Core-only, orden canónico. Nonce por party, elegido. Destinos = `holder` y `provider` del struct. Dual-sign nombra `dealId`, no re-firma `DealTerms`. Bump de `EIP712Domain.version` = otro kernel.
+
+### 3.14 Paquetes
+
+Todos opt-in. Core-only no los necesita. El deal nombra **identidades de paquete**; amount, recipient y momento de cada fee viven en ese hash. Si el fee fuera parámetro del deal, se pondría a cero y se usaría el módulo gratis.
+
+#### 3.14.1 Qué hace cada uno
+
+| Paquete | Para qué | Punto en la máquina | Cobra | Dónde va el fee |
+| --- | --- | --- | --- | --- |
+| Human Passport | Raíz anti-Sybil | Admisión | No | — |
+| Reputación | Cap del principal y fee de acceso | Activación (cap + fee); contest-open; completion; post-terminal (score) | Sí (oficial: no-cero) | Lo que diga el paquete (oficial: DAO) |
+| Bonds | Suben el cap; skin-in-the-game | Activación (reserva); terminal (suelta/slash/quema) | No es fee: colateral | Slash: address de firma del ganador; quema: sink inmutable |
+| ZK / payment proof | Auto-release autenticado; apaga `DISPUTED` | `FUNDED` → `RELEASED` | Sí, al verificar | Lo que diga el paquete (oficial: DAO) |
+| Arbitraje | Tribunal cuando no hay ZK | `FIAT_SENT`/`DISPUTED` → `ARBITRATION_ACTIVE` | Court fee al abrir, de la wallet del opener | El tribunal |
+| DAO | Recipient | — | No cobra por sí | — |
+
+#### 3.14.2 Orden en activación
+
+Si están seleccionados: (1) Passport identifica al sujeto (sin fee). (2) Reputación calcula `cap(score, bond)` y cobra su fee de activación; si `principal > cap`, no hay deal. (3) Bonds lockean en el vault. (4) ZK no cobra todavía. (5) Pull exacto del principal → `FUNDED`. Sin estos paquetes: sin cap, sin fee, sin Passport; el recinto Core sigue abierto.
+
+#### 3.14.3 ZK: proof o timeout
+
+El deal firmó el verifier V. Sólo V. Otro proof se ignora. Salidas: proof de V → `RELEASED` (ahí cobra el paquete ZK); `fiatDeadline` / cancel / mutual cancel → `CANCELLED` (no hubo verificación, no hay fee ZK).
+
+**Un proof, un deal.** Dos amarres en la misma tx que `verifyProof`: el `dealId` va en los public inputs (las mismas bytes en otro deal fallan) y el `paymentNullifier` del pago fiat (rail + receipt, o nullifier del circuito) queda gastado: un segundo proof, aunque tenga otro `dealId`, no puede liquidar el mismo pago. Si el nullifier está gastado o el `dealId` no es el del escrow, `verifyProof` rechaza y el deal no cambia. Autenticación, consumo, `RELEASED` y fee commit o revert juntos.
+
+#### 3.14.4 Disputa sin ZK y tribunal Kleros
+
+`DISPUTED` se usa cuando el deal **no** seleccionó ZK: el Controller congela un claim no autenticado. Desde `DISPUTED`, en paz: mutual cancel (todo al Holder), co-signed release (todo al Provider), split (bps firmados; no es un veredicto, es un acuerdo parcial). Timeout de `DISPUTED` sin arbitraje: cualquiera, tras `disputeDeadline`, fuerza `STALEMATE` 50/50 y quema de bonds. El split dual-firmado es la salida pacífica *antes* de ese reloj.
+
+**Kleros V2 (tribunal oficial).** PluriSwap toca a Kleros dos veces por deal: **abrir** (`Escrow.openCourt{value: arbitrationCost}(dealId)` desde `FIAT_SENT` o `DISPUTED`; sólo el kernel llama `KlerosAdapter.openCourt` → `createDispute` en KlerosCore, 2 opciones, evento `DisputeRequest` con `externalDisputeID = uint256(dealId)`) y **recibir** (los jurados votan, se agotan apelaciones, `KlerosCore` llama `KlerosAdapter.rule(disputeId, ruling)`; el adapter guarda 0→3 rehúsa, 1→Holder, 2→Provider; cualquiera llama `Escrow.readRuling` y el kernel cierra).
+
+La evidencia no pasa por PluriSwap: las partes la suben en la Court dapp, ligada al caso por el `externalDisputeID`. Apelaciones, votos y períodos son de Kleros. Si el tribunal nunca contesta, `arbitrationDuration` permite cerrar por timeout.
+
+Lo que ve el jurado: el adapter registra al construirse un *dispute template* (KIP-99) — título, pregunta, tres respuestas, `arbitratorChainID`/`arbitratorAddress`, `policyURI` obligatorio — con placeholders que el dapp llena con una llamada a `KlerosAdapter.caseOf(externalDisputeID)`: `dealId`, Holder, Provider, token y monto legible, leídos de `IEscrow.terms`. La política que leen los jurados es `KLEROS_POLICY.md` (parte V.8), pineada en IPFS.
+
+Direcciones por chain en `script/KlerosConfig.s.sol` (KlerosCore, DisputeTemplateRegistry, overrides `KLEROS_*`). Otra corte u otro `extraData` es otro adapter y otro `packageId`. **Whitelist en Arbitrum One:** el `KlerosCore` de mainnet sólo acepta `createDispute` de arbitrables listados por la gobernanza de Kleros (`ArbitrableNotWhitelisted()`): hasta que Kleros liste el adapter, `openCourt` revierte en mainnet. Sepolia no tiene whitelist. El evento `DisputeRequest` se emite en ambas formas (producción 5 args, rama dev 3 args) para sobrevivir a la actualización.
+
+#### 3.14.5 Bonds: vault global y locks
+
+El bond no vive en el escrow del deal: principal y colateral son custodia distinta. Un **BondVault** del paquete BONDS, keyeado por sujeto y token. `deposited[sujeto]`, `locked[sujeto]`, `available = deposited − locked`. Depósito cuando quiera; withdraw sólo de `available`.
+
+Lock por deal al activar: `lockAmount * 10 >= principal` (10% de ese deal); `available' >= 0` o no hay deal. La suma de locks cubre el 10% del `inFlight`. Dura hasta el terminal de ese deal; los relojes del escrow lo sueltan. No hay withdraw paralelo, no hay admin que lo libere.
+
+Terminal, atómico con el commit Core (`runPostTerminal`):
+
+| Terminal | Qué hace el vault |
+| --- | --- |
+| Pacífico (release, split, ZK, cancel, fiat timeout, claim) | Unlock → vuelve a `available` |
+| Culpable (arb win/loss) | Slash: lock del perdedor → address de firma del ganador. Unlock del ganador |
+| Sin veredicto (tribunal rehúsa, arbitration timeout) | Unlock de ambos: sin culpa probada no se mueve dinero |
+| Stalemate de `DISPUTED` | **Quema** el lock de ambos al sink inmutable. No a la DAO, no a una parte |
+
+Principio: el dinero sólo se mueve con culpa probada o con negativa probada a resolver. El score registra el resto. Si el slash en empate fuera al counterparty, convendría forzar el reloj para cazar el bond ajeno; la quema cierra eso. Un split puede slashear de más sólo si **ambas partes lo firman**: eso es acuerdo, no culpa de protocolo. En un deal ZK no hay tribunal: el bond sirvió para subir el cap y se devuelve.
+
+#### 3.14.6 Momentos de fee y contest
+
+Lista cerrada. Un paquete no inventa un quinto momento.
+
+| Momento | Cuándo | De dónde |
+| --- | --- | --- |
+| Activación | Al entrar a `FUNDED` | Extra al principal (Holder). Reputación usa este |
+| Abrir contest | Al abrir `DISPUTED` o arbitraje desde `FIAT_SENT` | Wallet del opener, una vez (`contestPaid`). Core-only: 0. Oficial: `max(principal × 1%, contestFloor)` (`contestBps=100`) con **piso bajo por paquete** (§3.14.7). Fail-closed si no alcanza; fail-open si el módulo drifted. Muerto en deals ZK |
+| Al verificar | Proof ZK → `RELEASED` | Lo declara el paquete ZK |
+| Completion | Cualquier terminal donde el Provider cobre algo y no sea `STALEMATE` | Sobre el **pot completo**, deducido antes de partir |
+
+Refund al Holder y `STALEMATE`: no hay completion fee. No hubo operación (o no hubo completion). Varios paquetes: cada uno cobra lo suyo. Si en activación no alcanza, no hay deal. En el terminal, si un fee no cabe en el leftover, se omite; el escrow no revierte.
+
+**Contest fee — decisiones cerradas (2026-09-20):**
+
+1. **Piso bajo, por paquete.** El piso fijo de 10 USDC era regresivo — en el deal chico de un T1 (cap 250) podía ser el 20% del principal. Corrección contra el bytecode: `contestFloor` es un getter stateless que entra al `packageId`, y `admit`/`identify` no reciben `dealId`, así que un piso por deal o por tier **no** es implementable sin bump de kernel. **v1 (kernel intacto):** el paquete oficial declara un piso bajo global (del orden de 2 USDC); los deals grandes pagan el 1% con el piso irrelevante. Opcional: ladder de paquetes con pisos distintos (otro piso = otro `packageId`). **v2 (sólo si el ladder no alcanza):** bump de kernel con piso por deal snapshotteado en `engage`.
+2. **No se devuelve al ganador.** El opener paga y el `feeRecipient` se lo queda. Una disputa implica que **ambas** partes fallaron en elegir contraparte; el happy path es gratis y todo desvío le cuesta a quien lo provoca. No reintroducir un refund "al ganador". La quema de bonds en stalemate se mantiene como disuasivo principal.
+
+#### 3.14.7 Passport, tiers, score
+
+Passport, reputación y bonds van **juntos**. Sin Passport no hay sujeto, no hay score, no hay cap que sube. Core-only no mira reputación: el recinto sigue abierto, el tamaño no se raciona, el score no se mueve. Con el paquete, Holder y Provider pasan el cap por separado: gana el más chico.
+
+**Human Passport (público).** No cobra. Identifica al sujeto: el adapter oficial puntúa **addresses** vía el `GitcoinPassportDecoder` (Arbitrum One `0x2050…B43`; stamps a 90 días, `maxScoreAge`; proxy upgradeable y pausable del equipo de Passport). `isHuman = score >= threshold` (4 decimales, 20.0 = `200000`); el adapter puede fijar `minScore` inmutable. Decoder y umbral quedan bindeados por `PackageId.passport(adapter)`. Cualquier revert del decoder (sin attestation, expirado, pausado) lee como `NoPassport`: admisión fail-closed, deals vivos intactos (sujetos snapshotados). Dependencia de liveness declarada: `withdraw` del vault público exige `identify` vigente. Anti-Sybil: un stamp cuenta para una sola address a la vez; dos wallets son "humanas" a la vez sólo con dos juegos de stamps disjuntos. **El sujeto público es la wallet** — la limitación que la capa privada de §3.15 corrige.
+
+**Tiers** (caps en unidades enteras del token; concurrentes: `inFlight + principal <= cap`; lifetime volume no es el cap):
+
+| Tier | Score mínimo | Cap base | Cap con bond |
+| --- | ---: | ---: | ---: |
+| T1 | 0 | 250 | 400 |
+| T2 | 10 | 500 | 700 |
+| T3 | 25 | 1_000 | 1_500 |
+| T4 | 50 | 2_000 | 5_000 |
+| T5 | 100 | sin límite | sin límite |
+
+T5 no usa bond para el cap (el bond sigue como skin). Cada lado se evalúa solo: un Provider T5 no obliga al Holder T1 a un deal de 2000.
+
+**Bond del 10%.** Para la columna con bond, tras el lock: `locked * 10 >= inFlight + principal`. Sin división; cada deal traba `lockAmount * 10 >= principal` de ese deal. Si `available` no alcanza, no hay deal (o cap base). El bond vive en el BondVault; withdraw sólo de `available`.
+
+**Score — computable en Solidity.** Tres enteros por sujeto, sin loops, sin log, sin decaimiento; se calcula en un `view`:
+
+```
+UNIT  = 250 * 10^decimals     // un "lote" = cap T1
+score = satSub(successCount + volume / UNIT, penalty)
+```
+
+Por qué `UNIT = 250`: un deal al tope de T1 suma +1 de count y +1 de volumen. Cinco deals limpios de 250 → score 10 → T2. No se salta a T5 con un trade: T1 no deja poner 10_000. En el terminal: a lo sumo tres `SSTORE` y se suelta `inFlight`. En activación: un `SSTORE` y comparaciones. O(1).
+
+**Qué suma:**
+
+| Terminal | Count / volume | Penalty |
+| --- | --- | --- |
+| Release (Controller, co-signed, ZK) | `+1` y `+principal` (ambos sujetos) | — |
+| Split dual-firmado | `+1` y `+principal` (ambos) | — |
+| Claim por silencio | Provider: `+1` y `+principal`. Holder: nada | — |
+| Cancel, fiat timeout | nada | — |
+| Stalemate (timeout de `DISPUTED`, tribunal rehúsa) | nada | `+5` ambos |
+| Arbitration timeout | nada | — (la falla es del tribunal) |
+| Arb win | nada extra de volumen | — |
+| Arb loss | nada | `+15` el perdedor |
+
+Claim y cancel no fabrican reputación. Un stalemate (+5) puede devolverte de T2 a T1; el cap de deals **vivos** no se toca (ADM-05); el siguiente deal mira el score nuevo.
+
+### 3.15 Privacidad
+
+La dirección: la privacidad es un valor de diseño, no un feature. El mecanismo: sujetos-commitment con pruebas ZK, sin tocar el kernel. Todo vive en paquetes nuevos con otros `packageId`; el kernel y sus interfaces no cambian. Los verificadores ZK de los módulos privados son internos al módulo; el slot ZK del kernel sigue siendo el de payment proofs.
+
+#### 3.15.1 El problema
+
+Hoy `subject = bytes32(uint160(wallet))`. `stats(subject, token)` es público; `inFlight` es público; los eventos publican las tres addresses y el monto por deal; el BondVault publica deposits/locks/slashes/burns por sujeto; en disputa, el template de Kleros publica `dealId`, partes, token y monto, y la evidencia va a IPFS público y permanente. Combinado, un indexer reconstruye por sujeto: volumen, contrapartes, éxitos, penalizaciones, disputas. Eso vincula a una persona con su actividad económica, permanente y sin rectificación ni borrado. Incompatible con el espíritu (II.4) y con GDPR (arts. 16/17; EDPB guidelines sobre blockchain).
+
+Solidity no ofrece una primitiva que arregle esto solo: `keccak256(wallet)` es un seudónimo determinista que cualquiera que conozca la address puede recomputar y correlacionar. Encriptar on-chain es público por definición.
+
+#### 3.15.2 Decisión: sujeto = commitment
+
+El sujeto deja de ser la wallet y pasa a ser **un commitment** — `hash(secreto)` que sólo el usuario conoce. Reputación y bonds se keyean por ese commitment. Mismo secreto → mismo sujeto: el usuario entrelaza sus deals sin que el protocolo, ni un observador, sepa de qué wallet se trata. Nadie "lee" la reputación: el usuario **prueba en ZK** los hechos que el deal necesita.
+
+#### 3.15.3 Primitivas
+
+Todo Poseidon sobre BN254:
+
+```
+sk_id          secreto off-chain del usuario (nunca sale de su dispositivo)
+S              = Poseidon(sk_id)                          // la cuenta; jamás on-chain en claro
+hn             = Poseidon(anchor, registryId)             // nullifier de humanidad; anchor = address con Passport vigente
+dealSubject    = Poseidon(sk_id, dealId)                  // seudónimo POR deal; lo único que el kernel ve
+leafRep        = Poseidon(S, count, volume, penalty, inFlight, token, salt, version)
+noteBond       = Poseidon(sk_id, amount, salt)            // note de balance del vault
+nullRep        = Poseidon(sk_id, "rep", version)          // un uso por versión de la cuenta
+nullBond       = Poseidon(sk_id, "bond", noteSalt)        // un uso por note gastada
+handleCommit   = Poseidon(sk_id, "handle", handleSalt)    // rotable
+```
+
+`S` vive dentro del hash del leaf: la cuenta es el leaf, no hay árbol de identidad separado. `dealId` es precomputable (§3.13).
+
+**Árboles.** Un contrato `PoseidonTree`: insert incremental, ring buffer de 64 raíces, sets de nullifiers. Árbol de cuentas (PrivateReputation, depth 32) y árbol de notes (PrivateBondVault, depth 20). Los proofs referencian una raíz del ring buffer; el nullifier decide el replay.
+
+**Registro.** Bundle de dos llamadas en una tx: `PrivatePassport.register(πh)` — prueba humanidad (*"conozco `anchor` con score ≥ umbral en el decoder"*, vía storage proof/coprocesador o registry estilo Semaphore, sin revelar `anchor`), emite `hn`, lo marca — y `PrivateReputation.register(πh', leaf0)` — misma `hn`, inserta la hoja inicial. Un humano (una ancla) = una cuenta; dos anclas disjuntas = dos cuentas: el mismo límite sybil de Passport.
+
+#### 3.15.4 Prepare-then-activate
+
+`identify(address)` es `view` y no recibe `dealId`; `admit` recibe la wallet y es mutante. El ZK entra por un **bundle en la misma tx de activación**, compuesto por el relayer (que ya recolecta las firmas EIP-712; ahora recolecta además los proofs):
+
+```
+tx de activación =
+    passport.prepare(...)   ×  {holder, provider}
+    vault.prepare(...)      ×  {holder, provider}   (si hay bonds)
+    reputation.prepare(...) ×  {holder, provider}   (si hay reputación)
+    escrow.activate(...)
+```
+
+Todo atómico: si `activate` revierte, los inserts de árboles y los nullifiers revierten con él. No hay `cancelPrepare` porque no hay prepare fuera de la tx.
+
+**Firma de wallet.** Cada prepare incluye la firma de la wallet sobre `(dealId, dealSubject, módulo, deadline)`. Sin ella, un compositor malicioso podría colgar el subject de A bajo la wallet de B: préstamo de cap o atribución de penalties ajenos.
+
+**Pasaporte.** `π` prueba: *"conozco `sk_id` con `S` en una hoja actual, y `dealSubject = Poseidon(sk_id, dealId)`"*. Guarda `preparedPassport[wallet] = dealSubject`. El kernel llama `identify(wallet)` y recibe eso.
+
+**Bond.** `π` gasta una `noteBond` y la parte en `{lockCommit = Poseidon(sk_id, dealId, lockAmount, salt), changeNote}`. Guarda `preparedBond[dealId][dealSubject]`. `lockAmount` sigue §3.14.5.
+
+**Reputación.** `π` prueba la transición: hoja `v` → `inFlight + principal ≤ cap` (el tier se computa **in-circuit**, tabla §3.14.7; con `lockCommit` como public input si se usa la columna bond) → hoja `v+1` + `nullRep(v)`. Inserta la hoja nueva ahora (atómico con la activación).
+
+**Consumo.** En `engage`, el kernel llama `admit(wallet, token, principal, vault)`. El módulo valida el match, cross-chequea `preparedPassport[wallet] == preparedAdmit[wallet].dealSubject` y **borra el buffer**. Ese delete mata el replay de cap: sin prepare fresco no hay segundo deal contra la misma transición de hoja. `identify` es view y no puede borrar; el invariant `REP ⇒ PASSPORT` garantiza el paso por `admit` en el set canónico. `reserve(subject, token, dealId, principal)` consume `preparedBond[dealId][subject]` y escribe el lock record público.
+
+**Orden de composición:** passport → vault → reputación → activate. **Serialización:** preparaciones contra la misma cuenta se serializan por versión. **Limitación aceptada:** un deal PASSPORT-only privado no consume el buffer (identify es view); reusar un prepare viejo linkea dos `dealSubject` — fuga de privacidad, no de fondos. El frontend no ofrece passport-privado sin reputación-privada.
+
+```mermaid
+sequenceDiagram
+    participant U as Usuario
+    participant M as Modulos
+    participant K as Kernel
+    U->>M: prepare(dealId, pruebas ZK + firma wallet)
+    Note over M: passport: dealSubject<br/>vault: split note, lockCommit<br/>rep: hoja v+1, nullifier v
+    U->>K: activate (mismo bundle)
+    K->>M: identify / admit / reserve
+    Note over M: consume lo preparado;<br/>admit borra el buffer
+    K-->>K: FUNDED, snapshot dealSubjects
+    K->>M: notifyTerminal(Close)
+    Note over M: pending[dealSubject] = delta
+    U->>M: claim(dealId, prueba)
+    Note over M: delta atomico a la hoja,<br/>claimed = true
+    U->>M: reabsorb / withdraw
+    Note over M: gated por claimed
+```
+
+#### 3.15.5 Terminal y claim
+
+`notifyTerminal(subject, token, principal, Close)` — el kernel pasa el `dealSubject` snapshotado. El módulo escribe `pending[dealSubject] = (Close, principal, token)` y nada más: no sabe cuál es la cuenta oculta. `try`/`retryPostTerminal` como siempre.
+
+El dueño claima después: `claim(dealId, π)` — `π` prueba el binding `dealSubject ↔ dealId` + membership de la hoja `v` + la hoja `v+1` con el delta aplicado (los valores del delta son public inputs que el contrato saca de `pending`). Verifica, inserta, gasta `nullRep(v)`, marca `claimed[dealSubject] = true`.
+
+**El delta es atómico**: `count`/`volume`/`penalty`/`inFlight` se aplican juntos o no se aplica nada. No claimar el penalty significa no liberar el `inFlight`: el cap queda consumido para siempre. La cuenta se castiga sola; no hace falta nadie que castigue.
+
+| `Close` | Delta |
+| --- | --- |
+| `Peaceful` | `count+1`, `volume+principal`, `inFlight−principal` |
+| `Silent` | `inFlight−principal` |
+| `Stalemate` | `penalty+5`, `inFlight−principal` |
+| `ArbWin` | `inFlight−principal` |
+| `ArbLoss` | `penalty+15`, `inFlight−principal` |
+
+#### 3.15.6 `PrivateBondVault`
+
+- `deposit(amount)`: transfer público wallet→vault; inserta `noteBond`. Monto y wallet depositante públicos (como hoy); el dueño del note no.
+- Locks: record público por `dealId` (deal-scoped). `available`/`locked` se implementan sobre esos records.
+- `unlock` (kernel, pacífico): marca released. El usuario `reabsorb(dealId, π)` después — binding + membership → merge a balance. **Gating: `reputation.claimed(dealSubject)`** — sin claim del delta, el lock no vuelve.
+- `slash` (kernel): tokens → address de firma del ganador; el `lockCommit` del loser se consume. El loser sigue necesitando su claim para liberar `inFlight`.
+- `burn` (kernel): ambos locks → sink inmutable.
+- `withdraw(dest, amount, π)`: prueba de ownership de notes, las nullifica, transfer a `dest`. **Sin `passport.identify`**: la prueba reemplaza la identificación — se elimina la dependencia de liveness del decoder.
+- Peers: `passport()` satisface el chequeo del kernel; un `reputation` inmutable para el gating (bindeado por address vía `packageId`, igual confianza que `sink`).
+
+#### 3.15.7 Divulgación selectiva (frontend)
+
+La reputación se ve donde las partes eligen contraparte: el listado. Sin historiales públicos que indexar.
+
+- **Handle.** `handleCommit` — seudónimo de mercado, opt-in, rotable (otro salt = otro handle; el viejo muere sin linkage).
+- **Stats base (listado).** `attest_base`: prueba off-chain verificable `{handleCommit, tier, count, expiry, repRoot}`. El listado muestra attestations frescas, no historiales.
+- **Stats avanzadas (perfil).** `reveal_advanced`: prueba `{handleCommit, campos elegidos (volume, penalty), repRoot}`, entregada sólo al requester (bind opcional a su pubkey efímera) o publicada bajo el handle. **Sin handle no hay consulta**: el handle es la capability; el backend no enumera perfiles avanzados.
+- **Consistencia.** Toda stat revelada lleva prueba contra el árbol. El backend de Labs sirve y verifica; no puede inventar.
+
+Nada de esta capa toca el kernel ni los árboles. El handle ↔ `dealSubject` no existe on-chain: la única copia vive en la cabeza del usuario.
+
+#### 3.15.8 Modelo de amenaza
+
+| Público (se acepta) | Oculto |
+| --- | --- |
+| Montos, timings, eventos del deal | `sk_id`, `S`, el historial de la cuenta |
+| Fee flows (activación, completion, contest) | Grafo de deals del sujeto |
+| `dealSubject` de cada deal (en `subjects`) | Ownership de notes de bond |
+| Deposits al vault (wallet depositante + monto) | Stats sin handle + prueba |
+| Locks por `dealId`; slash a la address del ganador | |
+| Claims, si no se usa relayer | |
+
+Higiene operativa: `claim`/`reabsorb`/`withdraw` por relayer o wallet burner. Reclamar desde la wallet del deal linkea wallet↔`dealSubject` de ese deal; reclamar desde tu wallet de identidad doxxea todos tus claims. Disputar = salir a la luz, por diseño y por disclosure. GDPR: con sujetos desvinculables, lo on-chain deja de ser dato personal (argumento, no sentencia); handles y attestations los controla el usuario — rotar handle = retirar del mercado.
+
+#### 3.15.9 Circuitos y stack
+
+| Circuito | Public inputs | Cuándo |
+| --- | --- | --- |
+| `register` | `hn`, `leaf0` | Registro (una vez) |
+| `prepare_passport` | `dealSubject`, `repRoot` | Bundle de activación |
+| `prepare_bond` | `dealSubject`, `dealId`, `lockCommit`, `changeNote`, `nullBond`, `bondRoot` | Bundle (si hay bonds) |
+| `prepare_admit` | `dealSubject`, `newLeaf`, `nullRep(v)`, `principal`, `token`, `repRoot`, `lockCommit?` | Bundle (si hay rep) |
+| `claim` | `dealId`, `dealSubject`, `newLeaf`, `nullRep(v)`, `repRoot` | Post-terminal |
+| `reabsorb` / `withdraw` | `dealSubject`/`notes`, `nullBond`s, `bondRoot`, `dest`/`amount` | Vault |
+| `attest_base` | `handleCommit`, `tier`, `count`, `expiry`, `repRoot` | Off-chain |
+| `reveal_advanced` | `handleCommit`, campos, `repRoot` | Off-chain |
+
+Stack recomendado: **Noir + Barretenberg (UltraHonk)**, verificador en Arbitrum. Lo que esta spec congela es la **superficie contractual** (árboles, nullifiers, forma de los public inputs, interfaz del verifier); el stack es reemplazable sin tocar contratos si la interfaz se mantiene. Storage proof de Passport vía coprocesor (Axiom/Brevis) o registry estilo Semaphore: confianza declarada, decisión de deploy.
+
+#### 3.15.10 Pools y privacidad
+
+El sujeto privado del **operador** lleva la reputación y el bond de los deals del pool: el skin pasa a ser capital del operador, no de los LPs. La composición `authorize`→`activate` bundlea los prepares del operador; el resto del borde no cambia.
+
+#### 3.15.11 Fases (TDD) e invariantes
+
+| Fase | Contenido | Hecho cuando |
+| --- | --- | --- |
+| F0 | Higiene de direcciones: docs + frontend. Sin código | Documentado y facilitado |
+| F1 | `PoseidonTree` + `register` (insert, replay de `hn`, ring buffer) | Árbol y registro verdes |
+| F2 | `prepare`/`admit`/`claim`: cap in-circuit, consumo único, delta atómico | Verdes con verifier real |
+| F3 | Vault: split, `reabsorb` con gating, `withdraw` sin passport | Vault verde |
+| F4 | Attestations verificables off-chain | Capa de divulgación verificable |
+
+Mocks de verifier detrás de la misma interfaz para integración — y el caveat de siempre: **un mock no es un proof**; el path de testnet con mock verifier no es privacidad.
+
+Invariantes: dos deals del mismo sujeto son desvinculables on-chain; el cap se enforcea in-circuit; el replay de prepare muere en `admit`; el delta es atómico; el lock no se reabsorbe sin `claimed`; un humano = una cuenta; toda stat publicada lleva prueba.
+
+Riesgos abiertos: custodia de `sk_id` (pérdida = pérdida de reputación y bonds; recuperación = trabajo futuro); gas de verify + inserts (medir en F1); relayer de claims (censorable, no bloqueante: self-serve desde burner); confianza del coprocesador; auditoría de circuitos antes de mainnet (tocan dinero); UX de serialización por versión.
+
+### 3.16 Pools
+
+Un pool **no** es parte del kernel. Es un servicio de liquidez que cualquiera puede desplegar y gobernar a su gusto. El kernel sólo ve Holder, Provider, Controller y `HolderAuthorization`. Implementar un pool no exige un path nuevo: el pool es un Holder-contrato — `isValidSignature` sobre el mismo digest que una wallet, y un pull exacto. El pool no escribe estado Core, no inventa outcomes, no mueve custodia de principal activo.
+
+```
+pool  =  Holder (contrato que custodia principal)
+pool  →  kernel   (HolderAuthorization vía EIP-1271 + pull exacto)
+kernel →  pool     (holder-gross al Holder en terminal; record canónico para la tesorería)
+```
+
+**Cumplimiento.** Cada pool es responsabilidad de sus Sponsors. El protocolo no cobra por pools, no los opera, no curatea cuál aparece. Quien despliega un pool abierto con LPs es el único responsable de su cumplimiento (MiCA, AIFM, VASP/PSAV, UIF, lo que aplique en su jurisdicción). La factory es tooling neutral (`PoolFactory` sin owner, sin fee, sin allowlist); ese tooling no transfiere responsabilidad al protocolo.
+
+#### 3.16.1 Tipos, roles y gates
+
+La constitución oficial es **un** vault con shares internas no transferibles. "Pool normal" es el mismo contrato con depósitos cerrados. Un token de settlement por pool; cambiar token exige identidad nueva.
+
+| Gate | Quién deposita | Economía |
+| --- | --- | --- |
+| Privado | `depositors[]` fijo en el `create` | Shares sobre NAV |
+| Abierto | Cualquiera | Igual |
+
+Roles del vault (no del kernel): **LP** (tiene shares; depositar no da derecho a operar deals), **Sponsor** (uno o más, escritos en el `create`, **inmutables**; todo Sponsor es agente), **Designado** (wallet extra que un Sponsor pone o saca del roster), **Controller** (rol de **un** deal; tiene que ser Sponsor o designado). Un LP que no es Sponsor ni designado no puede ser Controller. Cualquier Sponsor, solo, suma o saca designados; no puede echar a otro Sponsor. Otro set de Sponsors = otro pool.
+
+"Custom" sigue existiendo: otra constitución, untrusted, otro bytecode. El kernel no la implementa. Oficial = clone de esta impl (`extcodehash` vía `factory.isOfficial`).
+
+#### 3.16.2 El borde con el kernel
+
+`HolderAuthorization` + pull exacto. El digest es el mismo que firmaría una EOA: bindea token, principal, deal, Controller y expiry. El kernel no interpreta las `bytes`. Cómo el pool se vuelve pullable (approve, Permit2, transfer propio) lo elige el pool; ERC-2612 no alcanza.
+
+Revocar a un Controller en el pool corta **deals futuros** (`isValidSignature` deja de aceptar digests que lo nombran). No silencia al Controller ya snapshotado en un deal vivo: kick futuro-only, garantizado por el kernel al congelar al Controller. El Controller puede ser un pésimo comercial; no puede redirigir principal. Timeouts, claim y payment proof no dependen de que siga vivo.
+
+#### 3.16.3 Ciclo de un deal y tesorería local
+
+| Momento | Pool | Kernel |
+| --- | --- | --- |
+| Activación | Valida el digest (EIP-1271) y entrega principal por pull exacto | `FUNDED`; snapshot |
+| Deal activo | Idle liquidity en el vault; principal activo es receivable, no liquidez local | Catálogo Core |
+| Terminal | Consume el record canónico para su tesorería | Holder-gress al Holder; Provider-gross al Provider |
+
+Categorías locales: **Idle** (no reservado), **Locked** (principal + reservas de fees propias de deals activos), **Consumed** (lo que salió para siempre), **Credits** (holder-gross terminal aún no reasignado; `reconcile` lo pasa a idle; `nav()` previewa un terminal no flusheado). Un crédito cuenta una vez. Settlement Core commitea el record **antes** de cualquier journal del pool; un callback del pool no corre en el path de settlement; si el journal local revierte, el outcome del deal no se toca. Fee de arbitraje: lo paga la wallet del Controller que abre, no el vault.
+
+#### 3.16.4 Vida del servicio
+
+Máquina **del pool**, no del deal. Gobierna si valida digests nuevos y si se deposita o redime.
+
+```mermaid
+stateDiagram-v2
+    [*] --> ACTIVE: create + depósito
+    ACTIVE --> DEFICIENT: deficiencia objetiva
+    DEFICIENT --> ACTIVE: recap exacta
+    ACTIVE --> RUNOFF: Sponsor
+    DEFICIENT --> RUNOFF: Sponsor
+    ACTIVE --> WINDING_DOWN: Sponsor
+    DEFICIENT --> WINDING_DOWN: Sponsor
+    RUNOFF --> WINDING_DOWN: Sponsor
+    RUNOFF --> ACTIVE: locked == 0 y quedan shares
+    RUNOFF --> CLOSED: locked == 0 y cero shares
+    WINDING_DOWN --> CLOSED: locked == 0 y cero shares
+```
+
+| Estado | Digest / deals nuevos | `deposit` | `redeem` |
+| --- | --- | --- | --- |
+| `ACTIVE` | Sí, si hay idle exacto | Según gate | Sí, si payout ≤ idle |
+| `DEFICIENT` | No | Sí (recap) | No |
+| `RUNOFF` | No | No | Sí, si payout ≤ idle |
+| `WINDING_DOWN` | No | No | Igual |
+| `CLOSED` | No | No | No |
+
+`nav = idle + credits + locked`. Redeem paga `shares * nav / totalShares` y revierte si supera idle: salir a NAV completo con deals vivos exige esperar (`RUNOFF`). Si `nav == 0`, redeem quema shares y no paga. Deficiencia: `onHand < idle + credits`; un `deposit` tapa primero el agujero (sin mint de shares) y después invierte el resto. El principal en escrow es receivable, no liquidez. `WINDING_DOWN` y `CLOSED` no vuelven a `ACTIVE`; `RUNOFF` sí. Un `authorize` pendiente cuyo digest ya no validaría se `unlock`ea sin esperar el deadline.
+
+#### 3.16.5 Economía de shares
+
+Primer depósito 1:1 con piso `MIN_FIRST = 1e6` (contra el ataque de inflación del primer mint + donate). Después `sharesOut = amount * totalShares / nav` (abajo, a favor del vault). Redeem `assetsOut = sharesIn * nav / totalShares` (abajo), revert si `assetsOut > idle`. Un withdrawal no toca `locked`.
+
+#### 3.16.6 Fee de Controller y knobs
+
+El fee del Controller no entra al escrow: el Core parte Holder/Provider; el vault paga al agente después de leer el record. `controllerFeeBps` vive en el pool (0..10000); cualquier Sponsor puede cambiarlo para **deals nuevos**; el `authorize` snapshottea el fee en el `Auth`.
+
+- `fee = principal * controllerFeeBps / 10000`, reservado de idle en `authorize` (el escrow no hace pull del fee).
+- En `reconcile`: si el deal consumió algo (`holderAmt < principal`) → se paga a `terms.controller`; si el retorno es entero → vuelve a idle, salvo `payControllerOnFullReturn` (paga también en refund total).
+- `reimburseContest` (default false): si true, `authorize` reserva el contest-open due y `reconcile` lo devuelve al Controller sólo si `escrow.contestPaid(id)`. Default: el Controller lo paga de su wallet — su skin in the game.
+- Invoice de activación (reputación): se reserva en `authorize`; al existir `dealOf`, salió hacia el recipient del paquete (de `locked` a `consumed`). El approve al escrow es la suma exacta de `principal + activationFee` de auths vivos, no `max`.
+
+**No es success-fee sobre el spread. Es take de operador sobre principal cuando el deal consumió algo.** `0 bps` cubre el desk que no cobra on-chain.
+
+`authorize` corre el mismo `Packages.resolve` del kernel **antes** de reservar nada: todo `packageId` firmado tiene que quedar matcheado (un deal con REPUTATION no se autoriza con el slot vacío: `UnknownPackage` sin haber movido un token). Lo que se reserva es lo que se cobra, en tres capas: `resolve` valida el id, `_activationFee` lo recomputa antes de reservar, y `Packages.engage` lo recomputa otra vez antes del pull (necesaria porque `admit` no es `view`). Un módulo que cambia de opinión en el medio hace revertir `engage` con `PackageDrift`, la activación entera, sin nonce consumido.
+
+#### 3.16.7 Historia y estado de pools
+
+El recorte **owned v1** (tesorería `idle/locked/consumed/credits`, `ACTIVE→DEFICIENT/CLOSING→CLOSED`, `reconcile` con `returned` del caller porque el escrow no exponía el payout) fue desplegado en Sepolia (factory `0xB42d…`); sigue vivo pero no es esta constitución. El vault con shares (esta spec) lo reemplaza: sin `owner`, sponsors inmutables, `settlementOf` del escrow, `reconcile` sin `returned`. Los deploys de Sepolia son demos unipersonales con fee 0; no mezclar ABIs.
+
+#### 3.16.8 Invariantes del servicio
+
+- El pool es un Holder. El deal no sabe que es un pool.
+- Un solo borde hacia Core: `HolderAuthorization` (EIP-1271) + pull exacto. Un solo borde de vuelta: holder-gross + record canónico.
+- Holder-gross nunca va al Controller.
+- Kick de Controller es futuro-only.
+- Pool insolvente o cerrado: no hay digest nuevos; deals vivos siguen.
+- Callback del pool no revierte settlement Core.
+- Assets de un pool no subsidián a otro.
+- Core-only, sin pool, permanece completo.
+- Implementar el pool no abre un path Solidity nuevo: EIP-1271 + pull es suficiente y existente.
+
+### 3.17 Rampas
+
+Una rampa es un composer opt-in que mueve stables hacia el Holder en Arbitrum y, si el usuario quiere, saca el crédito terminal a otra chain. No hay estados `BRIDGING_*`, no hay verbo de bridge, no hay `invoice` de rampa. Termina **antes** de `activate` o **después** del terminal. Si Stargate está caído, los deals fondeados siguen el catálogo Core.
+
+Superficie v1: **stables que Stargate lista** en Arbitrum. ETH después. El kernel no es un catálogo de Stargate: el filtro de máquina sigue siendo pull exacto; un deal Core-only con un vanilla ERC-20 ya en Arbitrum no está prohibido por la máquina, no está en la superficie oficial. Otra rampa (CCTP, Across) es otro composer, otra identidad.
+
+**Costo.** La rampa no cobra para el protocolo: cero bps, cero recipient DAO. El usuario paga sólo infraestructura: fee de Stargate (o de la otra rampa), gas, slippage. Un composer que se quede un spread no es esta rampa; es otro producto.
+
+Estado actual del bytecode: taxi only, sin compose (la spec lo permite; `StargateV2Ramp` no lo implementa). No habla con el escrow.
+
+### 3.18 Verbos kernel→paquete y fallos
+
+El kernel, en un punto nombrado, hace una de estas cosas. Nada más.
+
+| Verbo | Cuándo | Qué espera | Si falla |
+| --- | --- | --- | --- |
+| `identify` | Activación | Sujeto por Holder y por Provider | Reject atómico; no hay deal |
+| `admit` | Activación | `cap` del sujeto; `ok` si `inFlight + principal <= cap` | Reject atómico |
+| `invoice` | Activación / contest-open / verificar / completion | `(amount, recipient, payer)` del **paquete** | Reject si no se puede cobrar |
+| `reserveBond` | Activación | Lock `dealId → amount` en el vault del sujeto | Reject atómico |
+| `verifyProof` | `FUNDED` + ZK | `dealId` ok + `paymentNullifier` fresco de V | Ignore / reject; el deal no cambia |
+| `openCourt` | `FIAT_SENT` o `DISPUTED` | Disputa creada bajo adapter snapshotado | Reject; estado igual |
+| `readRuling` | `ARBITRATION_ACTIVE` | holder_win / provider_win / stalemate | Ignore si no es de esa terna |
+| `runPostTerminal` (bonds) | Terminal | Unlock, slash al ganador, o quema | El terminal Core ya commitió |
+| `notifyTerminal` | Después del commit | Sujeto snapshotado, no `identify` en vivo | Fallo no revierte el escrow |
+
+Reglas duras: el paquete no devuelve receivers, outcomes, estados ni destinos de principal. El kernel cobra con los getters que entran al `packageId`; `invoice*` no puede mentir un amount distinto; el deal no los pisa. La DAO no aparece como verbo. `notifyTerminal` es EP-POST: si revierte, el escrow ya es terminal; se reintenta.
+
+**Secuencia de activación** (orden fijo; un paso que falla revierte todo: nonce intacto, sin principal, sin fee, sin bond, sin `inFlight`):
+
+```
+1. Verificar HolderAuthorization + Provider (+ ControllerAcceptance)
+2. identify     Passport → sujetoH, sujetoP
+3. admit        Reputación: cap(sujeto, bond?) ≥ inFlight + principal (por separado; gana el más chico)
+4. invoice      Reputación: fee de activación → recipient del paquete
+5. reserveBond  lock en BondVault (10% de este principal)
+6. Pull exacto del principal desde el Holder
+7. Snapshot de paquetes, sujetos, clocks. Destinos = addresses de firma
+8. FUNDED
+```
+
+Sin paquetes: pasos 2–5 no existen. Firma + pull → `FUNDED`.
+
+**Secuencia terminal** (un solo commit):
+
+```
+1. Kernel escribe el terminal record y emite Settled
+2. El escrow acredita Holder / Provider / fee invoiced (credit-first)
+3. runPostTerminal, primera pasada: disposición de bonds y notifyTerminal,
+   cada llamada en try; la que falla deja su bit en Deal.postPending
+4. retryPostTerminal(dealId): permissionless e idempotente
+```
+
+**Tabla de fallos:**
+
+| Situación | Comportamiento |
+| --- | --- |
+| Paquete requerido ausente, revert o stale en activación | No hay deal |
+| ZK no produce proof | Fiat-timeout / cancel; no `DISPUTED` |
+| Adapter de arbitraje mudo | Arbitration timeout → `STALEMATE`; cualquiera lo ejecuta |
+| `notifyTerminal` revierte | Escrow intacto; bit pendiente y retry permissionless. Si el módulo no vuelve, el bit queda (no esconder la fuga de `inFlight`) |
+| `unlock`/`burn`/`slash` revierte | Bit pendiente y retry. Si el vault derivó o no responde, el bit se **abandona** y el lock queda en el vault (TRUST-03) |
+| Paquete deriva su policy post-activación | `verifyProof`/`openCourt`: reject (`PackageDrift`). Completion: fee 0. Bonds: fail-open, lock en el vault |
+| Paquete deriva **durante** la activación | `engage` recomputa el id con los valores que está por cobrar y revierte `PackageDrift`; la activación entera, sin nonce consumido |
+| Fee de verificación/completion ≥ leftover | No se cobra. El terminal commitea. Nunca revierte |
+| Paquete no seleccionado | Su arista o hook rechaza o está ausente; Core sigue |
+| Usuario pone fee 0 en los términos | Irrelevante: el fee no vive ahí |
+
+### 3.19 Observabilidad y versionado
+
+| Evento | Cuándo |
+| --- | --- |
+| `Activated(dealId, holder, provider, controller, token, principal)` | CASE-CORE-01 |
+| `Transitioned(dealId, from, to)` | Todo cambio de estado |
+| `Settled(dealId, status, holderAmt, providerAmt)` | Commit terminal |
+
+`settlementOf(dealId)` es el mismo record on-chain. Sin callback de pool en el terminal.
+
+| Cambio | Qué se bumpa |
+| --- | --- |
+| Campo nuevo en `DealTerms`, reloj Core, verbo o *kind* nuevo | Kernel `version` y contrato nuevo |
+| Paquete nuevo (otro V, otro fee, otro sink, otro adapter) | Otro `packageId`. Mismo escrow, mismo typehash |
+| Constitución de pool | Otra impl + otra factory |
+| Otra rampa | Otro composer |
+| Recorte de bytecode | Nada |
+
+Upgrade del escrow = deployment nuevo. Deals viejos intactos. No hay proxy.
+
+---
+
+## Parte IV — Decisiones
+
+Registro fechado de decisiones cerradas. Una entrada posterior pisa a una anterior. No reabrir sin una entrada nueva.
+
+| Fecha | Decisión | Detalle |
+| --- | --- | --- |
+| 2026-09-08 | Primera revisión spec↔código | Brechas 1–3 y 5 de la revisión cerradas (IEscrow en Core, binding de peers, `_takeCompletionFrom` no revierte, pool: credits + reserva + approve exacto + `nonReentrant`). Ítem 4 parcial: Passport y court oficiales listos; verifier ZK sigue mock. Ítem 6 resuelto vía librería externa `Packages` (Escrow 22.2 KB → 16.4 KB) |
+| 2026-09-12 | Completion fee | Se cobra sobre el pot entero en cualquier terminal donde el Provider cobra algo y no es `STALEMATE`; nunca en refund. `claim` cobra completion y cierra en `CLAIMED` |
+| 2026-09-12 | `Status.CLAIMED` | Terminal propio: Provider Peaceful, Holder Silent, bonds unlock |
+| 2026-09-12 | Slash | Siempre a la address de firma del ganador (Holder o Provider); `controller == provider` pasa a ser inválido en `Terms`. Tribunal que rehúsa o no contesta: unlock de ambos. Sólo el stalemate de `DISPUTED` quema |
+| 2026-09-13 | Tribunal oficial | `KlerosAdapter` parametrizado por chain (`KlerosConfig`), template KIP-99 válido para la Court UI (`policyURI`, `caseOf` como mapping); PluriSwap sólo abre y recibe; la evidencia va por la dapp de Kleros. Pendiente externo: whitelist en Arbitrum One y pineado de la policy |
+| 2026-09-17 | Contest-open | Reputación oficial no-cero (`contestBps=100`, floor), una vez, opener paga, fail-closed si no alcanza, drift → fee 0, muerto en deals ZK, compartido entre `openDisputed` y `openCourt` desde `FIAT_SENT` |
+| 2026-09-20 | DAO | Gnosis Safe M-de-N en Arbitrum, firmantes diversificados mayoría fuera de Labs, tesorería chica, **recipient-only**. Cambio de fee policy = módulo nuevo + `packageId` nuevo. **El kernel no nombra a la DAO** (la neutralidad del kernel es la defensa legal) |
+| 2026-09-20 | PluriSwap Labs | Entidad separada, proveedora de infraestructura (paquetes, backend, frontend) bajo **MSA** con la DAO. La DAO paga a Labs por invoice. Labs nunca es `feeRecipient`. Backend read-only/analytics, open source, corrible por terceros, sin custodia de fondos ni claves, sin contacto fiat, sin matching/ejecución, listado de pools por criterios objetivos. Labs absorbe, por diseño, la exposición legal que el kernel no puede tener |
+| 2026-09-20 | Pools y cumplimiento | Cada pool es responsabilidad de sus Sponsors; el protocolo no cobra por pools ni opera el descubrimiento; la factory es tooling neutral |
+| 2026-09-20 | Privacidad | Valor central del producto. Sujeto = commitment (no wallet); reputación y bonds privados vía ZK (spec en §3.15); divulgación selectiva: stats base en el listado vía attestations, avanzadas sólo con handle. Modelo aprobado: reputación oculta on-chain + capa de presentación con pruebas |
+| 2026-09-20 | Contest floor | Corregido: piso bajo por paquete (~2 USDC) v1; por-tier por deal no implementable sin bump de kernel (`contestFloor` getter stateless en el hash; `admit`/`identify` sin `dealId`). Ladder de paquetes opcional. v2 = bump de kernel sólo si el ladder no alcanza |
+| 2026-09-20 | Contest fee sin devolución | Confirmado: no se devuelve al ganador. Una disputa implica que ambas partes fallaron en elegir contraparte. Quema de bonds en stalemate se mantiene |
+| 2026-09-20 | Documentación | `PLURISWAP.md` absorbe toda la documentación de protocolo (monolito). `KLEROS_POLICY.md` y `LAB_UI.md` quedan como artefactos operativos. Citas legacy resueltas por el Apéndice A |
+
+---
+
+## Parte V — Implementación
+
+### 5.1 Stack
+
+Foundry, Solidity `0.8.28`, `evm_version = "cancun"`, `via_ir = true`. OpenZeppelin v5 (`EIP712`, `SignatureChecker`, `SafeERC20`, `ReentrancyGuardTransient`). Token de settlement: ERC-20, 6 decimals. Chain: Arbitrum (Sepolia `421614` hoy). No Hardhat. No `Pausable`/`Ownable` sobre settlement. No proxy.
+
+### 5.2 Recorte de bytecode
+
+OpenZeppelin casi todo `internal` (se inlinea; sirve para no reescribir crypto, no achica el blob). La lógica **nuestra** se parte en libraries `external` (DELEGATECALL, storage en el escrow) o en contratos ya acordados (BondVault, paquetes, pool, rampas).
+
+| Capa | Visibilidad | Para qué |
+| --- | --- | --- |
+| OpenZeppelin | `internal` (la de ellos) | Crypto, ERC-20, reentrancy |
+| Libraries de protocolo | `external`/`public` linkeada | Consent, Terms, Settlement, Clocks, PackageId, Packages |
+| `Escrow.sol` | fino | Storage, entrypoints, `nonReentrant`, orquesta |
+
+| Usar | Dónde | Por qué |
+| --- | --- | --- |
+| `SignatureChecker.isValidSignatureNow` | Consent | Un solo path EOA + EIP-1271: el borde wallet/pool |
+| `EIP712` + `MessageHashUtils` | Consent / dominio | Sin esto hay replay |
+| `SafeERC20` | Settlement | `safeTransferFrom` en el pull; `trySafeTransfer` en el push opcional |
+| `ReentrancyGuardTransient` | Escrow, Pool | Arbitrum tiene EIP-1153 |
+
+| No usar en Core | Por qué |
+| --- | --- |
+| `Pausable` | DEC-04 |
+| `Ownable`/`AccessControl` como gate de settlement | PERM-01 / DEC-07 |
+| `ERC20` mintable | El protocolo no emite el stable |
+| Proxy en el escrow | Kernel inmutable; upgrade = deployment nuevo |
+| `SafeMath` | 0.8 ya chequea overflow |
+
+Permit2 es un path de pull opt-in del Holder, no una dependencia del escrow.
+
+**Settlement.** Pull: `safeTransferFrom` + chequeo de delta `== principal` (un token que miente o descuenta no activa). Push: `trySafeTransfer`; si falla, el crédito queda y el outcome ya commitió. Withdraw: `safeTransfer` al beneficiario; si falla, el crédito sigue.
+
+### 5.3 Layout
+
+```
+src/Escrow.sol              kernel
+src/interfaces/IEscrow.sol  read surface para packages, pools, ramps
+src/libraries/              Consent, Terms, Settlement, Clocks, Types, PackageId, Packages (external)
+src/packages/               módulos opt-in detrás de interfaces
+src/pools/                  Holder-contrato vault + factory
+src/ramps/                  composers (Stargate)
+lab/                        consola de operador (read-only Recinto + AddressBook)
+script/                     deploy y deal scripts
+deployments/                addresses, no secrets
+test/                       un área de catálogo por archivo
+test/fuzz/                  propiedades stateless
+test/invariant/             handlers stateful (solvency, conservation, immutability, books)
+test/fork/                  checks on-chain (Human Passport decoder, Kleros core + registry; opt-in vía *_RPC_URL)
+mocks/                      TestToken, FeeOnTransferToken, RevertingReceiver, Mock1271, VerifierMock, ZkMock, ArbitrationMock, PassportDecoderMock, PassportMock
+```
+
+### 5.4 Calidad y CI
+
+```shell
+forge build
+forge test                       # unit + fuzz (256 runs) + invariants (32 x 256)
+FOUNDRY_PROFILE=ci forge test    # fuzz 2048, invariants 128 x 512
+```
+
+CI (`.github/workflows/ci.yml`), en push y PR: `forge fmt --check`, `forge build --sizes` con gate de margen de bytecode (Escrow ≥ 1 KB bajo EIP-170; ~16.1 KB hoy), `forge test`, Slither (`--fail-medium`), Aderyn (`--fail-high`), consola del lab (vitest + build). Nightly con perfil `ci`. Exclusiones de análisis estático triaged inline en `slither.config.json` / `aderyn.toml`; los Low restantes (zero-checks, shadowing) son decisiones abiertas del kernel, no supresiones.
+
+Invariant handlers con `fail_on_revert = true`: guardan sus propias precondiciones, así que cualquier revert en campaña es hallazgo de kernel. Fork tests sólo con `ARBITRUM_RPC_URL`; `HUMAN_WALLET` agrega el path positivo de Passport.
+
+**Ley de TDD.** No hay código de producción sin un test que haya fallado primero por la razón correcta. Compilar no cuenta como rojo. Un ciclo: RED (un test) → ver que falla bien → GREEN (mínimo) → REFACTOR → siguiente. El orden histórico (fases 0–11: bootstrap → consent/terms → settlement harness → activate → markFiat/release/cancel → clocks/claim/race → dispute/stalemate → dual-sign → credit-first → sizes+Sepolia → paquetes → rampa/pool) está en git (`PLAN.md` absorbido); las fases vivas nuevas son las de §3.15.11.
+
+### 5.5 Identidad y corte oficiales (hoy)
+
+**Passport.** `src/packages/HumanPassport.sol` sobre el `GitcoinPassportDecoder` de Human Passport (ex Gitcoin). `script/PassportPicker.s.sol`: Arbitrum One → `HumanPassport` sobre `0x2050…B43`; `PASSPORT_DECODER=<addr>` → `HumanPassport` sobre ese decoder (`PASSPORT_MIN_SCORE` opcional); resto → `PassportMock` (lab, `setHuman` sin auth, **nunca** identidad de producción). `src/mocks/PassportDecoderMock.sol` reproduce la superficie de reverts para tests y testnets.
+
+**Kleros.** `src/packages/KlerosAdapter.sol` + `script/KlerosConfig.s.sol` (core/registry por chain, overrides `KLEROS_*`; `KLEROS_POLICY_URI` obligatorio en Arbitrum One). Template `PluriSwapKlerosTemplate`. Pendiente externo: whitelist del adapter por gobernanza Kleros.
+
+### 5.6 Hallazgos abiertos
+
+| Ítem | Estado |
+| --- | --- |
+| Verifier ZK real | El camino ZK de testnet usa `VerifierMock` (acepta cualquier `abi.encode(dealId, nullifier)`): no es un proof. Pendiente de circuito real |
+| Whitelist Kleros Arbitrum One | `openCourt` revierte en mainnet hasta que la gobernanza de Kleros liste el adapter |
+| Pineado de `KLEROS_POLICY.md` | `KLEROS_POLICY_URI` (IPFS multiaddr) requerido en Arbitrum One |
+| Zero-checks / shadowing (Low) | Decisiones abiertas del kernel, no supresiones |
+| Liveness de Passport | El decoder es proxy upgradeable/pausable de un tercero: de facto kill-switch externo de admisiones (fail-closed). El vault público estaciona bonds con passport vencido; el vault privado (§3.15.6) lo elimina |
+| Privacidad F0–F4 | Fases TDD de §3.15.11, sin empezar |
+| Compose de rampa | `RAMPS` spec lo permite; el bytecode es taxi-only |
+| UI en deal ZK | La consola ofrece `markFiat`/`claim`/`openDisputed` que revierten `EdgeOff` (§3.12.1) — known wart |
+
+### 5.7 Deployments
+
+JSON bajo `deployments/`: `sepolia.json`, `sepolia-packages.json`, `sepolia-kleros*.json`, `sepolia-pool*.json`, `sepolia-ramp.json`, `31337*.json`. Más de un escrow puede existir en Sepolia (core-only vs packaged; factory vieja vs nueva). Apuntar pools al escrow cuyo dominio firmaron. No mezclar ABIs. Los deploys de paquetes en testnet usan placeholders (`feeRecipient 0xFEE`, `sink 0xdeaD`, `TRIBUNAL 0x71B`): nunca son identidad de producción.
+
+### 5.8 Artefactos operativos
+
+- **`KLEROS_POLICY.md`** — policy que leen los jurados (versión 1.0). Se pinea a IPFS; el multiaddr es `KLEROS_POLICY_URI` al deployear `KlerosAdapter`. Contenido: qué se decide (quién recibe el escrowed amount; opciones Holder/Provider/Refuse; sin award parcial), partes e identificadores, standard de decisión (balance of probabilities; carga del Provider), guía (montos y recipientes sí, formato no; late ≠ absent; reversals; pagos parciales; wrong recipient; silencio; promesas off-platform), cuándo rehusar, post-ruling, y manejo de evidencia (pública y permanente; redactar datos personales innecesarios).
+- **`LAB_UI.md`** — referencia de la consola de laboratorio (read-only: Recinto, AddressBook, verbos con preflight de primer revert, paneles de pool/rampa/Kleros).
+- **Skills** — `deploy-pool` (factory on-chain, `cast send`, sin forge, sin POST a backend).
+
+### 5.9 Apéndice A — Mapa de citas legacy
+
+El código cita los documentos viejos en comentarios. Hasta que los contratos se vuelvan a tocar, resolvé así:
+
+| Cita vieja | Nueva ubicación |
+| --- | --- |
+| `ARCHITECTURE.md` (cualquier §) | Parte III: §3.1–3.4 (capas, superficie, resolución), §3.19 (observabilidad/versionado) |
+| `STATE_MACHINE.md` §3–4 | §3.5 (roles/consentimiento) |
+| `STATE_MACHINE.md` §5–8 | §3.6–3.9 |
+| `STATE_MACHINE.md` §9 | §3.12 |
+| `STATE_MACHINE.md` §11–12 | §3.10–3.11 |
+| `STATE_MACHINE.md` §13–14 | §3.11, §3.12.5, Parte II |
+| `ENCODING.md` | §3.13 |
+| `PACKAGES.md` §1–8 | §3.14 |
+| `PACKAGES.md` §9–10 | §3.14.7 |
+| `PROTECTION.md` §1–5 | §3.18 (verbos, secuencias, fees) |
+| `PROTECTION.md` §6 | Parte I.4, Parte II.8–9, Parte IV (2026-09-20) |
+| `PROTECTION.md` §7–9 | §3.18, §3.12.5 |
+| `PRIVACY.md` | §3.15.1–3.15.2, §3.15.8 |
+| `PRIVACY_IMPL.md` | §3.15.3–3.15.11 |
+| `POOLS.md` | §3.16.1–3.16.4, §3.16.8 |
+| `POOL_SHARES_IMPL.md` | §3.16.4–3.16.7 |
+| `POOL_IMPL.md` | §3.16.7 (historia owned v1) |
+| `RAMPS.md` | §3.17 |
+| `IMPLEMENTATION.md` | §5.1–5.2 |
+| `PLAN.md` | §5.4 (ley de TDD; orden histórico en git) |
+| `REVIEW.md` | Parte IV (decisiones) + §5.6 (abiertos) |
+| `TESTNET_PLAN.md` | §5.4 |
