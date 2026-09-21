@@ -8,13 +8,24 @@ via_ir = true
 optimizer = true
 optimizer_runs = 200
 ffi = false
-fs_permissions = [{ access = "read-write", path = "./deployments"}]
+fs_permissions = [
+    { access = "read-write", path = "./deployments" },
+    { access = "read", path = "./test/fixtures" },
+]
 
 remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "forge-std/=lib/forge-std/src/",
     "poseidon-solidity/=lib/poseidon-solidity/contracts/",
 ]
+
+# Generated Honk verifiers (src/packages/verifiers/*) cannot compile under via_ir: solc's
+# stack layout pass diverges on their flat ultra-wide dispatchers ("could not create stack
+# layout after 1000 iterations", all solc >= 0.8.28). The default profile therefore skips
+# them; the `verifiers` profile compiles the same tree with via_ir off (they are generated
+# to run optimizer-only, and their initcode is committed as fixtures the adapters deploy
+# from — see circuits/README.md).
+skip = ["src/packages/verifiers/*"]
 
 [fuzz]
 runs = 256
@@ -35,3 +46,6 @@ depth = 512
 
 [rpc_endpoints]
 arbitrum_sepolia = "https://sepolia-rollup.arbitrum.io/rpc"
+
+[profile.verifiers]
+via_ir = false
