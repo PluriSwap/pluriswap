@@ -14,14 +14,20 @@ import {Consent} from "../src/libraries/Consent.sol";
 import {PackageId} from "../src/libraries/PackageId.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {IReputation} from "../src/packages/interfaces/IReputation.sol";
+import {IPrivateReputation} from "../src/packages/interfaces/IPrivateReputation.sol";
 import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
+import {PrivateBondVault} from "../src/packages/PrivateBondVault.sol";
 import {HumanityVerifierMock} from "../mocks/HumanityVerifierMock.sol";
 import {AccountVerifierMock} from "../mocks/AccountVerifierMock.sol";
 import {PreparePassportVerifierMock} from "../mocks/PreparePassportVerifierMock.sol";
 import {PrepareAdmitVerifierMock} from "../mocks/PrepareAdmitVerifierMock.sol";
 import {ClaimVerifierMock} from "../mocks/ClaimVerifierMock.sol";
+import {DepositVerifierMock} from "../mocks/DepositVerifierMock.sol";
+import {PrepareBondVerifierMock} from "../mocks/PrepareBondVerifierMock.sol";
+import {ReabsorbVerifierMock} from "../mocks/ReabsorbVerifierMock.sol";
+import {WithdrawVerifierMock} from "../mocks/WithdrawVerifierMock.sol";
 import {RelayerMock} from "../mocks/RelayerMock.sol";
 import {BaseTest} from "./Base.t.sol";
 
@@ -52,21 +58,43 @@ contract PrivateDealTest is BaseTest {
     bytes32 internal constant NULLREP_H2 = keccak256("nullrep-h-2");
     bytes32 internal constant FAKE_ROOT = keccak256("fake-root");
     address internal constant FEE_TO = address(0xFEE);
+    address internal constant SINK = address(0xDEAD);
+    // Bond pieces (F3): one note per side funding the split, the lock commitments, the reabsorb.
+    uint256 internal constant LOCK = (PRINCIPAL + 9) / 10; // §3.14.5, same curve as the public vault
+    bytes32 internal constant DEPOSIT_NOTE_H = bytes32(uint256(0x2001));
+    bytes32 internal constant DEPOSIT_NOTE_P = bytes32(uint256(0x2002));
+    bytes32 internal constant CHANGE_H = bytes32(uint256(0x2101));
+    bytes32 internal constant CHANGE_P = bytes32(uint256(0x2102));
+    bytes32 internal constant LOCKCOMMIT_H = bytes32(uint256(0x3101));
+    bytes32 internal constant LOCKCOMMIT_P = bytes32(uint256(0x3102));
+    bytes32 internal constant NULLBOND_H1 = keccak256("nullbond-h-1");
+    bytes32 internal constant NULLBOND_P1 = keccak256("nullbond-p-1");
+    bytes32 internal constant REABSORB_NOTE_H = bytes32(uint256(0x2201));
+    bytes32 internal constant NULLBOND_H2 = keccak256("nullbond-h-2");
 
     HumanityVerifierMock internal humanity;
     AccountVerifierMock internal account;
     PreparePassportVerifierMock internal passportProof;
     PrepareAdmitVerifierMock internal admitProof;
     ClaimVerifierMock internal claimProof;
+    DepositVerifierMock internal depositProof;
+    PrepareBondVerifierMock internal bondProof;
+    ReabsorbVerifierMock internal reabsorbProof;
+    WithdrawVerifierMock internal withdrawProof;
     RelayerMock internal relayer;
     PoseidonTree internal tree;
     PrivatePassport internal passport;
     PrivateReputation internal reputation;
+    PrivateBondVault internal vault;
 
     HolderAuthorization internal ha;
     ProviderAgreement internal pa;
     PackageMods internal mods;
     bytes32 internal dealId;
+    HolderAuthorization internal bondHa;
+    ProviderAgreement internal bondPa;
+    PackageMods internal bondMods;
+    bytes32 internal bondDealId;
 
     function setUp() public override {
         super.setUp();
@@ -75,15 +103,34 @@ contract PrivateDealTest is BaseTest {
         passportProof = new PreparePassportVerifierMock();
         admitProof = new PrepareAdmitVerifierMock();
         claimProof = new ClaimVerifierMock();
+        depositProof = new DepositVerifierMock();
+        bondProof = new PrepareBondVerifierMock();
+        reabsorbProof = new ReabsorbVerifierMock();
+        withdrawProof = new WithdrawVerifierMock();
         relayer = new RelayerMock();
         // The accounts tree is wired before its owner exists: predict PrivateReputation's address
-        // (tree, passport, then reputation itself consume the next three nonces). The operator is
-        // the kernel: admit and notifyTerminal must only ever answer the escrow's context.
-        address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
+        // (tree, passport, vault, then reputation itself consume the next four nonces — the vault
+        // is deployed between them, so it can hold the predicted reputation for its reabsorb
+        // gating while the reputation holds the actual vault for its admit binding). The notes
+        // tree needs no prediction: the vault deploys it for itself. The operator is the kernel:
+        // reserve/unlock/slash/burn and admit/notifyTerminal must only ever answer the escrow's
+        // context.
+        address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
         tree = new PoseidonTree(32, predictedRep);
         passport = new PrivatePassport(tree, humanity, passportProof);
-        reputation =
-            new PrivateReputation(passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(escrow));
+        vault = new PrivateBondVault(
+            passport,
+            IPrivateReputation(predictedRep),
+            SINK,
+            address(escrow),
+            depositProof,
+            bondProof,
+            reabsorbProof,
+            withdrawProof
+        );
+        reputation = new PrivateReputation(
+            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(escrow), address(vault)
+        );
         assertEq(address(reputation), predictedRep, "predicted tree owner drifted");
 
         // Two registered humans, two initial leaves.
@@ -96,6 +143,10 @@ contract PrivateDealTest is BaseTest {
         pa = _providerAuth(_privateTerms(), 1);
         mods = _mods(address(passport), address(reputation));
         dealId = Consent.dealId(escrow.domainSeparator(), _privateTerms(), 1, 1, 0);
+        bondHa = _holderAuth(_bondTerms(), 1);
+        bondPa = _providerAuth(_bondTerms(), 1);
+        bondMods = _bondMods();
+        bondDealId = Consent.dealId(escrow.domainSeparator(), _bondTerms(), 1, 1, 0);
     }
 
     function ok(bool pass) internal pure returns (bytes memory) {
@@ -143,19 +194,102 @@ contract PrivateDealTest is BaseTest {
         return abi.encodePacked(r, s, v);
     }
 
-    function _side(address wallet, uint256 pk, bytes32 subject, bytes32 newLeaf, bytes32 nullRep)
-        internal
-        view
-        returns (RelayerMock.Side memory s)
-    {
+    function _sorted3(bytes32 a, bytes32 b, bytes32 c) internal pure returns (bytes32[] memory out) {
+        if (a > b) (a, b) = (b, a);
+        if (b > c) (b, c) = (c, b);
+        if (a > b) (a, b) = (b, a);
+        out = new bytes32[](3);
+        out[0] = a;
+        out[1] = b;
+        out[2] = c;
+    }
+
+    /// @dev The full private set: PASSPORT + REPUTATION + BONDS (§3.15.6). The bonds id is the
+    ///      vault's own (`vault`, `sink`) pair, which is what the kernel's peer check signs.
+    function _bondTerms() internal view returns (DealTerms memory t) {
+        t = _p2pTerms();
+        t.packageIds = _sorted3(
+            PackageId.passport(address(passport)),
+            PackageId.reputation(address(reputation), FEE_TO, 0, 0, 0, 0),
+            PackageId.bonds(address(vault), SINK)
+        );
+    }
+
+    function _bondMods() internal view returns (PackageMods memory m) {
+        m.passport = address(passport);
+        m.reputation = address(reputation);
+        m.bonds = address(vault);
+    }
+
+    function _side(
+        address wallet,
+        uint256 pk,
+        bytes32 subject,
+        bytes32 newLeaf,
+        bytes32 nullRep,
+        bytes32 forDealId,
+        uint256 forDeadline
+    ) internal view returns (RelayerMock.Side memory s) {
         s.wallet = wallet;
         s.dealSubject = subject;
         s.newLeaf = newLeaf;
         s.nullRep = nullRep;
         s.passportProof = ok(true);
         s.admitProof = ok(true);
-        s.passportSig = _sig(address(passport), pk, dealId, subject, ha.deadline);
-        s.admitSig = _sig(address(reputation), pk, dealId, subject, ha.deadline);
+        s.passportSig = _sig(address(passport), pk, forDealId, subject, forDeadline);
+        s.admitSig = _sig(address(reputation), pk, forDealId, subject, forDeadline);
+    }
+
+    /// @dev The bond pieces of one side: the split commitment, its change note, the source note's
+    ///      nullifier, and the wallet's consent over the vault's own EIP-712 domain.
+    function _bondSide(
+        address wallet,
+        uint256 pk,
+        bytes32 subject,
+        bytes32 newLeaf,
+        bytes32 nullRep,
+        bytes32 lockCommit,
+        bytes32 changeNote,
+        bytes32 nullBond
+    ) internal view returns (RelayerMock.Side memory s) {
+        s = _side(wallet, pk, subject, newLeaf, nullRep, bondDealId, bondHa.deadline);
+        s.lockCommit = lockCommit;
+        s.changeNote = changeNote;
+        s.nullBond = nullBond;
+        s.bondProof = ok(true);
+        s.bondSig = _sig(address(vault), pk, bondDealId, subject, bondHa.deadline);
+    }
+
+    /// @dev Each side funds one whole note; the split carves the lock out of it in the bundle. The
+    ///      holder is re-funded because the deposit would otherwise eat the balance the kernel
+    ///      pulls as principal at `activate`.
+    function _fundBonds() internal {
+        token.mint(holder, PRINCIPAL);
+        token.mint(provider, PRINCIPAL);
+        vm.prank(holder);
+        token.approve(address(vault), type(uint256).max);
+        vm.prank(provider);
+        token.approve(address(vault), type(uint256).max);
+        vm.prank(holder);
+        vault.deposit(address(token), PRINCIPAL, DEPOSIT_NOTE_H, ok(true));
+        vm.prank(provider);
+        vault.deposit(address(token), PRINCIPAL, DEPOSIT_NOTE_P, ok(true));
+    }
+
+    /// @dev The activation bundle of the bonded deal: six prepares (passport, vault, reputation,
+    ///      per side — §3.15.4's composition order) and `activate` in one tx.
+    function _activateBonded() internal returns (bytes32) {
+        _fundBonds();
+        ControllerAcceptance memory ca;
+        bytes memory hs = _signHolder(bondHa);
+        bytes memory ps = _signProvider(bondPa);
+        RelayerMock.Side memory sideH =
+            _bondSide(holder, holderPk, SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, LOCKCOMMIT_H, CHANGE_H, NULLBOND_H1);
+        RelayerMock.Side memory sideP =
+            _bondSide(provider, providerPk, SUBJECT_P, ADMIT_LEAF_P, NULLREP_P1, LOCKCOMMIT_P, CHANGE_P, NULLBOND_P1);
+        return relayer.activatePrivate(
+            escrow, passport, reputation, vault, bondHa, hs, bondPa, ps, ca, "", bondMods, bondDealId, sideH, sideP
+        );
     }
 
     /// @dev The activation bundle: four prepares and `activate` in one tx (PLURISWAP.md §3.15.4).
@@ -164,9 +298,26 @@ contract PrivateDealTest is BaseTest {
         ControllerAcceptance memory ca;
         bytes memory hs = _signHolder(ha);
         bytes memory ps = _signProvider(pa);
-        RelayerMock.Side memory sideH = _side(holder, holderPk, SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1);
-        RelayerMock.Side memory sideP = _side(provider, providerPk, SUBJECT_P, ADMIT_LEAF_P, NULLREP_P1);
-        return relayer.activatePrivate(escrow, passport, reputation, ha, hs, pa, ps, ca, "", mods, dealId, sideH, sideP);
+        RelayerMock.Side memory sideH =
+            _side(holder, holderPk, SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, dealId, ha.deadline);
+        RelayerMock.Side memory sideP =
+            _side(provider, providerPk, SUBJECT_P, ADMIT_LEAF_P, NULLREP_P1, dealId, ha.deadline);
+        return relayer.activatePrivate(
+            escrow,
+            passport,
+            reputation,
+            PrivateBondVault(address(0)), // a PASSPORT+REPUTATION deal: no bond pieces
+            ha,
+            hs,
+            pa,
+            ps,
+            ca,
+            "",
+            mods,
+            dealId,
+            sideH,
+            sideP
+        );
     }
 
     function _terminalReleased() internal {
@@ -206,11 +357,26 @@ contract PrivateDealTest is BaseTest {
         bytes memory hs = _signHolder(ha);
         bytes memory providerSig = _signProvider(pa);
         providerSig[10] = providerSig[10] ^ 0x01; // break the deal consent, AFTER the prepares would have run
-        RelayerMock.Side memory sideH = _side(holder, holderPk, SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1);
-        RelayerMock.Side memory sideP = _side(provider, providerPk, SUBJECT_P, ADMIT_LEAF_P, NULLREP_P1);
+        RelayerMock.Side memory sideH =
+            _side(holder, holderPk, SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, dealId, ha.deadline);
+        RelayerMock.Side memory sideP =
+            _side(provider, providerPk, SUBJECT_P, ADMIT_LEAF_P, NULLREP_P1, dealId, ha.deadline);
         vm.expectRevert(Escrow.InvalidProviderSignature.selector);
         relayer.activatePrivate(
-            escrow, passport, reputation, ha, hs, pa, providerSig, ca, "", mods, dealId, sideH, sideP
+            escrow,
+            passport,
+            reputation,
+            PrivateBondVault(address(0)),
+            ha,
+            hs,
+            pa,
+            providerSig,
+            ca,
+            "",
+            mods,
+            dealId,
+            sideH,
+            sideP
         );
         // The failed activation reverted the prepares with it: no leaves, no nullifiers, no buffers.
         assertEq(tree.nextIndex(), 2);
@@ -453,5 +619,156 @@ contract PrivateDealTest is BaseTest {
         _terminalReleased();
         vm.expectRevert(PrivateReputation.UnknownRoot.selector);
         reputation.claim(dealId, SUBJECT_H, CLAIM_LEAF_H, NULLREP_H2, FAKE_ROOT, ok(true));
+    }
+
+    // ---------------------------------------------------------------- bonds deal (F3, §3.15.6)
+
+    function test_admit_acceptsTheBoundVault() public {
+        bytes32 root = tree.root();
+        bytes memory passportSig = _sig(address(passport), holderPk, dealId, SUBJECT_H, ha.deadline);
+        bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
+        passport.prepare(holder, dealId, SUBJECT_H, root, ha.deadline, ok(true), passportSig);
+        reputation.prepare(
+            holder,
+            dealId,
+            SUBJECT_H,
+            ADMIT_LEAF_H,
+            NULLREP_H1,
+            address(token),
+            PRINCIPAL,
+            bytes32(0),
+            root,
+            ha.deadline,
+            ok(true),
+            admitSig
+        );
+        vm.prank(address(escrow));
+        bytes32 subject = reputation.admit(holder, address(token), PRINCIPAL, address(vault));
+        assertEq(subject, SUBJECT_H, "the bound vault is the one vault this reputation admits");
+    }
+
+    function test_admit_rejectsForeignVault() public {
+        bytes32 root = tree.root();
+        bytes memory passportSig = _sig(address(passport), holderPk, dealId, SUBJECT_H, ha.deadline);
+        bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
+        passport.prepare(holder, dealId, SUBJECT_H, root, ha.deadline, ok(true), passportSig);
+        reputation.prepare(
+            holder,
+            dealId,
+            SUBJECT_H,
+            ADMIT_LEAF_H,
+            NULLREP_H1,
+            address(token),
+            PRINCIPAL,
+            bytes32(0),
+            root,
+            ha.deadline,
+            ok(true),
+            admitSig
+        );
+        // A counterparty signs a BONDS deal trusting that the lock exists: a foreign vault under
+        // the same reputation would fake that protection, so the binding refuses it.
+        vm.prank(address(escrow));
+        vm.expectRevert(PrivateReputation.UnsupportedVault.selector);
+        reputation.admit(holder, address(token), PRINCIPAL, address(0xB0B));
+    }
+
+    function test_bondDeal_fullBundle() public {
+        bytes32 id = _activateBonded();
+
+        assertEq(id, bondDealId);
+        assertTrue(uint8(escrow.status(bondDealId)) == uint8(Status.FUNDED));
+        // Both lock records: the §3.14.5 lock each, with the split commitments inside.
+        (address lockTokenH, uint256 lockAmountH, bytes32 lockCommitH, bool releasedH) =
+            vault.lockOf(bondDealId, SUBJECT_H);
+        assertEq(lockTokenH, address(token));
+        assertEq(lockAmountH, LOCK);
+        assertEq(lockCommitH, LOCKCOMMIT_H);
+        assertFalse(releasedH);
+        (, uint256 lockAmountP, bytes32 lockCommitP,) = vault.lockOf(bondDealId, SUBJECT_P);
+        assertEq(lockAmountP, LOCK);
+        assertEq(lockCommitP, LOCKCOMMIT_P);
+        // The bond buffers are consumed; the notes tree holds both deposits and both change notes.
+        (address bufferedToken,, bytes32 bufferedCommit) = vault.preparedBond(bondDealId, SUBJECT_H);
+        assertEq(bufferedToken, address(0));
+        assertEq(bufferedCommit, 0);
+        assertEq(vault.notesTree().nextIndex(), 4);
+        assertTrue(vault.notesTree().isSpent(NULLBOND_H1));
+        assertTrue(vault.notesTree().isSpent(NULLBOND_P1));
+    }
+
+    function test_bondDeal_bundleIsAtomic() public {
+        _fundBonds();
+        ControllerAcceptance memory ca;
+        bytes memory hs = _signHolder(bondHa);
+        bytes memory ps = _signProvider(bondPa);
+        ps[10] = ps[10] ^ 0x01; // break the deal consent, AFTER the prepares would have run
+        RelayerMock.Side memory sideH =
+            _bondSide(holder, holderPk, SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, LOCKCOMMIT_H, CHANGE_H, NULLBOND_H1);
+        RelayerMock.Side memory sideP =
+            _bondSide(provider, providerPk, SUBJECT_P, ADMIT_LEAF_P, NULLREP_P1, LOCKCOMMIT_P, CHANGE_P, NULLBOND_P1);
+        vm.expectRevert(Escrow.InvalidProviderSignature.selector);
+        relayer.activatePrivate(
+            escrow, passport, reputation, vault, bondHa, hs, bondPa, ps, ca, "", bondMods, bondDealId, sideH, sideP
+        );
+        // The deposits predate the bundle and survive it; the splits did not land.
+        assertEq(vault.notesTree().nextIndex(), 2);
+        assertFalse(vault.notesTree().isSpent(NULLBOND_H1));
+        assertFalse(vault.notesTree().isSpent(NULLBOND_P1));
+        (address bufferedToken,, bytes32 bufferedCommit) = vault.preparedBond(bondDealId, SUBJECT_H);
+        assertEq(bufferedToken, address(0));
+        assertEq(bufferedCommit, 0);
+        (, uint256 lockAmountH,,) = vault.lockOf(bondDealId, SUBJECT_H);
+        assertEq(lockAmountH, 0);
+        assertTrue(uint8(escrow.status(bondDealId)) == uint8(Status.NONE));
+    }
+
+    function test_bondDeal_peacefulThenClaimThenReabsorb() public {
+        _activateBonded();
+        _markFiat(bondDealId);
+        vm.prank(holder); // the controller releases after fiat was marked
+        escrow.release(bondDealId);
+        assertEq(escrow.postPending(bondDealId), 0, "notifications and unlocks all landed");
+
+        (,, bytes32 lockCommitH, bool releasedH) = vault.lockOf(bondDealId, SUBJECT_H);
+        assertTrue(releasedH, "kernel unlock did not release the holder lock");
+        assertEq(lockCommitH, LOCKCOMMIT_H);
+        // Gating: the lock does not come back before the terminal delta is claimed.
+        vm.expectRevert(PrivateBondVault.ClaimRequired.selector);
+        vault.reabsorb(bondDealId, SUBJECT_H, REABSORB_NOTE_H, NULLBOND_H2, ok(true));
+
+        // Claim the delta, then the lock merges into a fresh note — exactly once.
+        reputation.claim(bondDealId, SUBJECT_H, CLAIM_LEAF_H, NULLREP_H2, tree.root(), ok(true));
+        uint256 notesBefore = vault.notesTree().nextIndex();
+        vault.reabsorb(bondDealId, SUBJECT_H, REABSORB_NOTE_H, NULLBOND_H2, ok(true));
+        assertEq(vault.notesTree().nextIndex(), notesBefore + 1, "reabsorb did not merge a note");
+        assertTrue(vault.notesTree().isSpent(NULLBOND_H2));
+        (, uint256 lockAmountH,,) = vault.lockOf(bondDealId, SUBJECT_H);
+        assertEq(lockAmountH, 0, "reabsorbed lock still on the books");
+        vm.expectRevert(PrivateBondVault.NoLock.selector);
+        vault.reabsorb(bondDealId, SUBJECT_H, REABSORB_NOTE_H, NULLBOND_H2, ok(true));
+
+        // The provider side is still gated: no claim, no reabsorb.
+        vm.expectRevert(PrivateBondVault.ClaimRequired.selector);
+        vault.reabsorb(bondDealId, SUBJECT_P, bytes32(uint256(0x2202)), keccak256("nullbond-p-2"), ok(true));
+    }
+
+    function test_bondDeal_stalemateBurnsBothLocks() public {
+        _activateBonded();
+        _markFiat(bondDealId);
+        _openDisputed(bondDealId);
+        vm.warp(block.timestamp + 7200 + 1); // disputeDuration of the p2p terms
+        escrow.forceStalemate(bondDealId);
+
+        assertTrue(uint8(escrow.status(bondDealId)) == uint8(Status.STALEMATE));
+        assertEq(escrow.postPending(bondDealId), 0);
+        assertEq(token.balanceOf(SINK), LOCK * 2, "both locks burned to the sink, nothing to the sides");
+        (, uint256 lockAmountH,,) = vault.lockOf(bondDealId, SUBJECT_H);
+        assertEq(lockAmountH, 0);
+        (, uint256 lockAmountP,,) = vault.lockOf(bondDealId, SUBJECT_P);
+        assertEq(lockAmountP, 0);
+        // A burned lock is never reabsorbable.
+        vm.expectRevert(PrivateBondVault.NoLock.selector);
+        vault.reabsorb(bondDealId, SUBJECT_H, REABSORB_NOTE_H, NULLBOND_H2, ok(true));
     }
 }

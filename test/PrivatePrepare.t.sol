@@ -67,8 +67,9 @@ contract PrivatePrepareTest is Test {
         address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
         tree = new PoseidonTree(32, predictedRep);
         passport = new PrivatePassport(tree, humanity, passportProof);
-        reputation =
-            new PrivateReputation(passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this));
+        reputation = new PrivateReputation(
+            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
+        );
         assertEq(address(reputation), predictedRep, "predicted tree owner drifted");
     }
 

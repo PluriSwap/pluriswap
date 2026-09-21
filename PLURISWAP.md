@@ -640,7 +640,7 @@ S              = Poseidon(sk_id)                          // la cuenta; jamás o
 hn             = Poseidon(anchor, registryId)             // nullifier de humanidad; anchor = address con Passport vigente
 dealSubject    = Poseidon(sk_id, dealId)                  // seudónimo POR deal; lo único que el kernel ve
 leafRep        = Poseidon(S, count, volume, penalty, inFlight, token, salt, version)
-noteBond       = Poseidon(sk_id, amount, salt)            // note de balance del vault
+noteBond       = Poseidon(sk_id, token, amount, salt)     // note de balance del vault; token-específica (F3: sin token, un note de USDC pagaría un lock de ETH)
 nullRep        = Poseidon(sk_id, "rep", version)          // un uso por versión de la cuenta
 nullBond       = Poseidon(sk_id, "bond", noteSalt)        // un uso por note gastada
 handleCommit   = Poseidon(sk_id, "handle", handleSalt)    // rotable
@@ -670,7 +670,7 @@ Todo atómico: si `activate` revierte, los inserts de árboles y los nullifiers 
 
 **Pasaporte.** `π` prueba: *"conozco `sk_id` con `S` en una hoja actual, y `dealSubject = Poseidon(sk_id, dealId)`"*. Guarda `preparedPassport[wallet] = dealSubject`. El kernel llama `identify(wallet)` y recibe eso.
 
-**Bond.** `π` gasta una `noteBond` y la parte en `{lockCommit = Poseidon(sk_id, dealId, lockAmount, salt), changeNote}`. Guarda `preparedBond[dealId][dealSubject]`. `lockAmount` sigue §3.14.5.
+**Bond.** `π` gasta una `noteBond` del token del deal y la parte en `{lockCommit = Poseidon(sk_id, dealId, lockAmount, salt), changeNote}`. Guarda `preparedBond[dealId][dealSubject] = (token, lockAmount, lockCommit)`. `lockAmount` sigue §3.14.5, y tanto `lockAmount` como `token` son public inputs (F3): `reserve` los cross-chequea — un `lockAmount` oculto dejaría un split que no cubre su propio lock y el vault insolvente el día del slash.
 
 **Reputación.** `π` prueba la transición: hoja `v` → `inFlight + principal ≤ cap` (el tier se computa **in-circuit**, tabla §3.14.7; con `lockCommit` como public input si se usa la columna bond) → hoja `v+1` + `nullRep(v)`. Inserta la hoja nueva ahora (atómico con la activación).
 
@@ -715,13 +715,15 @@ El dueño claima después: `claim(dealId, π)` — `π` prueba el binding `dealS
 
 #### 3.15.6 `PrivateBondVault`
 
-- `deposit(amount)`: transfer público wallet→vault; inserta `noteBond`. Monto y wallet depositante públicos (como hoy); el dueño del note no.
-- Locks: record público por `dealId` (deal-scoped). `available`/`locked` se implementan sobre esos records.
-- `unlock` (kernel, pacífico): marca released. El usuario `reabsorb(dealId, π)` después — binding + membership → merge a balance. **Gating: `reputation.claimed(dealSubject)`** — sin claim del delta, el lock no vuelve.
-- `slash` (kernel): tokens → address de firma del ganador; el `lockCommit` del loser se consume. El loser sigue necesitando su claim para liberar `inFlight`.
+- `deposit(token, amount, note, proof)`: transfer público wallet→vault; inserta `noteBond` **con proof**. Es el único punto donde entra valor fresco al mundo de notes, y el único donde un note debe quedar pineado al monto público: sin proof, un depósito de 10 podría insertar un note de un millón (todo gasto posterior es conservación-bounded, pero la fuente misma sería una máquina de acuñar). Monto y wallet depositante públicos (como hoy); el dueño del note no.
+- Locks: record público por `dealId` (deal-scoped): `lockOf[dealId][subject] = (token, lockAmount, lockCommit, released)`. `available`/`locked` **revierten `HiddenBalances`**: un agregado por sujeto linkearía todos los deals de un sujeto, y la columna bond del cap se prueba in-circuit (`prepare_admit` con `lockCommit`), no se lee aquí. Consecuencia: el vault público y el privado no son mezclables en un mismo set — la reputación pública necesita `available`, la privada nunca la llama.
+- `reserve` (kernel): consume `preparedBond[dealId][subject]` (sin split → `NoPrepare` → la activación falla cerrada), cross-chequea `token` y `lockAmount == (principal+9)/10` (§3.14.5), escribe el record.
+- `unlock` (kernel, pacífico): marca released; los tokens quedan estacionados. El usuario `reabsorb(dealId, π)` después. **Gating: `reputation.claimed(dealSubject)`** — sin claim del delta, el lock no vuelve. El proof de reabsorb no lleva raíz ni membership: el lock record es estado del contrato, no una hoja.
+- `slash` (kernel): tokens del lock del loser → address de firma del ganador; el record del loser se consume (nunca reabsorbable). El lock propio del winner queda released — reabsorb después, mismo gating. El loser sigue necesitando su claim para liberar `inFlight`.
 - `burn` (kernel): ambos locks → sink inmutable.
-- `withdraw(dest, amount, π)`: prueba de ownership de notes, las nullifica, transfer a `dest`. **Sin `passport.identify`**: la prueba reemplaza la identificación — se elimina la dependencia de liveness del decoder.
-- Peers: `passport()` satisface el chequeo del kernel; un `reputation` inmutable para el gating (bindeado por address vía `packageId`, igual confianza que `sink`).
+- `withdraw(token, dest, amount, changeNote, π)`: prueba de ownership de un note, lo nullifica, transfer a `dest`. **Sin `passport.identify`**: la prueba reemplaza la identificación — el vault no tiene dependencia de liveness de ningún decoder (testeado con un passport muerto cuya vista `identify` siempre revierte). `changeNote == 0` consume el note entero; si no, el resto vive como change note.
+- Solvencia: los notes nacen sólo de un deposit (proof-pineado al monto retirado), del change de un split (conservación in-circuit) o de un reabsorb (exactamente el monto del record released, que el split cubrió); los tokens salen sólo por withdraw (valor del note), slash o burn (el monto del record). Un prepare que nunca se reserva stranding el valor de su lockCommit en el vault: sobre-colateralizado, pérdida del dueño, nunca de otro.
+- Peers: `passport()` satisface el chequeo del kernel; un `reputation` inmutable para el gating (bindeado por address vía `packageId`, igual confianza que `sink`). **Binding recíproco (F3)**: `PrivateReputation.bondsVault` inmutable — `admit` acepta a lo sumo ese vault (o ninguno). La contraparte firma un deal BONDS confiando en que el lock existe; un vault foráneo bajo la misma reputación falsificaría esa protección. Deploy: el árbol de notes (depth 20) se lo despliega el propio vault — nadie más lo lee ni lo escribe, no hay dirección que predecir; el vault se despliega antes que la reputación, con la dirección predicha de ésta para el gating.
 
 #### 3.15.7 Divulgación selectiva (frontend)
 
@@ -753,10 +755,12 @@ Higiene operativa: `claim`/`reabsorb`/`withdraw` por relayer o wallet burner. Re
 | --- | --- | --- |
 | `register` | `hn`, `leaf0` | Registro (una vez) |
 | `prepare_passport` | `dealSubject`, `repRoot` | Bundle de activación |
-| `prepare_bond` | `dealSubject`, `dealId`, `lockCommit`, `changeNote`, `nullBond`, `bondRoot` | Bundle (si hay bonds) |
+| `deposit` | `token`, `amount`, `note` | Depósito en el vault (F3: el único punto de entrada de valor) |
+| `prepare_bond` | `dealSubject`, `dealId`, `token`, `lockAmount`, `lockCommit`, `changeNote`, `nullBond`, `bondRoot` | Bundle (si hay bonds) |
 | `prepare_admit` | `dealSubject`, `newLeaf`, `nullRep(v)`, `principal`, `token`, `repRoot`, `lockCommit?` | Bundle (si hay rep) |
 | `claim` | `dealId`, `dealSubject`, `newLeaf`, `nullRep(v)`, `repRoot` | Post-terminal |
-| `reabsorb` / `withdraw` | `dealSubject`/`notes`, `nullBond`s, `bondRoot`, `dest`/`amount` | Vault |
+| `reabsorb` | `dealId`, `dealSubject`, `token`, `amount`, `lockCommit` (leídos del record), `newNote`, `nullBond` | Vault (sin raíz: no hay membership) |
+| `withdraw` | `token`, `dest`, `amount`, `changeNote`, `nullBond`, `bondRoot` | Vault |
 | `attest_base` | `handleCommit`, `tier`, `count`, `expiry`, `repRoot` | Off-chain |
 | `reveal_advanced` | `handleCommit`, campos, `repRoot` | Off-chain |
 
@@ -773,7 +777,7 @@ El sujeto privado del **operador** lleva la reputación y el bond de los deals d
 | F0 | Higiene de direcciones: docs + frontend. Sin código | Documentado y facilitado |
 | F1 | `PoseidonTree` + `register` (insert, replay de `hn`, ring buffer) | Árbol y registro verdes (2026-09-20) |
 | F2 | `prepare`/`admit`/`claim`: cap in-circuit, consumo único, delta atómico | Capa contractual verde contra el kernel real con mocks (2026-09-21); el verifier real sigue pendiente |
-| F3 | Vault: split, `reabsorb` con gating, `withdraw` sin passport | Vault verde |
+| F3 | Vault: split, `reabsorb` con gating, `withdraw` sin passport | Capa contractual verde contra el kernel real con mocks (2026-09-21); el verifier real sigue pendiente |
 | F4 | Attestations verificables off-chain | Capa de divulgación verificable |
 
 Mocks de verifier detrás de la misma interfaz para integración — y el caveat de siempre: **un mock no es un proof**; el path de testnet con mock verifier no es privacidad.
@@ -996,6 +1000,7 @@ Registro fechado de decisiones cerradas. Una entrada posterior pisa a una anteri
 | 2026-09-20 | Documentación | `PLURISWAP.md` absorbe toda la documentación de protocolo (monolito). `KLEROS_POLICY.md` y `LAB_UI.md` quedan como artefactos operativos. Citas legacy resueltas por el Apéndice A |
 | 2026-09-20 | Privacidad F1 | `PoseidonTree` (insert incremental, ring de 64 raíces, nullifiers, owner-only, cero-hoja rechazada) + `PrivatePassport.register`/`PrivateReputation.register` (bundle passport→reputation, replay de `hn`, árbol de cuentas depth 32 propiedad del módulo). Poseidon: `poseidon-solidity` (chancehudson/vimwitch, MIT) — circomlib-compatible, el test fija el vector oficial de circomlibjs. 25 tests TDD. El kernel y los `packageId` vivos quedan intactos: nada de esto entra aún en `Packages.resolve` (F2) |
 | 2026-09-21 | Privacidad F2 | Capa contractual de prepare/admit/claim contra el kernel intacto (resolve/engage/postTerminal sin cambios): bundle atómico verificado (4 prepares + `activate` en una tx; un `activate` que falla revierte inserts y nullifiers), `admit` borra el buffer (muere el replay de cap) y cross-chequea contra el passport, `notifyTerminal` → `pending[dealSubject]`, `claim` aplica el delta una vez y marca `claimed` (gating de F3). Árbol standalone con owner predicho (CREATE) para romper la circularidad passport↔árbol. Firma EIP-712 de wallet sobre `(dealId, dealSubject, módulo, deadline)`, dominio "PluriSwap"/"1" por módulo. Edge documentado: el mismo humano a ambos lados de un deal → el segundo notify falla cerrado (la cuenta se castiga sola). El set privado firma `packageIds` ordenados (`Terms`). 35 tests nuevos, suite 435/0. F2 no está cerrada: los mocks de verifier no son privacidad; falta el verifier real (Noir/BB) |
+| 2026-09-21 | Privacidad F3 | `PrivateBondVault` detrás de `IBondVault`, kernel intacto (engage reserva, postTerminal unlock/slash/burn, peer checks responden): `deposit` con proof (única entrada de valor al mundo de notes), `prepare` bond en el bundle (quema `nullBond`, inserta el change note dentro de la tx de activación, buffer `(token, lockAmount, lockCommit)` con firma EIP-712 de wallet sobre el dominio del vault), `reserve` cross-chequea `token` y `lockAmount == (principal+9)/10` — §3.14.5; un `lockAmount` oculto dejaría el vault insolvente el día del slash —, `unlock` marca released (tokens estacionados), `slash` paga al winner y consume el record del loser (el del winner queda released, mismo gating), `burn` → sink, `reabsorb` gated por `reputation.claimed` (sin raíz: el record es estado, no hoja), `withdraw` sin `passport.identify` (testeado con un passport muerto: la prueba reemplaza la identificación, cero dependencia de liveness). `available`/`locked` revierten `HiddenBalances` (un agregado por sujeto linkearía sus deals; la columna bond del cap es in-circuit). **Enmiendas de spec**: note token-específica `Poseidon(sk_id, token, amount, salt)` (sin token, un note de USDC pagaría un lock de ETH); `token` y `lockAmount` como public inputs de `prepare_bond`; circuito `deposit` nuevo en §3.15.9; `changeNote == 0` = consumo entero en `withdraw`. **Binding recíproco** rep↔vault: `bondsVault` inmutable en `admit` (la contraparte firma BONDS confiando en que el lock existe; un vault foráneo lo falsificaría). Árbol de notes depth 20 auto-desplegado por el vault (nadie más lo toca → sin predicción); el vault se despliega antes que la rep, con la dirección predicha de ésta. 46 tests nuevos, suite 481/0. F3 no está cerrada: los mocks no son privacidad; falta el verifier real (Noir/BB) |
 
 ---
 
@@ -1050,7 +1055,7 @@ test/                       un área de catálogo por archivo
 test/fuzz/                  propiedades stateless
 test/invariant/             handlers stateful (solvency, conservation, immutability, books)
 test/fork/                  checks on-chain (Human Passport decoder, Kleros core + registry; opt-in vía *_RPC_URL)
-mocks/                      TestToken, FeeOnTransferToken, RevertingReceiver, Mock1271, VerifierMock, ZkMock, ArbitrationMock, PassportDecoderMock, PassportMock, HumanityVerifierMock, AccountVerifierMock, PreparePassportVerifierMock, PrepareAdmitVerifierMock, ClaimVerifierMock, RelayerMock
+mocks/                      TestToken, FeeOnTransferToken, RevertingReceiver, Mock1271, VerifierMock, ZkMock, ArbitrationMock, PassportDecoderMock, PassportMock, HumanityVerifierMock, AccountVerifierMock, PreparePassportVerifierMock, PrepareAdmitVerifierMock, ClaimVerifierMock, DepositVerifierMock, PrepareBondVerifierMock, ReabsorbVerifierMock, WithdrawVerifierMock, RelayerMock
 ```
 
 ### 5.4 Calidad y CI
@@ -1082,7 +1087,7 @@ Invariant handlers con `fail_on_revert = true`: guardan sus propias precondicion
 | Pineado de `KLEROS_POLICY.md` | `KLEROS_POLICY_URI` (IPFS multiaddr) requerido en Arbitrum One |
 | Zero-checks / shadowing (Low) | Decisiones abiertas del kernel, no supresiones |
 | Liveness de Passport | El decoder es proxy upgradeable/pausable de un tercero: de facto kill-switch externo de admisiones (fail-closed). El vault público estaciona bonds con passport vencido; el vault privado (§3.15.6) lo elimina |
-| Privacidad F0–F4 | Fases TDD de §3.15.11, sin empezar |
+| Privacidad F0–F4 | F1–F3 contractuales verdes contra el kernel con mocks (§3.15.11); F4 y el verifier real (Noir/BB) pendientes |
 | Compose de rampa | `RAMPS` spec lo permite; el bytecode es taxi-only |
 | UI en deal ZK | La consola ofrece `markFiat`/`claim`/`openDisputed` que revierten `EdgeOff` (§3.12.1) — known wart |
 

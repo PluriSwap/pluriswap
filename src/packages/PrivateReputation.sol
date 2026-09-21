@@ -10,6 +10,7 @@ import {IAccountVerifier} from "./interfaces/IAccountVerifier.sol";
 import {IClaimVerifier} from "./interfaces/IClaimVerifier.sol";
 import {IPrepareAdmitVerifier} from "./interfaces/IPrepareAdmitVerifier.sol";
 import {IPrivatePassport} from "./interfaces/IPrivatePassport.sol";
+import {IPrivateReputation} from "./interfaces/IPrivateReputation.sol";
 import {PoseidonTree} from "./PoseidonTree.sol";
 
 /// @title PrivateReputation
@@ -38,9 +39,12 @@ import {PoseidonTree} from "./PoseidonTree.sol";
 ///        `dealSubject = Poseidon(sk_id, dealId)`, membership of the current leaf and the delta
 ///        arithmetic in-circuit — burns `nullRep(v)`, inserts the delta leaf, marks `claimed`. The
 ///        delta is atomic (§3.15.5): not claiming the penalty means never releasing the inFlight.
-///      A `vault != 0` is refused until F3 (the private vault brings its own `lockCommit` flow).
+///      `admit` accepts at most one vault: the bound `bondsVault` of the deployment (§3.15.6) — a
+///      counterparty signs a BONDS deal trusting that the lock exists, so a foreign vault under
+///      this same reputation is refused. The bond column of the cap is proven in-circuit by
+///      `prepare_admit` (with `lockCommit`); the lock itself is `reserve`'s to enforce, in the vault.
 ///      A mock behind any of the verifier interfaces is not privacy.
-contract PrivateReputation is IReputation, EIP712 {
+contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
     /// @dev EIP-712 type of the wallet consent that pins a dealSubject under a wallet for one deal.
     bytes32 internal constant PREPARE_TYPEHASH =
         keccak256("PrivatePrepare(bytes32 dealId,bytes32 dealSubject,address module,uint256 deadline)");
@@ -75,6 +79,11 @@ contract PrivateReputation is IReputation, EIP712 {
     uint256 public immutable contestBps;
     uint256 public immutable contestFloor;
     address public immutable operator;
+    /// @dev The private vault this reputation admits (F3 binding, §3.15.6). Zero in a vault-less
+    ///      deployment: a deal that selects BONDS then fails closed in `admit`. The binding is the
+    ///      reputation's own address (its `packageId` pins it), so a user signing this reputation
+    ///      knows the only vault whose locks can ever back its deals.
+    address public immutable bondsVault;
     bytes32 public immutable packageId;
 
     mapping(bytes32 => bool) public registeredHn;
@@ -119,7 +128,8 @@ contract PrivateReputation is IReputation, EIP712 {
         uint256 completionFee_,
         uint256 contestBps_,
         uint256 contestFloor_,
-        address operator_
+        address operator_,
+        address bondsVault_
     ) EIP712("PluriSwap", "1") {
         if (
             address(passport_) == address(0) || address(accountTree_) == address(0)
@@ -141,6 +151,7 @@ contract PrivateReputation is IReputation, EIP712 {
         contestBps = contestBps_;
         contestFloor = contestFloor_;
         operator = operator_;
+        bondsVault = bondsVault_;
         packageId = PackageId.reputation(
             address(this), feeRecipient_, activationFee_, completionFee_, contestBps_, contestFloor_
         );
@@ -198,7 +209,10 @@ contract PrivateReputation is IReputation, EIP712 {
     /// @inheritdoc IReputation
     function admit(address wallet, address token, uint256 principal, address vault) external returns (bytes32 subject) {
         if (msg.sender != operator) revert Unauthorized();
-        if (vault != address(0)) revert UnsupportedVault();
+        // The F3 binding (§3.15.6): a vault-less deal (vault == 0) or THE bound private vault —
+        // nothing else. A counterparty signs a BONDS deal trusting that the lock exists; a foreign
+        // vault under this same reputation would fake that protection.
+        if (vault != address(0) && vault != bondsVault) revert UnsupportedVault();
         PreparedAdmit memory p = preparedAdmit[wallet];
         if (p.dealSubject == 0 || block.timestamp > p.deadline) revert NoPrepare();
         if (p.token != token || p.principal != principal) revert PrepareMismatch();

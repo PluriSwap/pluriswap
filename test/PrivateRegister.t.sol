@@ -50,8 +50,9 @@ contract PrivateRegisterTest is Test {
         address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
         tree = new PoseidonTree(32, predictedRep);
         passport = new PrivatePassport(tree, humanity, passportProof);
-        reputation =
-            new PrivateReputation(passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this));
+        reputation = new PrivateReputation(
+            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
+        );
         assertEq(address(reputation), predictedRep, "predicted tree owner drifted");
     }
 
@@ -157,36 +158,108 @@ contract PrivateRegisterTest is Test {
     function test_reputation_zeroConstructorArgs() public {
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
         new PrivateReputation(
-            IPassport(address(0)), tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this)
+            IPassport(address(0)),
+            tree,
+            account,
+            admitProof,
+            claimProof,
+            FEE_TO,
+            0,
+            0,
+            0,
+            0,
+            address(this),
+            address(this)
         );
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
         new PrivateReputation(
-            passport, PoseidonTree(address(0)), account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this)
+            passport,
+            PoseidonTree(address(0)),
+            account,
+            admitProof,
+            claimProof,
+            FEE_TO,
+            0,
+            0,
+            0,
+            0,
+            address(this),
+            address(this)
         );
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
         new PrivateReputation(
-            passport, tree, IAccountVerifier(address(0)), admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this)
+            passport,
+            tree,
+            IAccountVerifier(address(0)),
+            admitProof,
+            claimProof,
+            FEE_TO,
+            0,
+            0,
+            0,
+            0,
+            address(this),
+            address(this)
         );
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
         new PrivateReputation(
-            passport, tree, account, IPrepareAdmitVerifier(address(0)), claimProof, FEE_TO, 0, 0, 0, 0, address(this)
+            passport,
+            tree,
+            account,
+            IPrepareAdmitVerifier(address(0)),
+            claimProof,
+            FEE_TO,
+            0,
+            0,
+            0,
+            0,
+            address(this),
+            address(this)
         );
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
         new PrivateReputation(
-            passport, tree, account, admitProof, IClaimVerifier(address(0)), FEE_TO, 0, 0, 0, 0, address(this)
+            passport,
+            tree,
+            account,
+            admitProof,
+            IClaimVerifier(address(0)),
+            FEE_TO,
+            0,
+            0,
+            0,
+            0,
+            address(this),
+            address(this)
         );
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
-        new PrivateReputation(passport, tree, account, admitProof, claimProof, address(0), 0, 0, 0, 0, address(this));
+        new PrivateReputation(
+            passport, tree, account, admitProof, claimProof, address(0), 0, 0, 0, 0, address(this), address(this)
+        );
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
-        new PrivateReputation(passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(0));
+        new PrivateReputation(
+            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(0), address(this)
+        );
         vm.expectRevert(PrivateReputation.BadFee.selector);
-        new PrivateReputation(passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 10_001, 0, address(this));
+        new PrivateReputation(
+            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 10_001, 0, address(this), address(this)
+        );
+    }
+
+    /// @dev The vault binding is deliberately NOT zero-checked: zero is a legal vault-less
+    ///      deployment (a BONDS deal then fails closed in `admit`), not a wiring mistake.
+    function test_reputation_vaultlessBindingIsLegal() public {
+        PrivateReputation vaultless = new PrivateReputation(
+            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
+        );
+        assertEq(vaultless.bondsVault(), address(0));
     }
 
     function test_reputation_requiresAccountsDepth() public {
         // A depth-20 tree is the notes tree of F3, never the accounts tree of a reputation.
         PoseidonTree shallow = new PoseidonTree(20, address(this));
         vm.expectRevert(PrivateReputation.BadTreeDepth.selector);
-        new PrivateReputation(passport, shallow, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this));
+        new PrivateReputation(
+            passport, shallow, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(this)
+        );
     }
 }
