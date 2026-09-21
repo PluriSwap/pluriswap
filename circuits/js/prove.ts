@@ -90,7 +90,85 @@ type PrepareVectors = {
   cap: string;
 };
 
-type Vectors = { registry: RegistryVectors; prepare: PrepareVectors };
+type DepositVectors = { token: string; amount: string; note: string; sk_id: string; salt: string };
+
+type BondVectors = {
+  deal_id: string;
+  deal_subject: string;
+  token: string;
+  note_amount: string;
+  note_salt: string;
+  lock_amount: string;
+  lock_salt: string;
+  change_salt: string;
+  lock_commit: string;
+  change_note: string;
+  null_bond: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
+  sk_id: string;
+};
+
+type ClaimVectors = {
+  deal_id: string;
+  deal_subject: string;
+  kind: string;
+  token: string;
+  principal: string;
+  sk_id: string;
+  count: string;
+  volume: string;
+  penalty: string;
+  in_flight: string;
+  leaf_token: string;
+  salt: string;
+  version: string;
+  new_salt: string;
+  new_leaf: string;
+  null_rep: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
+};
+
+type ReabsorbVectors = {
+  deal_id: string;
+  deal_subject: string;
+  token: string;
+  amount: string;
+  lock_commit: string;
+  lock_salt: string;
+  new_salt: string;
+  new_note: string;
+  null_bond: string;
+  sk_id: string;
+};
+
+type WithdrawVectors = {
+  token: string;
+  dest: string;
+  amount: string;
+  note_amount: string;
+  note_salt: string;
+  change_salt: string;
+  change_note: string;
+  null_bond: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
+  sk_id: string;
+};
+
+type Vectors = {
+  registry: RegistryVectors;
+  prepare: PrepareVectors;
+  deposit: DepositVectors;
+  bond: BondVectors;
+  claim: ClaimVectors;
+  reabsorb: ReabsorbVectors;
+  withdraw: WithdrawVectors;
+};
 
 const CIRCUIT_LIST: Circuit[] = [
   {
@@ -170,6 +248,108 @@ const CIRCUIT_LIST: Circuit[] = [
         `new_salt = ${str(modP(BigInt(v.prepare.new_salt)))}`,
         `siblings = [${v.prepare.siblings.map(str).join(", ")}]`,
         `indices = [${v.prepare.indices.join(", ")}]`,
+      ]),
+  },
+  // ------------------------------------------------------------- V3: the vault circuits
+  {
+    name: "deposit",
+    contract: "DepositVerifier",
+    pubs: 3,
+    proverToml: (v) =>
+      toml([
+        `token = ${str(v.deposit.token)}`,
+        `amount = ${str(v.deposit.amount)}`,
+        `note = ${str(v.deposit.note)}`,
+        `sk_id = ${str(v.deposit.sk_id)}`,
+        `salt = ${str(modP(BigInt(v.deposit.salt)))}`,
+      ]),
+  },
+  {
+    name: "prepare_bond",
+    contract: "PrepareBondVerifier",
+    pubs: 8,
+    proverToml: (v) =>
+      toml([
+        `subject = ${str(v.bond.deal_subject)}`,
+        `deal_id = ${str(modP(BigInt(v.bond.deal_id)))}`,
+        `token = ${str(v.bond.token)}`,
+        `lock_amount = ${str(v.bond.lock_amount)}`,
+        `lock_commit = ${str(v.bond.lock_commit)}`,
+        `change_note = ${str(v.bond.change_note)}`,
+        `nullifier = ${str(v.bond.null_bond)}`,
+        `bond_root = ${str(v.bond.root)}`,
+        `sk_id = ${str(v.bond.sk_id)}`,
+        `note_salt = ${str(modP(BigInt(v.bond.note_salt)))}`,
+        `note_amount = ${str(v.bond.note_amount)}`,
+        `lock_salt = ${str(modP(BigInt(v.bond.lock_salt)))}`,
+        `change_salt = ${str(modP(BigInt(v.bond.change_salt)))}`,
+        `siblings = [${v.bond.siblings.map(str).join(", ")}]`,
+        `indices = [${v.bond.indices.join(", ")}]`,
+      ]),
+  },
+  {
+    name: "claim",
+    contract: "ClaimVerifier",
+    pubs: 8,
+    proverToml: (v) =>
+      toml([
+        `deal_id = ${str(modP(BigInt(v.claim.deal_id)))}`,
+        `subject = ${str(v.claim.deal_subject)}`,
+        `new_leaf = ${str(v.claim.new_leaf)}`,
+        `nullifier = ${str(v.claim.null_rep)}`,
+        `kind = ${str(v.claim.kind)}`,
+        `token = ${str(v.claim.token)}`,
+        `principal = ${str(v.claim.principal)}`,
+        `rep_root = ${str(v.claim.root)}`,
+        `sk_id = ${str(v.claim.sk_id)}`,
+        `count = ${str(v.claim.count)}`,
+        `volume = ${str(v.claim.volume)}`,
+        `penalty = ${str(v.claim.penalty)}`,
+        `in_flight = ${str(v.claim.in_flight)}`,
+        `leaf_token = ${str(v.claim.leaf_token)}`,
+        `salt = ${str(modP(BigInt(v.claim.salt)))}`,
+        `version = ${str(v.claim.version)}`,
+        `new_salt = ${str(modP(BigInt(v.claim.new_salt)))}`,
+        `siblings = [${v.claim.siblings.map(str).join(", ")}]`,
+        `indices = [${v.claim.indices.join(", ")}]`,
+      ]),
+  },
+  {
+    name: "reabsorb",
+    contract: "ReabsorbVerifier",
+    pubs: 7,
+    proverToml: (v) =>
+      toml([
+        `deal_id = ${str(modP(BigInt(v.reabsorb.deal_id)))}`,
+        `subject = ${str(v.reabsorb.deal_subject)}`,
+        `token = ${str(v.reabsorb.token)}`,
+        `amount = ${str(v.reabsorb.amount)}`,
+        `lock_commit = ${str(v.reabsorb.lock_commit)}`,
+        `new_note = ${str(v.reabsorb.new_note)}`,
+        `nullifier = ${str(v.reabsorb.null_bond)}`,
+        `sk_id = ${str(v.reabsorb.sk_id)}`,
+        `lock_salt = ${str(modP(BigInt(v.reabsorb.lock_salt)))}`,
+        `new_salt = ${str(modP(BigInt(v.reabsorb.new_salt)))}`,
+      ]),
+  },
+  {
+    name: "withdraw",
+    contract: "WithdrawVerifier",
+    pubs: 6,
+    proverToml: (v) =>
+      toml([
+        `token = ${str(v.withdraw.token)}`,
+        `dest = ${str(v.withdraw.dest)}`,
+        `amount = ${str(v.withdraw.amount)}`,
+        `change_note = ${str(v.withdraw.change_note)}`,
+        `nullifier = ${str(v.withdraw.null_bond)}`,
+        `bond_root = ${str(v.withdraw.root)}`,
+        `sk_id = ${str(v.withdraw.sk_id)}`,
+        `note_salt = ${str(modP(BigInt(v.withdraw.note_salt)))}`,
+        `note_amount = ${str(v.withdraw.note_amount)}`,
+        `change_salt = ${str(modP(BigInt(v.withdraw.change_salt)))}`,
+        `siblings = [${v.withdraw.siblings.map(str).join(", ")}]`,
+        `indices = [${v.withdraw.indices.join(", ")}]`,
       ]),
   },
 ];

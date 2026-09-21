@@ -5,4 +5,9 @@ members = [
     "crates/register_account",
     "crates/prepare_passport",
     "crates/prepare_admit",
+    "crates/deposit",
+    "crates/prepare_bond",
+    "crates/claim",
+    "crates/reabsorb",
+    "crates/withdraw",
 ]

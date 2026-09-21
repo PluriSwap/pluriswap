@@ -29,11 +29,22 @@ circuits/
     src/poseidon2.nr, poseidon3.nr  # vendored circomlib Poseidon (BN254, x^5, 8F+56/57P)
     src/commitments.nr             # every builder of §3.15.3 + parity tests
     src/merkle.nr                  # membership witness folding + parity tests
+    src/tiers.nr                   # §3.14.7 in-circuit: score + cap_raw (T5 sentinel)
     src/constants_p2.nr, constants_p3.nr   # GENERATED — circomlib round constants
     src/vectors.nr                          # GENERATED — the vectors as Noir constants
+  crates/register_humanity/       # V1: hn binding + enrollment membership (3 pubs)
+  crates/register_account/        # V1: leaf0 = leafRep(S=Poseidon(hsk), genesis) (3 pubs)
+  crates/prepare_passport/        # V2: dealSubject + account membership (2 pubs)
+  crates/prepare_admit/          # V2: the §3.14.7 tier in-circuit + the transition (8 pubs)
+  crates/deposit/                 # V3: the value gate — note pinned to the amount (3 pubs)
+  crates/prepare_bond/            # V3: the note split — conservation in-circuit (8 pubs)
+  crates/claim/                   # V3: the §3.15.5 terminal delta as arithmetic (8 pubs)
+  crates/reabsorb/                # V3: the released lock merges back (7 pubs, no root)
+  crates/withdraw/                # V3: the exit — conservation + whole-consumption mask (6 pubs)
   js/
-    lib/fields.ts, poseidon.ts, commitments.ts, merkle.ts   # the JS twin
+    lib/fields.ts, poseidon.ts, commitments.ts, merkle.ts, tiers.ts   # the JS twin
     vectors.ts                    # generator: vectors.json + the GENERATED .nr files
+    prove.ts                      # prover: witness TOMLs + proofs + verifiers + initcode
 ```
 
 ## Commands
@@ -95,4 +106,7 @@ needs "unbounded" (T5), `tiers.nr` encodes it as the sentinel `T5_SENTINEL = 2^1
 `prepare_admit` runs the cap comparison **unconditionally** — `cap_raw()` returns the
 sentinel for T5, so `newLeaf's principal <= cap` holds for every tier in one flat check.
 Keep that shape: conditional logic belongs in the sentinel arithmetic, not in the control flow.
+The same rule produced the claim circuit's delta (`§3.15.5`'s five Close kinds as field
+selectors `count + (kind == 0)`, never an if-ladder) and the withdraw's whole-consumption
+mask (`changeNote == (1 - whole) * noteBond(...)`) — zero exactly when the note is spent whole.
 

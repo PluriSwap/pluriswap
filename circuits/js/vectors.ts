@@ -62,6 +62,26 @@ const ACCOUNT_DEPTH = 32;
 const PREPARE_DECIMALS = 6n;
 const PREPARE_PRINCIPAL = 100_000_000n;
 
+// The vault flow of V3 (PLURISWAP.md §3.15.6): the notes tree is depth 20 (§3.15.3), and
+// the sample story CONTINUES the prepare deal — the deposited note (the builders' note:
+// 1_500_000_000 of the 6-dec token) funds the same deal's bond lock. §3.14.5's lock is
+// (principal+9)/10 = 10_000_000, the split's change note carries the 1_490_000_000
+// remainder, and after the terminal claim the released lock reabsorbs into a fresh note.
+// The withdraw sample spends part of the change note (400_000_000) to a synthetic dest,
+// leaving a second change note — the partial branch; the whole-consumption branch
+// (changeNote == 0) is proven by the circuit's own tests, not by a second fixture proof.
+const NOTES_DEPTH = 20;
+const BOND_LOCK_AMOUNT = (PREPARE_PRINCIPAL + 9n) / 10n; // §3.14.5, exactly what reserve cross-checks
+const BOND_CHANGE_AMOUNT = AMOUNT - BOND_LOCK_AMOUNT; // the split's conservation
+const BOND_LOCK_SALT = BigInt(keccak("pluri:bond-lock-salt:1"));
+const BOND_CHANGE_SALT = BigInt(keccak("pluri:bond-change-salt:1"));
+const REABSORB_NEW_SALT = BigInt(keccak("pluri:reabsorb-new-salt:1"));
+const CLAIM_NEW_SALT = BigInt(keccak("pluri:claim-new-salt:1"));
+const WITHDRAW_DEST = 0x2222222222222222222222222222222222222222n; // synthetic 20-byte dest
+const WITHDRAW_AMOUNT = 400_000_000n;
+const WITHDRAW_CHANGE_AMOUNT = BOND_CHANGE_AMOUNT - WITHDRAW_AMOUNT;
+const WITHDRAW_CHANGE_SALT = BigInt(keccak("pluri:withdraw-change-salt:1"));
+
 async function main() {
   // ---------------------------------------------------------------- zero gate
   const zero = await poseidon2(1n, 2n);
@@ -258,6 +278,158 @@ async function main() {
     cap: dec(prepareCap ?? 0n),
   };
 
+  // ---------------------------------------------------------------- vault vectors (V3)
+  // One deal, two trees, the whole lifecycle (§3.15.4-§3.15.6). The notes tree (depth 20)
+  // receives: the deposit's note (index 0), the split's change note (index 1) and the
+  // reabsorbed lock's new note (index 2) — exactly the inserts the vault performs in the
+  // e2e order. The account tree (depth 32) continues V2's: leaf0 (index 0), the prepare's
+  // new leaf (index 1) — the claim proves against that root.
+  const notesTree = await IncrementalPoseidonTree.create(NOTES_DEPTH);
+  const bondRoot0 = await notesTree.insert(note); // vault.deposit's insert
+  const bondProof = notesTree.proofOf(0); // prepare_bond's membership: the source note
+
+  // deposit (§3.15.6): the only place fresh value enters the notes world. The proof pins
+  // the note to the public amount: note = noteBond(sk_id, token, amount, salt).
+  const depositVectors = {
+    token: dec(TOKEN_ID),
+    amount: dec(AMOUNT),
+    note: dec(note),
+    sk_id: dec(SK_ID),
+    salt: dec(NOTE_SALT),
+  };
+
+  // prepare_bond (§3.15.4 Bond): the split. The source note is a live leaf of bondRoot0;
+  // the lock is §3.14.5's exact lockAmount, the change note the exact remainder, and both
+  // lockAmount and token are public (F3's amendment: reserve cross-checks them).
+  const bondLockCommit = await c.lockCommit(SK_ID, prepareDealId, BOND_LOCK_AMOUNT, BOND_LOCK_SALT);
+  const bondChangeNote = await c.noteBond(SK_ID, TOKEN_ID, BOND_CHANGE_AMOUNT, BOND_CHANGE_SALT);
+  const bondNullBond = await c.nullBond(SK_ID, NOTE_SALT);
+  const bondVectors = {
+    depth: NOTES_DEPTH,
+    deal_id: dec(prepareDealId),
+    deal_subject: dec(prepareDealSubject),
+    token: dec(TOKEN_ID),
+    note_amount: dec(AMOUNT),
+    note_salt: dec(NOTE_SALT),
+    lock_amount: dec(BOND_LOCK_AMOUNT),
+    lock_salt: dec(BOND_LOCK_SALT),
+    change_salt: dec(BOND_CHANGE_SALT),
+    lock_commit: dec(bondLockCommit),
+    change_note: dec(bondChangeNote),
+    null_bond: dec(bondNullBond),
+    siblings: bondProof.siblings.map(dec),
+    indices: bondProof.indices,
+    root: dec(bondRoot0),
+    sk_id: dec(SK_ID),
+  };
+
+  // claim (§3.15.5): the terminal delta of the SAME deal. The current leaf is the prepare's
+  // new leaf (version 1, the principal in flight); the sample delta is Peaceful — the
+  // table's other four kinds are pinned by the `deltas` rows below, proven in the circuit's
+  // own tests. nullRep(v1) is the CURRENT version's nullifier (v0's was burned by prepare).
+  const claimRoot = await accountTree.insert(prepareNewLeaf); // reputation.prepare's insert
+  const claimProof = accountTree.proofOf(1);
+  const claimNullRep = await c.nullRep(SK_ID, 1n);
+  // The §3.15.5 delta table (the same arithmetic `Reputation`'s public twin applies):
+  // Peaceful completes the deal (+1 count, +principal volume), Silent and ArbWin only
+  // release the inFlight, Stalemate punishes +5, ArbLoss +15 — every kind releases
+  // inFlight by the principal.
+  const deltaOf = (kind: bigint): { count: bigint; volume: bigint; penalty: bigint; inFlight: bigint } => {
+    if (kind === 0n) return { count: 1n, volume: PREPARE_PRINCIPAL, penalty: 0n, inFlight: 0n };
+    if (kind === 2n) return { count: 0n, volume: 0n, penalty: 5n, inFlight: 0n };
+    if (kind === 4n) return { count: 0n, volume: 0n, penalty: 15n, inFlight: 0n };
+    return { count: 0n, volume: 0n, penalty: 0n, inFlight: 0n };
+  };
+  const claimNewLeaf = await c.leafRep(sampleS, 1n, PREPARE_PRINCIPAL, 0n, 0n, TOKEN_ID, CLAIM_NEW_SALT, 2n);
+  const claimVectors = {
+    depth: ACCOUNT_DEPTH,
+    deal_id: dec(prepareDealId),
+    deal_subject: dec(prepareDealSubject),
+    kind: "0", // Peaceful
+    token: dec(TOKEN_ID),
+    principal: dec(PREPARE_PRINCIPAL),
+    sk_id: dec(SK_ID),
+    // The current leaf = the prepare sample's newLeaf: version 1, the principal in flight.
+    count: "0",
+    volume: "0",
+    penalty: "0",
+    in_flight: dec(PREPARE_PRINCIPAL),
+    leaf_token: dec(TOKEN_ID),
+    salt: dec(prepareNewSalt),
+    version: "1",
+    new_salt: dec(CLAIM_NEW_SALT),
+    new_leaf: dec(claimNewLeaf),
+    null_rep: dec(claimNullRep),
+    siblings: claimProof.siblings.map(dec),
+    indices: claimProof.indices,
+    root: dec(claimRoot),
+  };
+
+  // The §3.15.5 delta table as rows (the tiers pattern): one row per Close kind over the
+  // same current leaf, the JS twin computing each delta leaf. The claim proof commits the
+  // Peaceful row; the circuit's tests prove all five against these rows, and the Solidity
+  // mirror walks the same table.
+  const deltaRows = [0n, 1n, 2n, 3n, 4n].map((kind) => {
+    const d = deltaOf(kind);
+    return {
+      kind: dec(kind),
+      count: "0",
+      volume: "0",
+      penalty: "0",
+      in_flight: dec(PREPARE_PRINCIPAL),
+      token: dec(TOKEN_ID),
+      principal: dec(PREPARE_PRINCIPAL),
+      new_count: dec(d.count),
+      new_volume: dec(d.volume),
+      new_penalty: dec(d.penalty),
+      new_in_flight: dec(d.inFlight),
+    };
+  });
+
+  // reabsorb (§3.15.6): the released lock merges back. The proof binds the stored
+  // lockCommit — it opens to exactly (sk_id, dealId, amount, salt) with the record's own
+  // amount — and mints a note of exactly that amount. No root, no membership: the lock
+  // record is contract state. nullBond(sk_id, lockSalt) is one-use-per-lock.
+  const reabsorbNewNote = await c.noteBond(SK_ID, TOKEN_ID, BOND_LOCK_AMOUNT, REABSORB_NEW_SALT);
+  const reabsorbNullBond = await c.nullBond(SK_ID, BOND_LOCK_SALT);
+  const reabsorbVectors = {
+    deal_id: dec(prepareDealId),
+    deal_subject: dec(prepareDealSubject),
+    token: dec(TOKEN_ID),
+    amount: dec(BOND_LOCK_AMOUNT),
+    lock_commit: dec(bondLockCommit),
+    lock_salt: dec(BOND_LOCK_SALT),
+    new_salt: dec(REABSORB_NEW_SALT),
+    new_note: dec(reabsorbNewNote),
+    null_bond: dec(reabsorbNullBond),
+    sk_id: dec(SK_ID),
+  };
+
+  // withdraw (§3.15.6): the change note (index 1) spends PART of itself to a fresh dest —
+  // 400_000_000 out of 1_490_000_000, the 1_090_000_000 remainder living on as a second
+  // change note. The membership witnesses the change note's OWN insert-time root (the root
+  // `vault.prepare`'s insert produced): proofs reference any root of the vault's ring
+  // buffer — the nullifier decides the replay (§3.15.3), not the root's age.
+  await notesTree.insert(bondChangeNote); // vault.prepare's insert
+  const withdrawProof = notesTree.proofOf(1);
+  const withdrawChangeNote = await c.noteBond(SK_ID, TOKEN_ID, WITHDRAW_CHANGE_AMOUNT, WITHDRAW_CHANGE_SALT);
+  const withdrawNullBond = await c.nullBond(SK_ID, BOND_CHANGE_SALT);
+  const withdrawVectors = {
+    depth: NOTES_DEPTH,
+    token: dec(TOKEN_ID),
+    dest: dec(WITHDRAW_DEST),
+    amount: dec(WITHDRAW_AMOUNT),
+    note_amount: dec(BOND_CHANGE_AMOUNT),
+    note_salt: dec(BOND_CHANGE_SALT),
+    change_salt: dec(WITHDRAW_CHANGE_SALT),
+    change_note: dec(withdrawChangeNote),
+    null_bond: dec(withdrawNullBond),
+    siblings: withdrawProof.siblings.map(dec),
+    indices: withdrawProof.indices,
+    root: dec(withdrawProof.root),
+    sk_id: dec(SK_ID),
+  };
+
   const vectors = {
     provenance: {
       generator: "circuits/js/vectors.ts (bun circuits:vectors)",
@@ -273,7 +445,14 @@ async function main() {
     // The row count as a scalar: the foundry parity mirror cannot count an array of
     // objects (this forge has no working array-length cheatcode), so the fixture names it.
     tiers_rows: dec(BigInt(tierRows.length)),
+    deltas: deltaRows,
+    deltas_rows: dec(BigInt(deltaRows.length)),
     prepare: prepareVectors,
+    deposit: depositVectors,
+    bond: bondVectors,
+    claim: claimVectors,
+    reabsorb: reabsorbVectors,
+    withdraw: withdrawVectors,
   };
 
   // ---------------------------------------------------------------- write vectors.json
@@ -415,6 +594,99 @@ type Sample = {
   VERSION: bigint;
 };
 
+type DepositVectors = {
+  token: string;
+  amount: string;
+  note: string;
+  sk_id: string;
+  salt: string;
+};
+
+type BondVectors = {
+  depth: number;
+  deal_id: string;
+  deal_subject: string;
+  token: string;
+  note_amount: string;
+  note_salt: string;
+  lock_amount: string;
+  lock_salt: string;
+  change_salt: string;
+  lock_commit: string;
+  change_note: string;
+  null_bond: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
+  sk_id: string;
+};
+
+type ClaimVectors = {
+  depth: number;
+  deal_id: string;
+  deal_subject: string;
+  kind: string;
+  token: string;
+  principal: string;
+  sk_id: string;
+  count: string;
+  volume: string;
+  penalty: string;
+  in_flight: string;
+  leaf_token: string;
+  salt: string;
+  version: string;
+  new_salt: string;
+  new_leaf: string;
+  null_rep: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
+};
+
+type DeltaRow = {
+  kind: string;
+  count: string;
+  volume: string;
+  penalty: string;
+  in_flight: string;
+  token: string;
+  principal: string;
+  new_count: string;
+  new_volume: string;
+  new_penalty: string;
+  new_in_flight: string;
+};
+
+type ReabsorbVectors = {
+  deal_id: string;
+  deal_subject: string;
+  token: string;
+  amount: string;
+  lock_commit: string;
+  lock_salt: string;
+  new_salt: string;
+  new_note: string;
+  null_bond: string;
+  sk_id: string;
+};
+
+type WithdrawVectors = {
+  depth: number;
+  token: string;
+  dest: string;
+  amount: string;
+  note_amount: string;
+  note_salt: string;
+  change_salt: string;
+  change_note: string;
+  null_bond: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
+  sk_id: string;
+};
+
 function renderNoirVectors(
   v: {
     poseidon: { t3: { inputs: string[]; output: string }[] };
@@ -550,6 +822,107 @@ function renderNoirVectors(
   nr.push(...p.siblings.map((x) => `    ${x},`));
   nr.push("];");
   nr.push(`pub global PREPARE_INDICES: [u8; ${p.indices.length}] = [${p.indices.join(", ")}];`);
+  nr.push("");
+  // Vault sections (V3): the §3.15.5-§3.15.6 samples of the deposit/bond/claim/reabsorb/
+  // withdraw circuits. Same mod-p rule: every keccak-derived salt and deal id reduces here,
+  // the amounts and tokens are already canonical. The deltas rows pin §3.15.5's table.
+  const d = (v as { deposit: DepositVectors }).deposit;
+  nr.push(`pub global DEPOSIT_TOKEN: Field = ${d.token};`);
+  nr.push(`pub global DEPOSIT_AMOUNT: Field = ${d.amount};`);
+  nr.push(`pub global DEPOSIT_NOTE: Field = ${d.note};`);
+  nr.push(`pub global DEPOSIT_SK_ID: Field = ${d.sk_id};`);
+  nr.push(`pub global DEPOSIT_SALT: Field = ${dec(field(d.salt))};`);
+  nr.push("");
+  const bo = (v as { bond: BondVectors }).bond;
+  nr.push(`pub global BOND_DEPTH: u32 = ${bo.depth};`);
+  nr.push(`pub global BOND_DEAL_ID: Field = ${dec(field(bo.deal_id))};`);
+  nr.push(`pub global BOND_DEAL_SUBJECT: Field = ${bo.deal_subject};`);
+  nr.push(`pub global BOND_TOKEN: Field = ${bo.token};`);
+  nr.push(`pub global BOND_NOTE_AMOUNT: Field = ${bo.note_amount};`);
+  nr.push(`pub global BOND_NOTE_SALT: Field = ${dec(field(bo.note_salt))};`);
+  nr.push(`pub global BOND_LOCK_AMOUNT: Field = ${bo.lock_amount};`);
+  nr.push(`pub global BOND_LOCK_SALT: Field = ${dec(field(bo.lock_salt))};`);
+  nr.push(`pub global BOND_CHANGE_SALT: Field = ${dec(field(bo.change_salt))};`);
+  nr.push(`pub global BOND_LOCK_COMMIT: Field = ${bo.lock_commit};`);
+  nr.push(`pub global BOND_CHANGE_NOTE: Field = ${bo.change_note};`);
+  nr.push(`pub global BOND_NULL_BOND: Field = ${bo.null_bond};`);
+  nr.push(`pub global BOND_ROOT: Field = ${bo.root};`);
+  nr.push(`pub global BOND_SK_ID: Field = ${bo.sk_id};`);
+  nr.push(`pub global BOND_SIBLINGS: [Field; ${bo.siblings.length}] = [`);
+  nr.push(...bo.siblings.map((x) => `    ${x},`));
+  nr.push("];");
+  nr.push(`pub global BOND_INDICES: [u8; ${bo.indices.length}] = [${bo.indices.join(", ")}];`);
+  nr.push("");
+  const cl = (v as { claim: ClaimVectors }).claim;
+  nr.push(`pub global CLAIM_DEPTH: u32 = ${cl.depth};`);
+  nr.push(`pub global CLAIM_DEAL_ID: Field = ${dec(field(cl.deal_id))};`);
+  nr.push(`pub global CLAIM_DEAL_SUBJECT: Field = ${cl.deal_subject};`);
+  nr.push(`pub global CLAIM_KIND: Field = ${cl.kind};`);
+  nr.push(`pub global CLAIM_TOKEN: Field = ${cl.token};`);
+  nr.push(`pub global CLAIM_PRINCIPAL: Field = ${cl.principal};`);
+  nr.push(`pub global CLAIM_SK_ID: Field = ${cl.sk_id};`);
+  nr.push(`pub global CLAIM_COUNT: Field = ${cl.count};`);
+  nr.push(`pub global CLAIM_VOLUME: Field = ${cl.volume};`);
+  nr.push(`pub global CLAIM_PENALTY: Field = ${cl.penalty};`);
+  nr.push(`pub global CLAIM_IN_FLIGHT: Field = ${cl.in_flight};`);
+  nr.push(`pub global CLAIM_LEAF_TOKEN: Field = ${cl.leaf_token};`);
+  nr.push(`pub global CLAIM_SALT: Field = ${dec(field(cl.salt))};`);
+  nr.push(`pub global CLAIM_VERSION: Field = ${cl.version};`);
+  nr.push(`pub global CLAIM_NEW_SALT: Field = ${dec(field(cl.new_salt))};`);
+  nr.push(`pub global CLAIM_NEW_LEAF: Field = ${cl.new_leaf};`);
+  nr.push(`pub global CLAIM_NULL_REP: Field = ${cl.null_rep};`);
+  nr.push(`pub global CLAIM_ROOT: Field = ${cl.root};`);
+  nr.push(`pub global CLAIM_SIBLINGS: [Field; ${cl.siblings.length}] = [`);
+  nr.push(...cl.siblings.map((x) => `    ${x},`));
+  nr.push("];");
+  nr.push(`pub global CLAIM_INDICES: [u8; ${cl.indices.length}] = [${cl.indices.join(", ")}];`);
+  nr.push("");
+  const dl = (v as { deltas: DeltaRow[] }).deltas;
+  nr.push(`pub global DELTA_COUNT: u32 = ${dl.length};`);
+  nr.push(`pub global DELTA_KINDS: [Field; ${dl.length}] = [`);
+  nr.push(...dl.map((x) => `    ${x.kind},`));
+  nr.push("];");
+  nr.push(`pub global DELTA_NEW_COUNTS: [Field; ${dl.length}] = [`);
+  nr.push(...dl.map((x) => `    ${x.new_count},`));
+  nr.push("];");
+  nr.push(`pub global DELTA_NEW_VOLUMES: [Field; ${dl.length}] = [`);
+  nr.push(...dl.map((x) => `    ${x.new_volume},`));
+  nr.push("];");
+  nr.push(`pub global DELTA_NEW_PENALTIES: [Field; ${dl.length}] = [`);
+  nr.push(...dl.map((x) => `    ${x.new_penalty},`));
+  nr.push("];");
+  nr.push(`pub global DELTA_NEW_IN_FLIGHTS: [Field; ${dl.length}] = [`);
+  nr.push(...dl.map((x) => `    ${x.new_in_flight},`));
+  nr.push("];");
+  nr.push("");
+  const rb = (v as { reabsorb: ReabsorbVectors }).reabsorb;
+  nr.push(`pub global REABSORB_DEAL_ID: Field = ${dec(field(rb.deal_id))};`);
+  nr.push(`pub global REABSORB_DEAL_SUBJECT: Field = ${rb.deal_subject};`);
+  nr.push(`pub global REABSORB_TOKEN: Field = ${rb.token};`);
+  nr.push(`pub global REABSORB_AMOUNT: Field = ${rb.amount};`);
+  nr.push(`pub global REABSORB_LOCK_COMMIT: Field = ${rb.lock_commit};`);
+  nr.push(`pub global REABSORB_LOCK_SALT: Field = ${dec(field(rb.lock_salt))};`);
+  nr.push(`pub global REABSORB_NEW_SALT: Field = ${dec(field(rb.new_salt))};`);
+  nr.push(`pub global REABSORB_NEW_NOTE: Field = ${rb.new_note};`);
+  nr.push(`pub global REABSORB_NULL_BOND: Field = ${rb.null_bond};`);
+  nr.push(`pub global REABSORB_SK_ID: Field = ${rb.sk_id};`);
+  nr.push("");
+  const w = (v as { withdraw: WithdrawVectors }).withdraw;
+  nr.push(`pub global WITHDRAW_DEPTH: u32 = ${w.depth};`);
+  nr.push(`pub global WITHDRAW_TOKEN: Field = ${w.token};`);
+  nr.push(`pub global WITHDRAW_DEST: Field = ${w.dest};`);
+  nr.push(`pub global WITHDRAW_AMOUNT: Field = ${w.amount};`);
+  nr.push(`pub global WITHDRAW_NOTE_AMOUNT: Field = ${w.note_amount};`);
+  nr.push(`pub global WITHDRAW_NOTE_SALT: Field = ${dec(field(w.note_salt))};`);
+  nr.push(`pub global WITHDRAW_CHANGE_SALT: Field = ${dec(field(w.change_salt))};`);
+  nr.push(`pub global WITHDRAW_CHANGE_NOTE: Field = ${w.change_note};`);
+  nr.push(`pub global WITHDRAW_NULL_BOND: Field = ${w.null_bond};`);
+  nr.push(`pub global WITHDRAW_ROOT: Field = ${w.root};`);
+  nr.push(`pub global WITHDRAW_SK_ID: Field = ${w.sk_id};`);
+  nr.push(`pub global WITHDRAW_SIBLINGS: [Field; ${w.siblings.length}] = [`);
+  nr.push(...w.siblings.map((x) => `    ${x},`));
+  nr.push("];");
+  nr.push(`pub global WITHDRAW_INDICES: [u8; ${w.indices.length}] = [${w.indices.join(", ")}];`);
   nr.push("");
   return nr.join("\n");
 }
