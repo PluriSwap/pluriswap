@@ -4,11 +4,8 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {TestToken} from "../mocks/TestToken.sol";
-import {HumanityVerifierMock} from "../mocks/HumanityVerifierMock.sol";
-import {AccountVerifierMock} from "../mocks/AccountVerifierMock.sol";
-import {PreparePassportVerifierMock} from "../mocks/PreparePassportVerifierMock.sol";
-import {PrepareAdmitVerifierMock} from "../mocks/PrepareAdmitVerifierMock.sol";
-import {ClaimVerifierMock} from "../mocks/ClaimVerifierMock.sol";
+import {DeadPassportMock} from "../mocks/DeadPassportMock.sol";
+import {GatingMock} from "../mocks/GatingMock.sol";
 import {DepositVerifierMock} from "../mocks/DepositVerifierMock.sol";
 import {PrepareBondVerifierMock} from "../mocks/PrepareBondVerifierMock.sol";
 import {ReabsorbVerifierMock} from "../mocks/ReabsorbVerifierMock.sol";
@@ -22,29 +19,6 @@ import {IReabsorbVerifier} from "../src/packages/interfaces/IReabsorbVerifier.so
 import {IWithdrawVerifier} from "../src/packages/interfaces/IWithdrawVerifier.sol";
 import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
 import {PrivateBondVault} from "../src/packages/PrivateBondVault.sol";
-
-/// @dev A passport whose decoder is dead: `identify` always reverts, like a passport whose
-///      third-party proxy went down. The vault holds it as its peer, and every deposit, prepare,
-///      reabsorb and withdraw below still works — the proof replaces the identification
-///      (PLURISWAP.md §3.15.6), so the vault has no liveness dependency on any decoder.
-contract DeadPassportMock is IPassport {
-    function identify(address) external pure returns (bytes32) {
-        revert NoPassport();
-    }
-
-    function packageId() external pure returns (bytes32) {
-        return keccak256("dead-passport");
-    }
-}
-
-/// @dev Stand-in for `PrivateReputation.claimed`: the vault's reabsorb gating, flippable by hand.
-contract GatingMock is IPrivateReputation {
-    mapping(bytes32 => bool) public claimed;
-
-    function setClaimed(bytes32 subject) external {
-        claimed[subject] = true;
-    }
-}
 
 /// @title Private vault tests (F3, PLURISWAP.md §3.15.6)
 /// @dev Notes in, locks out, everything fail-closed. The mock verifiers decode the proof as a
