@@ -11,7 +11,7 @@ import {RegistryHumanityVerifier} from "../src/packages/adapters/RegistryHumanit
 import {RegistryAccountVerifier} from "../src/packages/adapters/RegistryAccountVerifier.sol";
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
-import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
 import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title Register with real proofs (V1, PLURISWAP.md §3.15.3 "Registro", §3.15.9)
@@ -80,7 +80,7 @@ contract RegisterRealProofTest is Test {
         // The accounts tree is wired into the passport before its owner exists: the predicted
         // CREATE address pattern of PrivateRegister.t.sol (tree, passport, reputation).
         address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        accountTree = new PoseidonTree(32, predictedRep);
+        accountTree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
         passport = new PrivatePassport(accountTree, humanityVerifier, passportProof);
         reputation = new PrivateReputation(
             passport,

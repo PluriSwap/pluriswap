@@ -15,7 +15,7 @@ import {PackageId} from "../src/libraries/PackageId.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {IReputation} from "../src/packages/interfaces/IReputation.sol";
 import {IPrivateReputation} from "../src/packages/interfaces/IPrivateReputation.sol";
-import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
 import {PrivateBondVault} from "../src/packages/PrivateBondVault.sol";
@@ -122,7 +122,7 @@ contract PrivateDealTest is BaseTest {
         // reserve/unlock/slash/burn and admit/notifyTerminal must only ever answer the escrow's
         // context.
         address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
-        tree = new PoseidonTree(32, predictedRep);
+        tree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
         passport = new PrivatePassport(tree, humanity, passportProof);
         vault = new PrivateBondVault(
             passport,

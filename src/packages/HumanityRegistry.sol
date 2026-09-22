@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {IGitcoinPassportDecoder} from "./interfaces/IGitcoinPassportDecoder.sol";
-import {PoseidonTree} from "./PoseidonTree.sol";
+import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "./PoseidonTree.sol";
 import {PrivacyCommitments} from "./libraries/PrivacyCommitments.sol";
 
 /// @title HumanityRegistry
@@ -51,7 +51,7 @@ contract HumanityRegistry {
         decoder = decoder_;
         minScore = minScore_;
         registryId = registryId_;
-        tree = new PoseidonTree(uint8(TREE_DEPTH), address(this));
+        tree = new PoseidonTree(uint8(TREE_DEPTH), DEFAULT_ROOT_HISTORY, address(this));
     }
 
     /// @notice Enrolls one identity commitment for the calling anchor, gated by the Passport

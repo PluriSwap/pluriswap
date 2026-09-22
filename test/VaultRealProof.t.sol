@@ -18,7 +18,7 @@ import {WithdrawVerifier} from "../src/packages/adapters/WithdrawVerifier.sol";
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
 import {PrivateBondVault} from "../src/packages/PrivateBondVault.sol";
-import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
 import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title The whole private lifecycle on real proofs (V3, PLURISWAP.md §3.15.4-§3.15.6, §3.15.9)
@@ -201,7 +201,7 @@ contract VaultRealProofTest is Test {
         uint256 nonce = vm.getNonce(address(this));
         address predictedRep = vm.computeCreateAddress(address(this), nonce + 2);
         address predictedVault = vm.computeCreateAddress(address(this), nonce + 3);
-        accountTree = new PoseidonTree(32, predictedRep);
+        accountTree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
         passport = new PrivatePassport(accountTree, humanityVerifier, passportVerifier);
         reputation = new PrivateReputation(
             passport,

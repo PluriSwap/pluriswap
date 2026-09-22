@@ -14,7 +14,7 @@ import {IDepositVerifier} from "./interfaces/IDepositVerifier.sol";
 import {IPrepareBondVerifier} from "./interfaces/IPrepareBondVerifier.sol";
 import {IReabsorbVerifier} from "./interfaces/IReabsorbVerifier.sol";
 import {IWithdrawVerifier} from "./interfaces/IWithdrawVerifier.sol";
-import {PoseidonTree} from "./PoseidonTree.sol";
+import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "./PoseidonTree.sol";
 
 /// @title PrivateBondVault
 /// @notice Skin in the game of the private packages (PLURISWAP.md §3.15.6), behind the kernel's
@@ -167,7 +167,7 @@ contract PrivateBondVault is IBondVault, EIP712 {
         bondVerifier = bondVerifier_;
         reabsorbVerifier = reabsorbVerifier_;
         withdrawVerifier = withdrawVerifier_;
-        notesTree = new PoseidonTree(NOTES_DEPTH, address(this));
+        notesTree = new PoseidonTree(NOTES_DEPTH, DEFAULT_ROOT_HISTORY, address(this));
         packageId = PackageId.bonds(address(this), sink_);
     }
 

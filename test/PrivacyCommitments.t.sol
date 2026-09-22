@@ -2,7 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
 import {PrivacyCommitments} from "../src/packages/libraries/PrivacyCommitments.sol";
 import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
@@ -26,7 +26,7 @@ contract PrivacyCommitmentsTest is Test {
         // EVM starts without (PLURISWAP.md §5.1).
         PoseidonSingletons.install();
         vectors = vm.readFile("test/fixtures/vectors.json");
-        tree = new PoseidonTree(uint8(DEPTH), address(this));
+        tree = new PoseidonTree(uint8(DEPTH), DEFAULT_ROOT_HISTORY, address(this));
     }
 
     // ---------------------------------------------------------------- primitives

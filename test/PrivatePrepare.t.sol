@@ -10,7 +10,7 @@ import {PrepareAdmitVerifierMock} from "../mocks/PrepareAdmitVerifierMock.sol";
 import {ClaimVerifierMock} from "../mocks/ClaimVerifierMock.sol";
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
-import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
@@ -69,7 +69,7 @@ contract PrivatePrepareTest is Test {
         // The accounts tree is wired before its owner exists: predict PrivateReputation's address
         // (tree, passport, then reputation itself consume the next three nonces).
         address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        tree = new PoseidonTree(32, predictedRep);
+        tree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
         passport = new PrivatePassport(tree, humanity, passportProof);
         reputation = new PrivateReputation(
             passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)

@@ -4,7 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 import {Poseidon} from "../src/packages/libraries/Poseidon.sol";
-import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
 import {PrivacyCommitments} from "../src/packages/libraries/PrivacyCommitments.sol";
 
 /// @title Poseidon singleton tests
@@ -56,7 +56,7 @@ contract PoseidonInstalledTest is Test {
     }
 
     function test_tree_hashesThroughTheSingleton() public {
-        PoseidonTree tree = new PoseidonTree(32, address(this));
+        PoseidonTree tree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, address(this));
         tree.insert(bytes32(uint256(7)));
         assertGt(uint256(tree.root()), 0);
     }
@@ -66,7 +66,7 @@ contract PoseidonInstalledTest is Test {
 contract PoseidonAbsentTest is Test {
     function test_tree_refusesToDeployWithoutTheSingleton() public {
         vm.expectRevert(abi.encodeWithSelector(Poseidon.PoseidonUnavailable.selector, Poseidon.T3));
-        new PoseidonTree(32, address(this));
+        new PoseidonTree(32, DEFAULT_ROOT_HISTORY, address(this));
     }
 
     function test_commitments_revertWithoutTheSingleton() public {

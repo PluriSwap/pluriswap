@@ -9,7 +9,7 @@ import {PrepareAdmitVerifierMock} from "../mocks/PrepareAdmitVerifierMock.sol";
 import {ClaimVerifierMock} from "../mocks/ClaimVerifierMock.sol";
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
-import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
 import {IAccountVerifier} from "../src/packages/interfaces/IAccountVerifier.sol";
 import {IClaimVerifier} from "../src/packages/interfaces/IClaimVerifier.sol";
 import {IHumanityVerifier} from "../src/packages/interfaces/IHumanityVerifier.sol";
@@ -52,7 +52,7 @@ contract PrivateRegisterTest is Test {
         // PrivateReputation's CREATE address is predicted (tree, passport, then reputation
         // itself consume the next three nonces).
         address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
-        tree = new PoseidonTree(32, predictedRep);
+        tree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
         passport = new PrivatePassport(tree, humanity, passportProof);
         reputation = new PrivateReputation(
             passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
@@ -260,7 +260,7 @@ contract PrivateRegisterTest is Test {
 
     function test_reputation_requiresAccountsDepth() public {
         // A depth-20 tree is the notes tree of F3, never the accounts tree of a reputation.
-        PoseidonTree shallow = new PoseidonTree(20, address(this));
+        PoseidonTree shallow = new PoseidonTree(20, DEFAULT_ROOT_HISTORY, address(this));
         vm.expectRevert(PrivateReputation.BadTreeDepth.selector);
         new PrivateReputation(
             passport, shallow, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(this)

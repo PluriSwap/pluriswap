@@ -3,7 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {Poseidon} from "../src/packages/libraries/Poseidon.sol";
-import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
 import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title PoseidonTree tests (F1, PLURISWAP.md §3.15.11)
@@ -26,7 +26,7 @@ contract PoseidonTreeTest is Test {
         // The private layer hashes through the pinned poseidon-solidity singletons, which a test
         // EVM starts without (PLURISWAP.md §5.1).
         PoseidonSingletons.install();
-        tree = new PoseidonTree(DEPTH, address(this));
+        tree = new PoseidonTree(DEPTH, MIN_ROOT_HISTORY, address(this));
     }
 
     // ---------------------------------------------------------------- primitives
@@ -39,16 +39,16 @@ contract PoseidonTreeTest is Test {
 
     function test_constructor_rejectsBadDepth() public {
         vm.expectRevert(PoseidonTree.BadDepth.selector);
-        new PoseidonTree(0, address(this));
+        new PoseidonTree(0, DEFAULT_ROOT_HISTORY, address(this));
         // 33 = PoseidonTree.MAX_DEPTH + 1 (qualified contract-constant reads from
         // another file trip solc 9582 here; the contract re-checks the bound itself).
         vm.expectRevert(PoseidonTree.BadDepth.selector);
-        new PoseidonTree(33, address(this));
+        new PoseidonTree(33, DEFAULT_ROOT_HISTORY, address(this));
     }
 
     function test_constructor_rejectsZeroOwner() public {
         vm.expectRevert(PoseidonTree.ZeroOwner.selector);
-        new PoseidonTree(DEPTH, address(0));
+        new PoseidonTree(DEPTH, DEFAULT_ROOT_HISTORY, address(0));
     }
 
     function test_initialRoot_isKnownAndNonZero() public view {
@@ -80,7 +80,7 @@ contract PoseidonTreeTest is Test {
     }
 
     function test_insert_isDeterministic() public {
-        PoseidonTree other = new PoseidonTree(DEPTH, address(this));
+        PoseidonTree other = new PoseidonTree(DEPTH, MIN_ROOT_HISTORY, address(this));
         (, bytes32 root1) = tree.insert(LEAF_A);
         (, bytes32 root1b) = other.insert(LEAF_A);
         assertEq(root1, root1b);
@@ -102,7 +102,7 @@ contract PoseidonTreeTest is Test {
     }
 
     function test_insert_treeFull() public {
-        PoseidonTree tiny = new PoseidonTree(1, address(this));
+        PoseidonTree tiny = new PoseidonTree(1, MIN_ROOT_HISTORY, address(this));
         tiny.insert(LEAF_A);
         tiny.insert(LEAF_B);
         vm.expectRevert(PoseidonTree.TreeFull.selector);
@@ -116,13 +116,56 @@ contract PoseidonTreeTest is Test {
         bytes32 initial = tree.root();
         (, bytes32 root1) = tree.insert(LEAF_A);
         (, bytes32 root2) = tree.insert(LEAF_B);
-        for (uint256 i = 2; i < 65; i++) {
+        for (uint256 i = 2; i < tree.rootHistory() + 1; i++) {
             tree.insert(bytes32(uint256(0x1000 + i)));
         }
         assertFalse(tree.isKnownRoot(initial), "initial root should be evicted");
         assertFalse(tree.isKnownRoot(root1), "root1 should be evicted");
         assertTrue(tree.isKnownRoot(root2), "root2 should still be known");
         assertTrue(tree.isKnownRoot(tree.root()));
+    }
+
+    /// The account tree is SHARED: every `prepare` and every `claim` of every subject inserts a
+    /// leaf, so the window is denominated in other people's deals, not in your own. A two-sided
+    /// private deal is ~4 inserts, so a 64-root ring is ~16 deals of tolerance between the moment a
+    /// prover builds a proof and the moment it lands -- under a minute of protocol traffic. The
+    /// window has to hold a human-scale delay: relayer queueing, a wallet confirmation, a retry.
+    function test_ringBuffer_holdsAHumanScaleWindow() public {
+        PoseidonTree busy = new PoseidonTree(10, DEFAULT_ROOT_HISTORY, address(this));
+        (, bytes32 oldRoot) = busy.insert(LEAF_A);
+        for (uint256 i = 0; i < 300; i++) {
+            busy.insert(bytes32(uint256(0x2000 + i)));
+        }
+        // 300 inserts is ~75 two-sided private deals. At the old 64-root window this root died
+        // after 16 of them; a prover who queued behind other people's traffic lost their proof.
+        assertTrue(busy.isKnownRoot(oldRoot), "a proof built 300 inserts ago must still verify");
+    }
+
+    /// The window is per tree, but it is not a free knob: below the floor a shared tree stops
+    /// holding a human-scale delay, which is the whole finding.
+    function test_constructor_boundsTheWindow() public {
+        vm.expectRevert(PoseidonTree.BadRootHistory.selector);
+        new PoseidonTree(DEPTH, MIN_ROOT_HISTORY - 1, address(this));
+        vm.expectRevert(PoseidonTree.BadRootHistory.selector);
+        new PoseidonTree(DEPTH, MAX_ROOT_HISTORY + 1, address(this));
+    }
+
+    /// `isKnownRoot` is on the hot path of every prepare, claim, withdraw and register-verify
+    /// (seven on-chain call sites). It must not be a scan of the whole window: a miss on a full
+    /// ring of N roots costs N cold SLOADs, so a bigger window would price itself out.
+    function test_isKnownRoot_isConstantTime() public {
+        for (uint256 i = 0; i < 200; i++) {
+            tree.insert(bytes32(uint256(0x3000 + i)));
+        }
+        vm.cool(address(tree));
+        uint256 gas = gasleft();
+        this.probeRoot(bytes32(uint256(0xdead)));
+        uint256 miss = gas - gasleft();
+        assertLt(miss, 12_000, "isKnownRoot scans the window instead of looking it up");
+    }
+
+    function probeRoot(bytes32 root_) external view returns (bool) {
+        return tree.isKnownRoot(root_);
     }
 
     // ---------------------------------------------------------------- nullifiers
@@ -148,7 +191,7 @@ contract PoseidonTreeTest is Test {
 
     function test_maxDepth_tree() public {
         // 32 = PoseidonTree.MAX_DEPTH (see note in test_constructor_rejectsBadDepth).
-        PoseidonTree deep = new PoseidonTree(32, address(this));
+        PoseidonTree deep = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, address(this));
         bytes32 before = deep.root();
         (uint256 index, bytes32 newRoot) = deep.insert(LEAF_A);
         assertEq(index, 0);

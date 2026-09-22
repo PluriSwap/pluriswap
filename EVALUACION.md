@@ -90,7 +90,15 @@ insertan una hoja. Un deal con reputación de dos lados son ~4 inserts. A 64 ra�
 stale después de **16 deals** — en Arbitrum, potencialmente menos de un minuto entre generar el proof
 y landearlo. Es una constante inmutable por deployment: cambiarla ahora cuesta cero.
 
-**Estado:** abierto.
+**Estado: CERRADO** (2026-09-22, Parte IV). Subir la constante sola no alcanzaba: `isKnownRoot`
+escaneaba la ventana entera —**139.630 gas medidos** con N=64, lineal desde ahí— en el camino caliente
+de siete call sites on-chain, así que una ventana más grande se pagaba a sí misma. Van los dos cambios
+juntos: membership por mapping (el ring queda sólo para la evicción) → **3.854 gas**, constante en la
+ventana; y `rootHistory` pasa a parámetro inmutable por árbol, acotado a [64, 65536], con default de
+protocolo 4096 (~1000 deals de tolerancia). Costo: +6% en el insert (633.927 → 672.018 a depth 32),
+que corre ~4 veces por deal contra 6–8 lecturas. Los circuitos no cambian: la prueba sigue siendo
+contra *una* raíz; quién la acepta es del contrato. Que agrandar no debilita nada quedó explícito en
+§3.15.3 — la ventana es liveness, el replay lo cortan los nullifiers.
 
 ### LHF-5 — El bundle de activación privada es enorme
 
