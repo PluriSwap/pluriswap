@@ -19,6 +19,7 @@ import {IReabsorbVerifier} from "../src/packages/interfaces/IReabsorbVerifier.so
 import {IWithdrawVerifier} from "../src/packages/interfaces/IWithdrawVerifier.sol";
 import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
 import {PrivateBondVault} from "../src/packages/PrivateBondVault.sol";
+import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title Private vault tests (F3, PLURISWAP.md §3.15.6)
 /// @dev Notes in, locks out, everything fail-closed. The mock verifiers decode the proof as a
@@ -69,6 +70,9 @@ contract PrivateVaultTest is Test {
     uint256 internal deadline;
 
     function setUp() public {
+        // The private layer hashes through the pinned poseidon-solidity singletons, which a test
+        // EVM starts without (PLURISWAP.md §5.1).
+        PoseidonSingletons.install();
         holder = vm.addr(holderPk);
         provider = vm.addr(providerPk);
         deadline = block.timestamp + 1 hours;

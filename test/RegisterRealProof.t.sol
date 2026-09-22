@@ -12,6 +12,7 @@ import {RegistryAccountVerifier} from "../src/packages/adapters/RegistryAccountV
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
 import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title Register with real proofs (V1, PLURISWAP.md §3.15.3 "Registro", §3.15.9)
 /// @dev The register bundle behind the REAL ultra_honk verifiers: the committed fixtures
@@ -41,6 +42,9 @@ contract RegisterRealProofTest is Test {
     bytes32 internal leaf0;
 
     function setUp() public {
+        // The private layer hashes through the pinned poseidon-solidity singletons, which a test
+        // EVM starts without (PLURISWAP.md §5.1).
+        PoseidonSingletons.install();
         vectors = vm.readFile("test/fixtures/vectors.json");
         proofHumanity = vm.readFile("test/fixtures/proofs/register_humanity.json");
         proofAccount = vm.readFile("test/fixtures/proofs/register_account.json");

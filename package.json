@@ -5,7 +5,8 @@
   "scripts": {
     "circuits:vectors": "bun circuits/js/vectors.ts",
     "circuits:prove": "bun circuits/js/prove.ts",
-    "circuits:test": "bun test circuits/js"
+    "circuits:test": "bun test circuits/js",
+    "poseidon:fixture": "bun script/js/poseidon.ts"
   },
   "devDependencies": {
     "circomlibjs": "^0.1.7",

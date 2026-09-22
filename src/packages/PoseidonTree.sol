@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
+import {Poseidon} from "./libraries/Poseidon.sol";
 
 /// @title PoseidonTree
 /// @notice Incremental binary Merkle tree over the BN254 scalar field, Poseidon-hashed and
 ///         circomlib-compatible (PLURISWAP.md §3.15.3).
-/// @dev One contract is one tree: the accounts tree (depth 32, owner `PrivateReputation`) and the
+/// @dev Hashing runs through the pinned poseidon-solidity singleton (`Poseidon`, PLURISWAP.md §5.1),
+///      called by address and never linked: our own build of that library is 29,315 B, past EIP-170.
+///      One contract is one tree: the accounts tree (depth 32, owner `PrivateReputation`) and the
 ///      notes tree (depth 20, owner `PrivateBondVault` in F3). The owner is passed explicitly and
 ///      predicted at deploy, because the tree must be wired into the passports of the bundle before
 ///      its owning module exists. `insert` and `spend` are owner-only, so nothing outside the module
@@ -114,7 +116,11 @@ contract PoseidonTree {
         emit NullifierSpent(nullifier);
     }
 
-    function _hashPair(uint256 left, uint256 right) private pure returns (uint256) {
-        return PoseidonT3.hash([left, right]);
+    /// @dev The pinned poseidon-solidity singleton, called by address (PLURISWAP.md §5.1) — never a
+    ///      library linked into this tree, whose build is past EIP-170. On a chain where the
+    ///      singleton was never deployed this reverts, and since the constructor seeds `zeros` with
+    ///      it, a tree can never exist without a hasher.
+    function _hashPair(uint256 left, uint256 right) private view returns (uint256) {
+        return Poseidon.t3(left, right);
     }
 }

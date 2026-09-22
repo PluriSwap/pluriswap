@@ -12,6 +12,7 @@ import {PrepareAdmitVerifier} from "../src/packages/adapters/PrepareAdmitVerifie
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
 import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title Prepare with real proofs (V2, PLURISWAP.md §3.15.4, §3.15.9)
 /// @dev The activation bundle behind the REAL ultra_honk verifiers: register (V1's real
@@ -62,6 +63,9 @@ contract PrepareRealProofTest is Test {
     uint256 internal deadline;
 
     function setUp() public {
+        // The private layer hashes through the pinned poseidon-solidity singletons, which a test
+        // EVM starts without (PLURISWAP.md §5.1).
+        PoseidonSingletons.install();
         // forge's chain starts at timestamp 1: warp to a realistic clock so deadlines
         // carry meaning (the V1 lesson).
         vm.warp(1_700_000_000);

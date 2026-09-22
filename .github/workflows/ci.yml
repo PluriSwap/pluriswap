@@ -157,10 +157,11 @@ jobs:
 
   circuits:
     # The fixture drift gate: the committed vectors (vectors.json + vectors.nr + the vendored
-    # poseidon constants) must be exactly what the JS twin regenerates. Runs bun only — the
-    # proofs and verifier initcode are committed fixtures, so CI never needs the pinned
-    # nargo/bb (circuits/README.md); what it must never let drift is the generator's output.
-    name: circuits fixture drift gate
+    # poseidon constants) and the poseidon singleton fixture must be exactly what their generators
+    # regenerate. Runs bun only — the proofs and verifier initcode are committed fixtures, so CI
+    # never needs the pinned nargo/bb (circuits/README.md); what it must never let drift is the
+    # generators' output.
+    name: fixture drift gate (circuits + poseidon)
     runs-on: ubuntu-latest
     if: github.event_name != 'schedule'
     steps:
@@ -178,6 +179,16 @@ jobs:
           if ! git diff --exit-code -- test/fixtures/vectors.json circuits/crates/pluri_commitments/src/vectors.nr circuits/crates/pluri_commitments/src/constants_p2.nr circuits/crates/pluri_commitments/src/constants_p3.nr; then
             echo "::error::committed vectors drifted from circuits/js/vectors.ts — run 'bun circuits:vectors' and commit the result"
             git diff --stat -- test/fixtures/vectors.json circuits/crates/pluri_commitments/src/
+            exit 1
+          fi
+      - name: regenerate the poseidon singleton fixture
+        # The pinned addresses in src/packages/libraries/Poseidon.sol are the CREATE2 of the
+        # submodule's initcode; the generator re-derives them and fails if they ever disagree.
+        run: bun poseidon:fixture
+      - name: committed poseidon fixture must match the submodule
+        run: |
+          if ! git diff --exit-code -- test/fixtures/poseidon.json; then
+            echo "::error::test/fixtures/poseidon.json drifted from lib/poseidon-solidity — run 'bun poseidon:fixture' and commit the result"
             exit 1
           fi
       - name: circuits js suite (verify + chain, semantic layer)

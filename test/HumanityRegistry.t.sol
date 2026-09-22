@@ -6,6 +6,7 @@ import {PassportDecoderMock} from "../mocks/PassportDecoderMock.sol";
 import {IGitcoinPassportDecoder} from "../src/packages/interfaces/IGitcoinPassportDecoder.sol";
 import {HumanityRegistry} from "../src/packages/HumanityRegistry.sol";
 import {PrivacyCommitments} from "../src/packages/libraries/PrivacyCommitments.sol";
+import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title HumanityRegistry tests (V1, PLURISWAP.md §3.15.3 "Registro")
 /// @dev The enrollment side of the registry model: decoder gate, one anchor one commitment,
@@ -21,6 +22,9 @@ contract HumanityRegistryTest is Test {
     bytes32 internal identityCommitment;
 
     function setUp() public {
+        // The private layer hashes through the pinned poseidon-solidity singletons, which a test
+        // EVM starts without (PLURISWAP.md §5.1).
+        PoseidonSingletons.install();
         vectors = vm.readFile("test/fixtures/vectors.json");
         hsk = bytes32(vm.parseJsonUint(vectors, ".registry.hsk"));
         identityCommitment = bytes32(vm.parseJsonUint(vectors, ".registry.identity_commitment"));

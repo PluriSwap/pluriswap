@@ -12,6 +12,7 @@ import {ReabsorbVerifierMock} from "../../mocks/ReabsorbVerifierMock.sol";
 import {WithdrawVerifierMock} from "../../mocks/WithdrawVerifierMock.sol";
 import {PoseidonTree} from "../../src/packages/PoseidonTree.sol";
 import {PrivateBondVault} from "../../src/packages/PrivateBondVault.sol";
+import {PoseidonSingletons} from "../PoseidonSingletons.sol";
 
 /// @title Private vault invariant handler (F3 closure, PLURISWAP.md §3.15.6)
 /// @dev The vault is explored directly: the handler plays the prover side (deposits, splits,
@@ -415,6 +416,9 @@ contract PrivateVaultInvariantTest is Test {
     PrivateVaultHandler internal h;
 
     function setUp() public {
+        // The private layer hashes through the pinned poseidon-solidity singletons, which a test
+        // EVM starts without (PLURISWAP.md §5.1).
+        PoseidonSingletons.install();
         h = new PrivateVaultHandler();
 
         bytes4[] memory sel = new bytes4[](11);

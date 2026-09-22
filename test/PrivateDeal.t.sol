@@ -32,6 +32,7 @@ import {MockArbitratorV2} from "../mocks/MockArbitratorV2.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 import {RelayerMock} from "../mocks/RelayerMock.sol";
 import {BaseTest} from "./Base.t.sol";
+import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title Private deal tests (F2, PLURISWAP.md §3.15.4–3.15.5)
 /// @dev The private package set (PrivatePassport + PrivateReputation) against the real kernel:
@@ -99,6 +100,9 @@ contract PrivateDealTest is BaseTest {
     bytes32 internal bondDealId;
 
     function setUp() public override {
+        // The private layer hashes through the pinned poseidon-solidity singletons, which a test
+        // EVM starts without (PLURISWAP.md §5.1).
+        PoseidonSingletons.install();
         super.setUp();
         humanity = new HumanityVerifierMock();
         account = new AccountVerifierMock();

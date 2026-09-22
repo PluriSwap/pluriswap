@@ -17,6 +17,7 @@ import {IPrepareAdmitVerifier} from "../src/packages/interfaces/IPrepareAdmitVer
 import {IPreparePassportVerifier} from "../src/packages/interfaces/IPreparePassportVerifier.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {PackageId} from "../src/libraries/PackageId.sol";
+import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title Private register tests (F1, PLURISWAP.md §3.15.3 and §3.15.11)
 /// @dev One human (one hn) = one account. The bundle order passport -> reputation is enforced
@@ -39,6 +40,9 @@ contract PrivateRegisterTest is Test {
     PrivateReputation internal reputation;
 
     function setUp() public {
+        // The private layer hashes through the pinned poseidon-solidity singletons, which a test
+        // EVM starts without (PLURISWAP.md §5.1).
+        PoseidonSingletons.install();
         humanity = new HumanityVerifierMock();
         account = new AccountVerifierMock();
         passportProof = new PreparePassportVerifierMock();

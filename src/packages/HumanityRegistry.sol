@@ -102,7 +102,7 @@ contract HumanityRegistry {
 
     /// @notice The identity commitment of a secret, as the circuits compute it — for UIs and
     ///         tests (the enrollment side of the chain; the proof side lives in Noir).
-    function identityCommitmentOf(bytes32 hsk) external pure returns (bytes32) {
+    function identityCommitmentOf(bytes32 hsk) external view returns (bytes32) {
         return PrivacyCommitments.accountCommitment(hsk);
     }
 }

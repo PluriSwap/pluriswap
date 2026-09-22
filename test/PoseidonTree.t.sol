@@ -2,8 +2,9 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
-import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
+import {Poseidon} from "../src/packages/libraries/Poseidon.sol";
 import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
+import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title PoseidonTree tests (F1, PLURISWAP.md §3.15.11)
 /// @dev Behavior first: insert, root ring buffer, nullifiers, ownership, field hygiene.
@@ -22,13 +23,16 @@ contract PoseidonTreeTest is Test {
     PoseidonTree internal tree;
 
     function setUp() public {
+        // The private layer hashes through the pinned poseidon-solidity singletons, which a test
+        // EVM starts without (PLURISWAP.md §5.1).
+        PoseidonSingletons.install();
         tree = new PoseidonTree(DEPTH, address(this));
     }
 
     // ---------------------------------------------------------------- primitives
 
-    function test_poseidon_matchesCircomVector() public pure {
-        assertEq(PoseidonT3.hash([uint256(1), uint256(2)]), CIRCOM_T3_1_2);
+    function test_poseidon_matchesCircomVector() public view {
+        assertEq(Poseidon.t3(1, 2), CIRCOM_T3_1_2);
     }
 
     // ---------------------------------------------------------------- constructor

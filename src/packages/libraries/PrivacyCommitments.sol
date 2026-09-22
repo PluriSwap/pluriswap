@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {PoseidonT2} from "poseidon-solidity/PoseidonT2.sol";
-import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
+import {Poseidon} from "./Poseidon.sol";
 
 /// @title PrivacyCommitments
 /// @notice The canonical commitments of the private layer (PLURISWAP.md §3.15.3, as amended
@@ -15,6 +14,8 @@ import {PoseidonT3} from "poseidon-solidity/PoseidonT3.sol";
 ///      same digest as their reduced form — the rule the circuits prove and the vectors pin.
 ///      Multi-field commitments chain PoseidonT3 in the pinned left fold of the amendment:
 ///      h0 = f0, hi = PoseidonT3(h(i-1), fi). Nullifier tags are pinned field constants.
+///      Hashing runs through the pinned poseidon-solidity singleton (`Poseidon`, PLURISWAP.md §5.1),
+///      called by address and never linked, which is why every builder here is `view` and not `pure`.
 ///      On-chain the protocol never recomputes commitments — they arrive inside proofs — so
 ///      this library is the reference twin (tests, adapters); the commitment values are law.
 library PrivacyCommitments {
@@ -23,41 +24,41 @@ library PrivacyCommitments {
     uint256 internal constant TAG_HANDLE = 3;
 
     /// @dev PoseidonT2 — one input, capacity 0. The width of `S = Poseidon(sk_id)`.
-    function poseidonT2(bytes32 x) internal pure returns (bytes32) {
-        return bytes32(PoseidonT2.hash([uint256(x)]));
+    function poseidonT2(bytes32 x) internal view returns (bytes32) {
+        return bytes32(Poseidon.t2(uint256(x)));
     }
 
     /// @dev PoseidonT3 — two inputs, capacity 0. Tree nodes, `hn`, `dealSubject`, the chain primitive.
-    function poseidonT3(bytes32 a, bytes32 b) internal pure returns (bytes32) {
-        return bytes32(PoseidonT3.hash([uint256(a), uint256(b)]));
+    function poseidonT3(bytes32 a, bytes32 b) internal view returns (bytes32) {
+        return bytes32(Poseidon.t3(uint256(a), uint256(b)));
     }
 
     /// @dev The pinned left fold: h0 = f0, hi = PoseidonT3(h(i-1), fi), in the field order of the spec.
-    function chain(bytes32[] memory fields) internal pure returns (bytes32) {
+    function chain(bytes32[] memory fields) internal view returns (bytes32) {
         uint256 h = uint256(fields[0]);
         for (uint256 i = 1; i < fields.length; i++) {
-            h = PoseidonT3.hash([h, uint256(fields[i])]);
+            h = Poseidon.t3(h, uint256(fields[i]));
         }
         return bytes32(h);
     }
 
     /// @dev `S = Poseidon(sk_id)` — the account; lives inside leafRep, never on-chain in the clear.
-    function accountCommitment(bytes32 skId) internal pure returns (bytes32) {
+    function accountCommitment(bytes32 skId) internal view returns (bytes32) {
         return poseidonT2(skId);
     }
 
     /// @dev `hn = Poseidon(anchor, registryId)` — the humanity nullifier; anchor is the Passport-live address.
-    function hn(bytes32 anchor, bytes32 registryId) internal pure returns (bytes32) {
+    function hn(bytes32 anchor, bytes32 registryId) internal view returns (bytes32) {
         return poseidonT3(anchor, registryId);
     }
 
     /// @dev `dealSubject = Poseidon(sk_id, dealId)` — the per-deal pseudonym; all the kernel ever sees.
-    function dealSubject(bytes32 skId, bytes32 dealId) internal pure returns (bytes32) {
+    function dealSubject(bytes32 skId, bytes32 dealId) internal view returns (bytes32) {
         return poseidonT3(skId, dealId);
     }
 
     /// @dev `nullRep = Poseidon(sk_id, "rep", version)` — one use per account version.
-    function nullRep(bytes32 skId, uint256 version) internal pure returns (bytes32) {
+    function nullRep(bytes32 skId, uint256 version) internal view returns (bytes32) {
         bytes32[] memory f = new bytes32[](3);
         f[0] = skId;
         f[1] = bytes32(TAG_REP);
@@ -66,7 +67,7 @@ library PrivacyCommitments {
     }
 
     /// @dev `nullBond = Poseidon(sk_id, "bond", noteSalt)` — one use per spent note.
-    function nullBond(bytes32 skId, bytes32 noteSalt) internal pure returns (bytes32) {
+    function nullBond(bytes32 skId, bytes32 noteSalt) internal view returns (bytes32) {
         bytes32[] memory f = new bytes32[](3);
         f[0] = skId;
         f[1] = bytes32(TAG_BOND);
@@ -75,7 +76,7 @@ library PrivacyCommitments {
     }
 
     /// @dev `handleCommit = Poseidon(sk_id, "handle", handleSalt)` — the rotable market pseudonym.
-    function handleCommit(bytes32 skId, bytes32 handleSalt) internal pure returns (bytes32) {
+    function handleCommit(bytes32 skId, bytes32 handleSalt) internal view returns (bytes32) {
         bytes32[] memory f = new bytes32[](3);
         f[0] = skId;
         f[1] = bytes32(TAG_HANDLE);
@@ -84,7 +85,7 @@ library PrivacyCommitments {
     }
 
     /// @dev `noteBond = Poseidon(sk_id, token, amount, salt)` — the token-specific vault note (F3).
-    function noteBond(bytes32 skId, bytes32 token, uint256 amount, bytes32 salt) internal pure returns (bytes32) {
+    function noteBond(bytes32 skId, bytes32 token, uint256 amount, bytes32 salt) internal view returns (bytes32) {
         bytes32[] memory f = new bytes32[](4);
         f[0] = skId;
         f[1] = token;
@@ -97,7 +98,7 @@ library PrivacyCommitments {
     ///      openable. The fold's first step is exactly `dealSubject`: the lock binds to the deal.
     function lockCommit(bytes32 skId, bytes32 dealId, uint256 lockAmount, bytes32 salt)
         internal
-        pure
+        view
         returns (bytes32)
     {
         bytes32[] memory f = new bytes32[](4);
@@ -118,7 +119,7 @@ library PrivacyCommitments {
         bytes32 token,
         bytes32 salt,
         uint256 version
-    ) internal pure returns (bytes32) {
+    ) internal view returns (bytes32) {
         bytes32[] memory f = new bytes32[](8);
         f[0] = s;
         f[1] = bytes32(count);

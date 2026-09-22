@@ -12,6 +12,7 @@ import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
 import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
+import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 
 /// @title Private prepare tests (F2, PLURISWAP.md §3.15.4)
 /// @dev The activation bundle's write side: proofs fail closed, the wallet consent pins the
@@ -53,6 +54,9 @@ contract PrivatePrepareTest is Test {
     uint256 internal deadline;
 
     function setUp() public {
+        // The private layer hashes through the pinned poseidon-solidity singletons, which a test
+        // EVM starts without (PLURISWAP.md §5.1).
+        PoseidonSingletons.install();
         holder = vm.addr(holderPk);
         other = vm.addr(otherPk);
         deadline = block.timestamp + 1 hours;
