@@ -66,7 +66,21 @@ la conoce. F1–F4 están cerradas *en tests*: la capa que es el valor central d
 una chain. Es el gap más barato de cerrar y el que más información devuelve (gas real, tamaños
 reales, LHF-5).
 
-**Estado:** abierto.
+**Estado: PARCIAL** (2026-09-22, Parte IV). `script/DeployPrivate.s.sol` despliega la capa entera y
+**simula limpio contra el estado real de Arbitrum Sepolia**: 68,7M gas en 19 txs, la mayor 7,1M (bien
+bajo el límite por tx), ~0,009 ETH. El círculo de wiring —árbol ← reputación ← vault ← reputación— se
+rompe por predicción CREATE con assert de que aterrizó, y el wiring quedó separado en `deployStack`
+para que `test/DeployPrivate.t.sol` lo ejerza directo con los proofs de register comprometidos: el
+wiring desplegado y el testeado no pueden divergir. La corrida contra Sepolia confirmó además lo que
+LHF-1 asumía sobre la chain destino (`PoseidonT3` ya está; `PoseidonT2` lo pone el script).
+
+Falta lo que no puedo hacer desde acá: el **broadcast** (necesita la key financiada) y el **wiring del
+lab** — la consola sigue sin conocer las direcciones privadas. Comando:
+
+```sh
+HOLDER_PRIVATE_KEY=… forge script script/DeployPrivate.s.sol:DeployPrivate \
+  --rpc-url $ARBITRUM_SEPOLIA_RPC_URL --broadcast
+```
 
 ### LHF-3 — Los relojes en cero son un arma cargada sin seguro
 
