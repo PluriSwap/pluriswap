@@ -111,6 +111,9 @@ const state = {
   projectedDealId: null as string | null,
   sending: false,
   sendError: null as string | null,
+  /// Reset on every draft edit: acknowledging one set of dangerous clocks does not acknowledge
+  /// the next one (lab/src/consent/termsReview.ts).
+  clocksAcknowledged: false,
   coreWrites: true,
   cancelNonce: "1",
   writeError: null as string | null,
@@ -240,6 +243,7 @@ function paint(): void {
       sending: state.sending,
       sendError: state.sendError,
       suggestedToken: suggestedToken(),
+      clocksAcknowledged: state.clocksAcknowledged,
     },
     {
       draft: (d) => {
@@ -248,6 +252,8 @@ function paint(): void {
         state.providerSig = null;
         state.controllerSig = null;
         state.sendError = null;
+        // New terms, new review: the tick never carries over to clocks nobody has read.
+        state.clocksAcknowledged = false;
         paint();
         void refreshPreflight();
       },
@@ -260,6 +266,10 @@ function paint(): void {
         state.distinctController = !state.distinctController;
         paint();
         void refreshPreflight();
+      },
+      acknowledgeClocks: () => {
+        state.clocksAcknowledged = !state.clocksAcknowledged;
+        paint();
       },
       fillSeats: () => {
         const h = state.seats.find((s) => s.role === "Holder")?.address ?? "";

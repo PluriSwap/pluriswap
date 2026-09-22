@@ -2,9 +2,10 @@ import type { Hex } from "viem";
 import type { PreflightStep } from "./preflight.ts";
 import { inspectActivate6 } from "../verbs/activateCore.ts";
 import { inspectActivate7 } from "../verbs/activatePackaged.ts";
-import type { PackageMods } from "../deal/types.ts";
+import { ZERO_ADDRESS, type PackageMods } from "../deal/types.ts";
 import { modsEmpty } from "../slots/types.ts";
 import type { Envelope } from "./eip712.ts";
+import { hasDanger, reviewClocks, type ClockFinding } from "./termsReview.ts";
 
 export type ConsentDraft = {
   p2p: boolean;
@@ -58,6 +59,8 @@ export function renderConsentPanel(
     sending: boolean;
     sendError: string | null;
     suggestedToken: string | null;
+    /** Explicit "yes, I read the danger" — the only way past a zero clock (§3.8). */
+    clocksAcknowledged: boolean;
   },
   on: {
     draft: (d: ConsentDraft) => void;
@@ -70,11 +73,21 @@ export function renderConsentPanel(
     signCa: () => void;
     send: () => void;
     refresh: () => void;
+    acknowledgeClocks: () => void;
   },
 ): void {
   const d = model.draft;
   const p2p = d.p2p;
   const packaged = Boolean(model.mods && !modsEmpty(model.mods));
+  // The clocks the parties are about to SIGN, reviewed before any signature exists. A zero clock is
+  // not a short clock: it hands one side the whole principal or half of it, for free (§3.8).
+  const clockFindings: ClockFinding[] = model.ha
+    ? reviewClocks(model.ha.terms, {
+        zk: Boolean(model.mods && model.mods.zk !== ZERO_ADDRESS),
+        arbitration: Boolean(model.mods && model.mods.court !== ZERO_ADDRESS),
+      })
+    : [];
+  const clocksBlocked = hasDanger(clockFindings) && !model.clocksAcknowledged;
   const inspect =
     model.ha && model.pa && model.holderSig && model.providerSig
       ? packaged && model.mods
@@ -126,6 +139,7 @@ export function renderConsentPanel(
         <label class="inline full"><input type="checkbox" id="p2p" ${d.p2p ? "checked" : ""}/> P2P holder == controller</label>
       </div>
       <p class="hint">0 en un reloj = due inmediato <strong>y</strong> strictly-before ya TooLate. CASE-CORE-01-P2P / CASE-CORE-01-CTRL usan (3600, 1800, 7200, 0). P2P ignora controllerNonce en <code>dealId</code>.</p>
+      ${renderClockReview(clockFindings, model.clocksAcknowledged)}
       <p>packageIds.length = <code>${model.ha ? model.ha.terms.packageIds.length : 0}</code> · overload = <code>${packaged ? "7" : "6"}</code> · ${p2p ? "CA dummy." : "CA hashed."}</p>
       ${model.dealId ? `<p>dealId proyectado <code>${model.dealId}</code></p>` : ""}
       <h2>Preflight <code>_activate</code> Core</h2>
@@ -138,10 +152,10 @@ export function renderConsentPanel(
           .join("")}
       </ol>
       <p>
-        <button type="button" id="signHa">Firmar HolderAuthorization</button>
-        <button type="button" id="signPa">Firmar ProviderAgreement</button>
-        ${p2p ? "" : `<button type="button" id="signCa">Firmar ControllerAcceptance</button>`}
-        <button type="button" id="send" ${model.sending || !model.coreActivate ? "disabled" : ""}>Relayer: activate (${packaged ? "7" : "6"} args)</button>
+        <button type="button" id="signHa" ${clocksBlocked ? "disabled" : ""}>Firmar HolderAuthorization</button>
+        <button type="button" id="signPa" ${clocksBlocked ? "disabled" : ""}>Firmar ProviderAgreement</button>
+        ${p2p ? "" : `<button type="button" id="signCa" ${clocksBlocked ? "disabled" : ""}>Firmar ControllerAcceptance</button>`}
+        <button type="button" id="send" ${model.sending || !model.coreActivate || clocksBlocked ? "disabled" : ""}>Relayer: activate (${packaged ? "7" : "6"} args)</button>
       </p>
       <dl class="eip712">
         <dt>holderSig</dt><dd><code>${model.holderSig ?? "—"}</code></dd>
@@ -212,6 +226,42 @@ export function renderConsentPanel(
   root.querySelector("#signPa")?.addEventListener("click", () => on.signPa());
   root.querySelector("#signCa")?.addEventListener("click", () => on.signCa());
   root.querySelector("#send")?.addEventListener("click", () => on.send());
+  root.querySelector("#ackClocks")?.addEventListener("change", () => on.acknowledgeClocks());
+}
+
+/// The clock review, rendered where it is read: above the signature buttons, not in a tooltip.
+/// A `danger` finding disables them until it is explicitly acknowledged — the kernel will not
+/// stop any of this (§3.8: the clocks belong to the parties), so the client is the only place
+/// between a person and a signature that gives away their principal.
+function renderClockReview(findings: ClockFinding[], acknowledged: boolean): string {
+  if (findings.length === 0) {
+    return `<p class="ok">Relojes: sin hallazgos. Ninguno es cero y todos superan los pisos de producción.</p>`;
+  }
+  const danger = findings.some((f) => f.severity === "danger");
+  const rows = findings
+    .map(
+      (f) =>
+        `<li class="${f.severity === "danger" ? "bad" : f.severity === "warning" ? "warn" : "ok"}">
+          <code>${esc(f.clock)}</code> — ${esc(f.effect)}<br /><span class="hint">${esc(f.detail)}</span>
+        </li>`,
+    )
+    .join("");
+  return `
+    <section class="clock-review">
+      <h2>Revisión de relojes${danger ? " — <strong>regalás el deal</strong>" : ""}</h2>
+      ${
+        danger
+          ? `<p class="hint">Un reloj en cero no es un reloj corto: le da a una parte el principal entero o la mitad, gratis. El kernel no lo impide (§3.8, las duraciones son de las partes), así que se frena acá.</p>`
+          : `<p class="hint">Pisos de producción, no del protocolo. Los paths del catálogo del lab los rompen a propósito para poder recorrerse en una sesión.</p>`
+      }
+      <ul class="findings">${rows}</ul>
+      ${
+        danger
+          ? `<p><label class="inline"><input type="checkbox" id="ackClocks" ${acknowledged ? "checked" : ""}/> Entiendo lo de arriba y quiero firmar igual</label></p>`
+          : ""
+      }
+    </section>
+  `;
 }
 
 function esc(value: string): string {

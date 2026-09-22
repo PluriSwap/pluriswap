@@ -421,6 +421,32 @@ contract PackagesTest is BaseTest {
         assertEq(token.balanceOf(holder), PRINCIPAL + ACT_FEE + BOND);
     }
 
+    /// `arbitrationDuration = 0` (PLURISWAP.md §3.8): the arbitration timeout is due in the block
+    /// the court opens, so anyone can end the deal 50/50 before a juror has seen it — and the court
+    /// fee has already left the opener's wallet. The fourth of the zero-clock free wins that
+    /// `lab/src/consent/termsReview.ts` refuses to let a person sign without acknowledging; the
+    /// other three are in `test/ZeroClocks.t.sol`, which needs no court.
+    function test_zeroArbitrationDuration_timesOutBeforeTheCourtCanRule() public {
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _one(court.packageId());
+        terms.arbitrationDuration = 0;
+        bytes32 id = _activateWith(terms, _courtMods(), 1, 1);
+        _markFiat(id);
+        uint256 opener = holder.balance;
+        vm.prank(holder);
+        escrow.openCourt{value: COURT_ETH}(id);
+
+        // No warp. The dispute exists at Kleros, the fee is spent, and anyone can end it now.
+        vm.prank(address(0xdead));
+        escrow.forceArbitrationTimeout(id);
+
+        (Status st, uint256 holderAmt, uint256 providerAmt) = escrow.settlementOf(id);
+        assertEq(uint8(st), uint8(Status.STALEMATE));
+        assertEq(holderAmt, PRINCIPAL / 2);
+        assertEq(providerAmt, PRINCIPAL / 2);
+        assertEq(holder.balance, opener - COURT_ETH, "court fee spent on a verdict that never came");
+    }
+
     function test_p2p_holderWin_slashesBondToHolder() public {
         _fundBonds();
         DealTerms memory terms = _p2pTerms();

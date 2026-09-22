@@ -122,3 +122,12 @@ h3 { font-size: 0.85rem; color: var(--muted); }
   #address-book { grid-row: auto; grid-column: auto; border-left: 0; border-top: 1px solid var(--line); }
   .roles { grid-template-columns: 1fr 1fr; }
 }
+
+/* Clock review (lab/src/consent/termsReview.ts): sits between the terms and the signature buttons,
+   because a zero clock gives one side the principal and the kernel will not stop it (§3.8). */
+.clock-review { border-left: 3px solid var(--warn); padding-left: 0.75rem; margin: 0.8rem 0; }
+.clock-review:has(.bad) { border-left-color: var(--bad); }
+.clock-review h2 { font-size: 0.95rem; margin: 0 0 0.3rem; }
+.findings { list-style: none; padding: 0; margin: 0.4rem 0 0; }
+.findings li { margin: 0 0 0.5rem; line-height: 1.35; }
+.findings .hint { margin: 0; }

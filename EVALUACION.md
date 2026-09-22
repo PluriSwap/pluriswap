@@ -95,7 +95,22 @@ El kernel lo permite por diseño (§3.8, "único bound: `duration >= 0`"). Pero 
 bancaria ya es de por sí muy pro-Provider. Una librería `SaneTerms` del lado cliente más un warning
 duro en el firmador cuesta una tarde.
 
-**Estado:** abierto.
+**Estado: CERRADO** (2026-09-22, Parte IV). Resultaron **cuatro**, no dos. Además de los dos de arriba:
+`disputeDuration = 0` convierte la única defensa del Holder en un 50/50 instantáneo; `releaseDuration = 0`
+además deja `openDisputed` en `TooLate`, así que el Holder no tiene ni el freeze; y
+`arbitrationDuration = 0` con ARBITRATION deja forzar el timeout en el bloque en que se abre la corte,
+con el court fee ya pagado. Las cuatro pineadas contra el kernel (`test/ZeroClocks.t.sol`,
+`Packages.t.sol`), no inferidas de la spec.
+
+El kernel no cambia: `duration >= 0` se queda, porque las duraciones son de las partes y un mínimo de
+kernel sería una opinión sobre cuánto tarda una transferencia bancaria. Lo que se agrega es una
+obligación de cliente declarada en §3.8, con implementación de referencia pura
+(`lab/src/consent/termsReview.ts`, función sobre los términos para que cualquier cliente la corra), y
+dos severidades que no se mezclan: *peligro* (un cero — nunca intencional; bloquea las tres firmas y el
+relayer hasta un reconocimiento explícito, que se borra en cada edición de los términos) y *piso de
+producción* (un juicio, que los paths del catálogo del lab rompen a propósito para poder recorrerse en
+una sesión). Bajo `PAYMENT_PROOF` sólo se revisa `fiatDuration` y se dice que el resto está inerte.
+12 tests de vitest, 5 de forge.
 
 ### LHF-4 — `ROOT_HISTORY = 64` es demasiado chico para un árbol compartido
 
