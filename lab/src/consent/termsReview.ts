@@ -13,8 +13,9 @@ import type { DealTerms } from "../deal/types.ts";
  *   releaseDuration = 0     the Provider can `markFiat` + `claim` in one block, proving nothing —
  *                           and `openDisputed` is already `TooLate`, so the Holder has no defence
  *                           at all, not even the freeze.
- *   disputeDuration = 0     `DISPUTED` is an instant `STALEMATE`: the Holder's only defensive move
- *                           costs half the principal the moment it is made.
+ *   disputeDuration = 0     the freeze is an instant forfeit. Abandoning a dispute loses it, and a
+ *                           zero window means it is abandoned in the block it is opened, so the
+ *                           Holder's only defensive move hands over the whole principal.
  *   arbitrationDuration = 0 `forceArbitrationTimeout` is eligible in the block the court opens, so
  *                           the tribunal never gets to rule and the court fee is spent for nothing.
  *
@@ -120,17 +121,19 @@ export function reviewClocks(terms: DealTerms, opts: ReviewOptions): ClockFindin
       out.push({
         clock: "disputeDuration",
         severity: "danger",
-        effect: "abrir DISPUTED es un STALEMATE 50/50 inmediato",
+        effect: "abrir DISPUTED es un forfeit inmediato del principal entero",
         detail:
-          "La única defensa del Holder le cuesta la mitad del principal en el acto, y con bonds " +
-          "además se los quema.",
+          "Abandonar una disputa la pierde (§3.11 OUT-14), y con ventana cero se abandona en el " +
+          "mismo bloque en que se abre: la única defensa del Holder le entrega todo al Provider.",
       });
     } else if (terms.disputeDuration < FLOORS.disputeDuration) {
       out.push({
         clock: "disputeDuration",
         severity: "warning",
-        effect: `menos de ${human(FLOORS.disputeDuration)} para acordar antes del 50/50`,
-        detail: "El split o el co-signed release necesitan que dos personas estén despiertas.",
+        effect: `menos de ${human(FLOORS.disputeDuration)} para acordar o escalar antes de perder`,
+        detail:
+          "Abandonar la disputa la pierde. El split, el co-signed release o abrir corte necesitan " +
+          "que haya alguien despierto de este lado.",
       });
     }
   }

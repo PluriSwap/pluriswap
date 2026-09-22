@@ -64,7 +64,7 @@ contract EscrowCoreInvariantTest is Test {
         sel[4] = HandlerBase.release.selector;
         sel[5] = HandlerBase.claim.selector;
         sel[6] = HandlerBase.openDisputed.selector;
-        sel[7] = HandlerBase.forceStalemate.selector;
+        sel[7] = HandlerBase.forceDisputeTimeout.selector;
         sel[8] = HandlerBase.mutualCancel.selector;
         sel[9] = HandlerBase.coSignedRelease.selector;
         sel[10] = HandlerBase.mutualSplit.selector;
@@ -103,6 +103,7 @@ contract EscrowCoreInvariantTest is Test {
             if (s == Status.CANCELLED) assertEq(hAmt, principal, "cancel not holder-gross");
             if (s == Status.RELEASED) assertEq(pAmt, principal, "release not provider-gross");
             if (s == Status.STALEMATE) assertEq(pAmt, principal / 2, "stalemate not 50/50");
+            if (s == Status.ABANDONED) assertEq(pAmt, principal, "abandoned dispute not provider-gross");
             if (s == Status.CLAIMED) assertEq(pAmt, principal, "claim not provider-gross");
         }
     }
@@ -172,7 +173,7 @@ contract EscrowCoreInvariantTest is Test {
     }
 
     function _terminal(Status s) internal pure returns (bool) {
-        return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
-            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
+        return s == Status.ABANDONED || s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE
+            || s == Status.CANCELLED || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
     }
 }

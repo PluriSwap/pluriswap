@@ -1180,11 +1180,14 @@ contract PoolTest is BaseTest {
         escrow.openDisputed(id);
         assertTrue(escrow.contestPaid(id));
         vm.warp(block.timestamp + 7200);
-        escrow.forceStalemate(id);
+        escrow.forceDisputeTimeout(id);
         pool.reconcile(1);
+        // The pool's agent opened a fight and abandoned it, so the deal returns nothing (§3.11
+        // OUT-14). The reimbursement policy is unchanged: the vault still covers the contest the
+        // Controller paid from their own wallet.
         assertEq(token.balanceOf(controller), floor_, "pool reimburses the opener");
-        assertEq(pool.consumed(), PRINCIPAL / 2 + floor_);
-        assertEq(pool.idle(), PRINCIPAL / 2);
+        assertEq(pool.consumed(), PRINCIPAL + floor_, "the whole principal was consumed");
+        assertEq(pool.idle(), 0);
     }
 
     /// Fight never opened: the contest reserve returns to idle, LPs are not charged.

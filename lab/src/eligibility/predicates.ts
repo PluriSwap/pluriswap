@@ -144,7 +144,7 @@ export function evalOpenDisputed(input: MatrixInput): Eval {
   return requireContestAllowance(input) ?? enabled();
 }
 
-export function evalForceStalemate(input: MatrixInput): Eval {
+export function evalForceDisputeTimeout(input: MatrixInput): Eval {
   const { deal } = input;
   if (deal.status !== Status.DISPUTED) return disabled(R.WrongStatus);
   return clockDue(deal.clocks.disputedAt, deal.terms.disputeDuration, deal.blockTimestamp) ?? enabled();

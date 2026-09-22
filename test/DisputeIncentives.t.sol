@@ -5,81 +5,84 @@ import {BaseTest} from "./Base.t.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {Status} from "../src/libraries/Types.sol";
 
-/// @title Dispute incentives
-/// @notice What a fully-performing Provider can force, and what it costs the other side to stop them.
-/// @dev This file asserts no bug. Every line here is the catalogue of §3.9 working as specified. It
-///      exists because the specified behaviour has an economic consequence the spirit does not
-///      acknowledge, and a consequence that large should be pinned in the suite rather than living
-///      only in a document: if anyone changes it, these fail and the change is deliberate.
+/// @title Dispute incentives, as decided
+/// @notice The shape of a fight after the Parte IV decision of 2026-09-22, including its price.
+/// @dev Three things hold together and none of them is an accident:
 ///
-///      Principle II.6 justifies the 50/50 stalemate with "ambas partes tenían salida y ninguna la
-///      tomó". For the Holder side that is true — release, co-sign, split, or escalate. For the
-///      Provider it is not: every exit that pays them more than half needs the Controller's
-///      signature, and the two that do not (`claim`, `forceStalemate`) are respectively killed by
-///      `DISPUTED` and capped at half. So the Provider's best unilateral outcome, after performing
-///      in full, is 50%.
+///      1. Only the Controller opens a fight, and only the Controller escalates one. Settled: the
+///         Provider does not need to dispute, because when the Controller is absent the release
+///         deadline pays them in full without anyone's permission.
+///      2. Opening a fight and abandoning it loses it. That is what makes (1) safe. Before, a
+///         Controller could freeze a trade it had lost and take half by doing nothing; now doing
+///         nothing hands over everything, which is the same outcome as never having frozen.
+///      3. So the freeze is worth exactly what it is for: time to settle, or to escalate.
 ///
-///      The asymmetry is not neutral either. In Core the Holder puts up 100% of the principal and
-///      the Provider puts up nothing on-chain, so a 50/50 default on a he-said-she-said moves value
-///      from the side that escrowed to the side that claimed — in both directions, which is what
-///      makes `openDisputed` an option rather than a defence.
-///
-///      PLURISWAP.md Parte IV (2026-09-22) records this as an OPEN decision, not a closed one.
+///      The price, asserted here rather than left implicit: in a Core-only deal a Provider who
+///      never sent fiat and refuses every settlement now takes 100% instead of 50%. Core has no
+///      tribunal by construction (II.2), so it cannot tell the two stories apart, and the decision
+///      is to stop pretending a 50/50 was a judgement. That is the argument for ARBITRATION.
 contract DisputeIncentivesTest is BaseTest {
-    /// The Controller freezes a completed trade and simply waits. Nothing here is out of catalogue.
-    function test_controllerCanCapAPerformingProviderAtHalf() public {
+    /// Settled and not reopened: the Provider's protection is the clock, not a verb of their own.
+    function test_providerNeedsNoDispute_whenTheControllerIsAbsent() public {
         bytes32 id = _activateP2P(1, 2);
-        _markFiat(id); // the Provider paid fiat off-chain and said so
-
-        vm.prank(holder); // Holder == Controller: the P2P degenerate case of §3.5
-        escrow.openDisputed(id);
-
-        // Core has no court at all. And selecting ARBITRATION would not change the outcome, because
-        // opening it is Controller-only too (§3.12.2) -- the same party holds the freeze and the
-        // escalation. That leg is `test_providerCannotEscalateEvenWithArbitration` in Packages.t.sol,
-        // where a court exists to be refused.
+        _markFiat(id);
+        vm.warp(block.timestamp + 1800);
         vm.prank(provider);
-        vm.expectRevert(Escrow.PackageNotSelected.selector);
-        escrow.openCourt(id);
-
-        // `DISPUTED` kills the one unilateral win the Provider had.
-        vm.warp(block.timestamp + 10 days);
-        vm.prank(provider);
-        vm.expectRevert(Escrow.WrongStatus.selector);
         escrow.claim(id);
-
-        // Everything else from `DISPUTED` needs the Controller's signature. This is all that is left.
-        vm.prank(provider);
-        escrow.forceStalemate(id);
-
-        (Status st, uint256 holderAmt, uint256 providerAmt) = escrow.settlementOf(id);
-        assertEq(uint8(st), uint8(Status.STALEMATE));
-        assertEq(providerAmt, PRINCIPAL / 2, "a Provider who performed in full recovers half");
-        assertEq(holderAmt, PRINCIPAL / 2, "and the Holder keeps half of a principal it owed in full");
+        (Status st,, uint256 providerAmt) = escrow.settlementOf(id);
+        assertEq(uint8(st), uint8(Status.CLAIMED));
+        assertEq(providerAmt, PRINCIPAL, "absence pays the Provider in full, with nobody's permission");
     }
 
-    /// The mirror, so the asymmetry is not mistaken for a bias against one seat: a Provider who never
-    /// paid takes half too, and the Holder's only defence is the move that concedes it.
-    function test_theMirror_aProviderWhoNeverPaidAlsoTakesHalf() public {
+    function test_providerHasNoDisputeVerbOfItsOwn() public {
         bytes32 id = _activateP2P(3, 4);
-        _markFiat(id); // no fiat was sent; `markFiat` authenticates nothing (§3.11)
+        _markFiat(id);
+        vm.prank(provider);
+        vm.expectRevert(Escrow.Unauthorized.selector);
+        escrow.openDisputed(id);
+        vm.prank(provider);
+        vm.expectRevert(Escrow.PackageNotSelected.selector); // Core has no court at all
+        escrow.openCourt(id);
+    }
 
-        // The Holder's choice is to let the release deadline pay 100%, or freeze and settle for 50%.
+    /// What makes that safe: freezing and waiting is now the same as never freezing.
+    function test_freezingAndAbandoningEqualsNotFreezing() public {
+        bytes32 frozen = _activateP2P(5, 6);
+        _markFiat(frozen);
+        vm.prank(holder);
+        escrow.openDisputed(frozen);
+        vm.warp(block.timestamp + 7200);
+        escrow.forceDisputeTimeout(frozen);
+        (, uint256 hFrozen, uint256 pFrozen) = escrow.settlementOf(frozen);
+
+        token.mint(holder, PRINCIPAL);
+        bytes32 left = _activateP2P(7, 8);
+        _markFiat(left);
+        vm.warp(block.timestamp + 1800);
+        escrow.claim(left);
+        (, uint256 hLeft, uint256 pLeft) = escrow.settlementOf(left);
+
+        assertEq(pFrozen, pLeft, "the Provider ends in the same place either way");
+        assertEq(hFrozen, hLeft, "and so does the Holder: the freeze bought nothing by itself");
+    }
+
+    /// The price of the decision, stated. Core cannot adjudicate, so it stops pretending to.
+    function test_thePrice_coreCannotTellTheTwoStoriesApart() public {
+        bytes32 id = _activateP2P(9, 10);
+        _markFiat(id); // no fiat was sent; `markFiat` authenticates nothing (§3.11)
         vm.prank(holder);
         escrow.openDisputed(id);
-        vm.warp(block.timestamp + 10 days);
-        escrow.forceStalemate(id);
+        vm.warp(block.timestamp + 7200);
+        escrow.forceDisputeTimeout(id);
 
         (, uint256 holderAmt, uint256 providerAmt) = escrow.settlementOf(id);
-        assertEq(providerAmt, PRINCIPAL / 2, "half the principal for an off-chain payment never made");
-        assertEq(holderAmt, PRINCIPAL / 2);
+        assertEq(providerAmt, PRINCIPAL, "an unpaid Provider who refuses to settle takes everything");
+        assertEq(holderAmt, 0, "this is why a deal that matters selects ARBITRATION");
     }
 
-    /// The Core cost of taking that option is zero. The official reputation package prices it at 1%
-    /// of principal with a ~2 USDC floor (§3.14.6) and bonds burn 10% a side (§3.14.5) — neither is
-    /// close to the 50% on the table, which is the shape of the open question.
+    /// Core charges nothing to open one. The official reputation package prices it (§3.14.6).
     function test_openingTheFightIsFreeInCore() public {
-        bytes32 id = _activateP2P(5, 6);
+        bytes32 id = _activateP2P(11, 12);
         _markFiat(id);
         uint256 before = token.balanceOf(holder);
         vm.prank(holder);

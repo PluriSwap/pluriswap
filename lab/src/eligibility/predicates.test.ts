@@ -278,7 +278,7 @@ describe("Deal matrix (CASE-CORE)", () => {
       "release",
       "claim",
       "openDisputed",
-      "forceStalemate",
+      "forceDisputeTimeout",
       "mutualCancel",
       "coSignedRelease",
       "mutualSplit",

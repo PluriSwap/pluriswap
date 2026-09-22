@@ -21,7 +21,7 @@ export function renderMatrixPanel(
             "release",
             "claim",
             "openDisputed",
-            "forceStalemate",
+            "forceDisputeTimeout",
             "withdraw",
             "cancelNonce",
             "retryPostTerminal",

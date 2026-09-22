@@ -227,13 +227,29 @@ Salidas posibles, ninguna gratis:
 Hoy Core **sí** es un modo degradado y la spec dice lo contrario. Esa es la entrada que falta en la
 Parte IV.
 
-**Estado: ABIERTA y declarada** (2026-09-22, Parte IV). La conducta quedó pineada en la suite
-(`test/DisputeIncentives.t.sol` + `Packages.t.sol::test_providerCannotEscalateEvenWithArbitration`),
-incluido el espejo —un Provider que nunca pagó también se lleva la mitad, así que la asimetría no es
-un sesgo contra un asiento— y el hecho de que en Core abrir la pelea no cuesta nada. El principio II.6
-lleva ahora la salvedad, §3.9 dice que `openDisputed` no es simétrico, y la Parte IV registra las
-cuatro opciones sin elegir. **Ninguna está implementada**: elegir es decisión del equipo, no de la
-revisión.
+**Estado: CERRADA** (2026-09-22, Parte IV). La decisión del equipo tiene dos partes y ninguna es la
+que yo había puesto primero en la lista:
+
+1. **Quién abre no se toca.** Sólo el Controller, y no se reabre. El razonamiento que lo sostiene es
+   correcto una vez que existe (2): el Provider no necesita disputar, porque contra un Controller
+   *ausente* el release deadline le paga el 100% sin permiso de nadie.
+2. **Abandonar una disputa la pierde.** El timeout de `DISPUTED` deja de ser 50/50 y pasa a un
+   terminal propio, `ABANDONED` (valor 11), con el principal entero al Provider.
+
+Juntas cierran el agujero sin darle al Provider ningún verbo nuevo: congelar-y-esperar termina
+exactamente donde terminaba no congelar, así que la opción sobre el 50% ajeno desaparece. Lo que
+queda del freno es lo que tenía que ser — tiempo para acordar o para escalar.
+
+Knock-ons decididos por principio: el completion fee se cobra (cerró un trade, misma lectura que
+`CLAIMED`); los bonds se devuelven (el abandono es culpa *asumida*, y pagarle el bond del abandonador
+a la contraparte le daría incentivo a estancar toda negociación); la reputación marca `+5` al que
+abrió. Consecuencia declarada: `BondAction.Burn` existía **sólo** para este terminal —era el parche
+económico contra el 50/50— y se queda sin productor.
+
+**El precio, que está asertado en la suite y no escondido:** en Core-only un Provider que nunca pagó y
+rehúsa todo acuerdo ahora se lleva el 100% en vez del 50%. Core no tiene tribunal por construcción y
+no puede distinguir las dos historias; la decisión es dejar de fingir que un 50/50 era un juicio. Es
+el argumento para ARBITRATION, y II.6 se reescribió para decir lo que el código hace.
 
 ### B. El único cuadrante limpio es el que no está construido
 

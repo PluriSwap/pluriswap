@@ -290,12 +290,34 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         d.disputedAt = block.timestamp;
     }
 
-    /// @dev Neither side co-signed nor went to court inside the dispute window: both locks burn.
-    function forceStalemate(bytes32 dealId) external nonReentrant {
+    /// @dev The Controller opened a fight and let it expire without settling it or escalating it.
+    ///      That is the answer: abandoning a dispute loses it, and the principal goes to the Provider
+    ///      in full, exactly as if the freeze had never happened.
+    ///
+    ///      This used to be a 50/50 stalemate, which made `openDisputed` a free option on half of the
+    ///      counterparty's principal -- the Holder side could freeze a trade it had lost and walk away
+    ///      with half of it, and the Provider, who cannot open a fight or escalate one, had no answer
+    ///      better than taking that half. `STALEMATE` keeps its meaning for the two terminals where
+    ///      nobody abandoned anything: the tribunal refused, or the tribunal never answered.
+    ///
+    ///      The locks unlock. Abandonment is assumed fault, not proven fault, and II.6 only moves the
+    ///      bond on a verdict; the principal already carries the consequence.
+    function forceDisputeTimeout(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.DISPUTED) revert WrongStatus();
         Clocks.requireDue(d.disputedAt, d.terms.disputeDuration);
-        _close(dealId, d, d.terms.principal, _stalemate(BondAction.Burn, IReputation.Close.Stalemate));
+        _close(
+            dealId,
+            d,
+            d.terms.principal,
+            Outcome(
+                Status.ABANDONED,
+                ALL,
+                IReputation.Close.Stalemate, // the opener's side: +5, assumed fault
+                IReputation.Close.Peaceful, // the Provider closed a trade, as in CLAIMED
+                BondAction.Unlock
+            )
+        );
     }
 
     function mutualCancel(

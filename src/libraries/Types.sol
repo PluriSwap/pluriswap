@@ -12,7 +12,11 @@ enum Status {
     CANCELLED,
     ARBITRATION_ACTIVE,
     RESOLVED_BY_ARBITRATION,
-    CLAIMED
+    CLAIMED,
+    /// @dev The Controller opened a fight and neither settled nor escalated it before the clock ran
+    ///      out. Principal to the Provider in full. Appended, so every value below keeps its number:
+    ///      a stored `Status` is read by pools, the lab and indexers.
+    ABANDONED
 }
 
 struct DealTerms {
@@ -119,8 +123,8 @@ struct DealClocks {
     uint256 arbitrationOpenedAt;
 }
 
-/// @dev The six statuses `_close` writes. One list so the official pool and the kernel cannot drift.
+/// @dev The seven statuses `_close` writes. One list so the official pool and the kernel cannot drift.
 function isTerminal(Status s) pure returns (bool) {
     return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
-        || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
+        || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED || s == Status.ABANDONED;
 }

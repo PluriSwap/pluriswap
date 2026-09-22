@@ -38,7 +38,7 @@ contract KernelFuzzTest is BaseTest {
         assertEq(token.balanceOf(address(escrow)), 0, "escrow keeps dust after split");
     }
 
-    function testFuzz_forceStalemate_isFiftyFifty(uint256 principal, uint256 disputeDuration) public {
+    function testFuzz_forceDisputeTimeout_paysTheProviderInFull(uint256 principal, uint256 disputeDuration) public {
         principal = bound(principal, 1, MAX_PRINCIPAL);
         disputeDuration = bound(disputeDuration, 0, MAX_DURATION);
         DealTerms memory t = _p2pTerms();
@@ -49,13 +49,13 @@ contract KernelFuzzTest is BaseTest {
         _markFiat(id);
         _openDisputed(id);
         vm.warp(block.timestamp + disputeDuration);
-        escrow.forceStalemate(id);
+        escrow.forceDisputeTimeout(id);
 
         (Status s, uint256 h, uint256 p) = escrow.settlementOf(id);
-        assertEq(uint8(s), uint8(Status.STALEMATE));
-        assertEq(p, principal / 2, "provider != principal/2");
-        assertEq(h + p, principal, "stalemate does not conserve principal");
-        assertLe(h - p, 1, "odd wei goes anywhere but the holder");
+        assertEq(uint8(s), uint8(Status.ABANDONED));
+        assertEq(p, principal, "the side that did not abandon takes the whole pot");
+        assertEq(h, 0);
+        assertEq(h + p, principal, "an abandoned dispute does not conserve principal");
     }
 
     function testFuzz_everyTerminal_paysExactlyPrincipal(uint256 principal, uint8 path) public {
@@ -160,7 +160,7 @@ contract KernelFuzzTest is BaseTest {
         }
     }
 
-    function testFuzz_forceStalemate_dueIffElapsed(uint256 disputeDuration, uint256 elapsed) public {
+    function testFuzz_forceDisputeTimeout_dueIffElapsed(uint256 disputeDuration, uint256 elapsed) public {
         disputeDuration = bound(disputeDuration, 0, MAX_DURATION);
         elapsed = bound(elapsed, 0, 2 * MAX_DURATION);
         DealTerms memory t = _p2pTerms();
@@ -171,10 +171,10 @@ contract KernelFuzzTest is BaseTest {
         vm.warp(block.timestamp + elapsed);
         if (elapsed < disputeDuration) {
             vm.expectRevert(Clocks.TooEarly.selector);
-            escrow.forceStalemate(id);
+            escrow.forceDisputeTimeout(id);
         } else {
-            escrow.forceStalemate(id);
-            assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+            escrow.forceDisputeTimeout(id);
+            assertEq(uint8(escrow.status(id)), uint8(Status.ABANDONED));
         }
     }
 

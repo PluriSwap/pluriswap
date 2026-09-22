@@ -158,7 +158,7 @@ abstract contract HandlerBase is Test {
 
     function _isTerminal(Status s) internal pure returns (bool) {
         return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
-            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
+            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED || s == Status.ABANDONED;
     }
 
     function _canMarkFiat(bytes32 id) internal view returns (bool) {
@@ -295,11 +295,11 @@ abstract contract HandlerBase is Test {
         escrow.openDisputed(id);
     }
 
-    function forceStalemate(uint256 seed) external count("forceStalemate") {
+    function forceDisputeTimeout(uint256 seed) external count("forceDisputeTimeout") {
         (bytes32 id, bool ok) = _pickIf(seed, _canForceStalemate);
         if (!ok) return;
         vm.prank(relayer);
-        escrow.forceStalemate(id);
+        escrow.forceDisputeTimeout(id);
         _recordTerminal(id);
     }
 

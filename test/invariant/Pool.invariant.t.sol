@@ -10,7 +10,8 @@ import {
     ProviderAgreement,
     ControllerAcceptance,
     MutualSplit,
-    CoSignedRelease
+    CoSignedRelease,
+    isTerminal
 } from "../../src/libraries/Types.sol";
 import {Consent} from "../../src/libraries/Consent.sol";
 import {Escrow} from "../../src/Escrow.sol";
@@ -280,7 +281,7 @@ contract PoolInvariantTest is Test {
 
         bytes4[] memory sel = new bytes4[](26);
         sel[22] = HandlerBase.openDisputed.selector;
-        sel[23] = HandlerBase.forceStalemate.selector;
+        sel[23] = HandlerBase.forceDisputeTimeout.selector;
         sel[24] = HandlerBase.mutualCancel.selector;
         sel[25] = HandlerBase.coSignedRelease.selector;
         sel[0] = PoolHandler.deposit.selector;
@@ -371,7 +372,7 @@ contract PoolInvariantTest is Test {
         uint256 term;
         for (uint256 i; i < h.idsLength(); i++) {
             Status s = escrow.status(h.ids(i));
-            if (s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED) {
+            if (isTerminal(s)) {
                 term++;
             } else {
                 live++;

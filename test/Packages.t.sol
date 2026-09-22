@@ -169,31 +169,72 @@ contract PackagesTest is BaseTest {
         assertEq(vault.available(SUB_H, address(token)), BOND);
     }
 
-    function test_stalemate_burnsBonds() public {
+    /// An abandoned dispute has a loser, so it is not a stalemate and the bonds do not burn: the
+    /// principal already carries the consequence, and II.6 only moves a bond on a verdict. What the
+    /// opener carries is the score (§3.11 OUT-14). Burning is still what a real stalemate does --
+    /// `test_arbitrationRefused_burnsBonds` keeps that.
+    function test_abandonedDispute_unlocksBondsAndPenalisesTheOpener() public {
         _fundBonds();
         bytes32 id = _activateTrio(1, 1);
         _markFiat(id);
         _openDisputed(id);
         vm.warp(block.timestamp + 7200);
-        escrow.forceStalemate(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
-        assertEq(token.balanceOf(sink), BOND * 2);
-        (, uint32 penalty,) = reputation.stats(SUB_H, address(token));
-        assertEq(penalty, 5);
+        escrow.forceDisputeTimeout(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.ABANDONED));
+        assertEq(token.balanceOf(sink), 0, "nothing burns: there was a loser, not a stalemate");
+        assertEq(vault.lockOf(SUB_H, id), 0, "both locks released");
+        assertEq(vault.lockOf(SUB_P, id), 0);
+        (, uint32 penaltyH,) = reputation.stats(SUB_H, address(token));
+        (, uint32 penaltyP,) = reputation.stats(SUB_P, address(token));
+        assertEq(penaltyH, 5, "the side that abandoned carries it");
+        assertEq(penaltyP, 0, "the side that did not abandon does not");
+        assertEq(reputation.score(SUB_P, address(token)), 1, "the Provider closed a trade");
     }
 
-    /// Decision: STALEMATE is not a completion. The DAO already took activation and contest-open; it does
-    /// not take a completion cut of a trade that nobody closed.
-    function test_stalemate_noCompletionInvoice() public {
+    /// The other side of the same decision. `BondAction.Burn` existed for exactly one terminal -- the
+    /// dispute timeout -- where it was the economic patch on the 50/50: it made freezing-and-waiting
+    /// cost 10% so that taking half was less attractive. Now that abandoning loses outright, the
+    /// deterrent is structural and the patch has no producer left. A refused tribunal is what
+    /// STALEMATE now means, and it has always unlocked: nobody abandoned anything (§3.14.5).
+    function test_arbitrationRefused_unlocksBondsAndBurnsNothing() public {
+        _fundBonds();
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted4(passport.packageId(), reputation.packageId(), vault.packageId(), court.packageId());
+        terms.arbitrationDuration = 1 days;
+        PackageMods memory mods = _trioMods();
+        mods.court = address(court);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        _markFiat(id);
+        _openCourt(id);
+        arbitrator.giveRuling(court.disputeOf(id), 0); // refuse
+        escrow.readRuling(id);
+
+        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        assertEq(token.balanceOf(sink), 0, "no kernel path burns any more");
+        assertEq(vault.available(SUB_H, address(token)), BOND, "both locks came back");
+        assertEq(vault.available(SUB_P, address(token)), BOND);
+        (, uint32 penaltyH,) = reputation.stats(SUB_H, address(token));
+        (, uint32 penaltyP,) = reputation.stats(SUB_P, address(token));
+        assertEq(penaltyH, 5, "a tribunal that would not decide still marks both sides");
+        assertEq(penaltyP, 5);
+    }
+
+    /// An abandoned dispute pays the Provider in full, so it IS a completion and is invoiced like one
+    /// -- the same reading as CLAIMED. The exemption belongs to STALEMATE, where nobody closed a trade.
+    function test_abandonedDispute_chargesCompletionLikeAClaim() public {
         _fundBonds();
         bytes32 id = _activateTrio(1, 1);
         _markFiat(id);
         _openDisputed(id);
         vm.warp(block.timestamp + 7200);
-        escrow.forceStalemate(id);
-        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FLOOR, "DAO gets activation+contest, not completion");
-        assertEq(token.balanceOf(provider), PRINCIPAL / 2);
-        assertEq(token.balanceOf(holder), PRINCIPAL - PRINCIPAL / 2);
+        escrow.forceDisputeTimeout(id);
+        assertEq(
+            token.balanceOf(feeRecipient),
+            ACT_FEE + CONTEST_FLOOR + COMP_FEE,
+            "activation + contest-open + completion: a trade did close"
+        );
+        assertEq(token.balanceOf(provider), PRINCIPAL - COMP_FEE);
+        assertEq(token.balanceOf(holder), 0);
     }
 
     /// Decision: CLAIMED is its own terminal. The trade happened: fee on the pot, Provider credited, Holder silent.
@@ -466,13 +507,14 @@ contract PackagesTest is BaseTest {
         vm.expectRevert(Escrow.Unauthorized.selector);
         escrow.openCourt{value: COURT_ETH}(id);
 
-        // The only terminal the Provider can reach alone, with the court right there.
+        // What they can reach alone is the clock -- and since the Controller opened a fight and did
+        // not carry it, the clock now reads that as a forfeit and pays the Provider in full.
         vm.warp(block.timestamp + terms.disputeDuration);
         vm.prank(provider);
-        escrow.forceStalemate(id);
+        escrow.forceDisputeTimeout(id);
         (Status st,, uint256 providerAmt) = escrow.settlementOf(id);
-        assertEq(uint8(st), uint8(Status.STALEMATE));
-        assertEq(providerAmt, PRINCIPAL / 2);
+        assertEq(uint8(st), uint8(Status.ABANDONED));
+        assertEq(providerAmt, PRINCIPAL);
     }
 
     function test_p2p_holderWin_slashesBondToHolder() public {
@@ -528,8 +570,8 @@ contract PackagesTest is BaseTest {
         vm.expectRevert(Clocks.TooLate.selector);
         escrow.openCourt{value: COURT_ETH}(id);
 
-        escrow.forceStalemate(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        escrow.forceDisputeTimeout(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.ABANDONED), "too late to escalate is abandonment");
     }
 
     function test_openDisputed_chargesContestFee() public {
@@ -659,8 +701,8 @@ contract PackagesTest is BaseTest {
         _markFiat(id);
         _openDisputed(id);
         vm.warp(block.timestamp + 7200);
-        escrow.forceStalemate(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        escrow.forceDisputeTimeout(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.ABANDONED));
         assertEq(token.balanceOf(sink), 0);
         assertTrue(driftVault.lockOf(SUB_H, id) != 0);
         assertEq(escrow.postPending(id), 0, "drifted vault abandoned, not left pending");
@@ -900,26 +942,30 @@ contract PackagesTest is BaseTest {
         escrow.retryPostTerminal(id);
     }
 
-    /// STALEMATE alone is not enough to retry: `forceStalemate` burns, an arbitration timeout unlocks. If the
+    /// STALEMATE alone is not enough to retry: `forceDisputeTimeout` burns, an arbitration timeout unlocks. If the
     /// stored `bondAction` were dropped and Unlock inferred from status, retry would return the locks instead
     /// of sending them to the sink.
-    function test_retryPostTerminal_stalemateBurnsNotUnlocks() public {
+    function test_retryPostTerminal_refusedStalemateUnlocksBoth() public {
         _fundBonds();
-        bytes32 id = _activateTrio(1, 1);
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted4(passport.packageId(), reputation.packageId(), vault.packageId(), court.packageId());
+        terms.arbitrationDuration = 1 days;
+        PackageMods memory mods = _trioMods();
+        mods.court = address(court);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
         vm.mockCallRevert(
             address(reputation), abi.encodeWithSelector(IReputation.notifyTerminal.selector), "module down"
         );
-        vm.mockCallRevert(address(vault), abi.encodeWithSelector(IBondVault.burn.selector), "vault down");
+        vm.mockCallRevert(address(vault), abi.encodeWithSelector(IBondVault.unlock.selector), "vault down");
         _markFiat(id);
-        _openDisputed(id);
-        vm.warp(block.timestamp + 7200);
-        escrow.forceStalemate(id);
+        _openCourt(id);
+        arbitrator.giveRuling(court.disputeOf(id), 0); // refuse
+        escrow.readRuling(id);
 
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
-        assertEq(escrow.postPending(id), 0x07, "POST_NOTIFY_H | POST_NOTIFY_P | POST_BOND_A - burn is one call");
+        assertEq(escrow.postPending(id), 0x0F, "POST_NOTIFY_H|P | POST_BOND_A|B - unlock is one call per subject");
         assertEq(vault.lockOf(SUB_H, id), BOND);
         assertEq(vault.lockOf(SUB_P, id), BOND);
-        assertEq(token.balanceOf(sink), 0);
 
         vm.clearMockedCalls();
         escrow.retryPostTerminal(id);
@@ -927,8 +973,8 @@ contract PackagesTest is BaseTest {
         assertEq(escrow.postPending(id), 0);
         assertEq(vault.lockOf(SUB_H, id), 0);
         assertEq(vault.lockOf(SUB_P, id), 0);
-        assertEq(token.balanceOf(sink), BOND * 2, "both locks burned, not unlocked");
-        assertEq(vault.available(SUB_H, address(token)), 0, "burn consumed the deposit");
+        assertEq(token.balanceOf(sink), 0, "unlocked, not burned");
+        assertEq(vault.available(SUB_H, address(token)), BOND, "the deposit came back, whole");
         assertEq(reputation.inFlight(SUB_H, address(token)), 0);
     }
 

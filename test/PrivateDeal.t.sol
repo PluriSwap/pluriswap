@@ -814,23 +814,24 @@ contract PrivateDealTest is BaseTest {
         vault.reabsorb(bondDealId, SUBJECT_P, bytes32(uint256(0x2202)), keccak256("nullbond-p-2"), ok(true));
     }
 
-    function test_bondDeal_stalemateBurnsBothLocks() public {
+    /// The kernel's `unlock` under an abandoned dispute: the Controller opened a fight and let it
+    /// expire, so the Provider takes the principal in full and both locks come back released
+    /// (§3.11 OUT-14). No kernel path burns any more -- `BondAction.Burn` existed only for the
+    /// 50/50 this terminal replaced.
+    function test_bondDeal_abandonedDisputeReleasesBothLocks() public {
         _activateBonded();
         _markFiat(bondDealId);
         _openDisputed(bondDealId);
         vm.warp(block.timestamp + 7200 + 1); // disputeDuration of the p2p terms
-        escrow.forceStalemate(bondDealId);
+        escrow.forceDisputeTimeout(bondDealId);
 
-        assertTrue(uint8(escrow.status(bondDealId)) == uint8(Status.STALEMATE));
+        assertTrue(uint8(escrow.status(bondDealId)) == uint8(Status.ABANDONED));
         assertEq(escrow.postPending(bondDealId), 0);
-        assertEq(token.balanceOf(SINK), LOCK * 2, "both locks burned to the sink, nothing to the sides");
-        (, uint256 lockAmountH,,) = vault.lockOf(bondDealId, SUBJECT_H);
-        assertEq(lockAmountH, 0);
-        (, uint256 lockAmountP,,) = vault.lockOf(bondDealId, SUBJECT_P);
-        assertEq(lockAmountP, 0);
-        // A burned lock is never reabsorbable.
-        vm.expectRevert(PrivateBondVault.NoLock.selector);
-        vault.reabsorb(bondDealId, SUBJECT_H, REABSORB_NOTE_H, NULLBOND_H2, ok(true));
+        assertEq(token.balanceOf(SINK), 0, "nothing burns: the terminal has a loser");
+        (,,, bool releasedH) = vault.lockOf(bondDealId, SUBJECT_H);
+        (,,, bool releasedP) = vault.lockOf(bondDealId, SUBJECT_P);
+        assertTrue(releasedH, "the opener's lock is released, not taken");
+        assertTrue(releasedP);
     }
 
     /// @dev The last kernel verb the private vault had never answered under fire: `slash`, driven

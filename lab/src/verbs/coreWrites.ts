@@ -9,7 +9,7 @@ export const CORE_WRITE_VERBS = [
   "release",
   "claim",
   "openDisputed",
-  "forceStalemate",
+  "forceDisputeTimeout",
   "withdraw",
   "cancelNonce",
   "retryPostTerminal",
@@ -62,7 +62,7 @@ export const coreWriteAbi = [
   },
   {
     type: "function",
-    name: "forceStalemate",
+    name: "forceDisputeTimeout",
     stateMutability: "nonpayable",
     inputs: [{ name: "dealId", type: "bytes32" }],
     outputs: [],

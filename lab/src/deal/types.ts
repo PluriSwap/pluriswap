@@ -1,6 +1,12 @@
 import type { HexAddress, HexBytes32 } from "../addressbook/types.ts";
 
-/** Types.sol Status. CLAIMED (10) is the Provider-positive timeout terminal, distinct from RELEASED. */
+/**
+ * Types.sol Status. CLAIMED (10) is the Provider-positive timeout terminal, distinct from RELEASED.
+ * ABANDONED (11) is the other one: the Controller opened a fight and let it expire, so the Provider
+ * takes the principal in full (§3.11 OUT-14). It is not a STALEMATE — that name is now reserved for
+ * the two terminals where nobody abandoned anything, a tribunal that refused and one that never
+ * answered, and both of those are still 50/50.
+ */
 export const STATUS_NAMES = [
   "NONE",
   "FUNDED",
@@ -13,6 +19,7 @@ export const STATUS_NAMES = [
   "ARBITRATION_ACTIVE",
   "RESOLVED_BY_ARBITRATION",
   "CLAIMED",
+  "ABANDONED",
 ] as const;
 
 export type StatusName = (typeof STATUS_NAMES)[number];
@@ -29,6 +36,7 @@ export const Status = {
   ARBITRATION_ACTIVE: 8,
   RESOLVED_BY_ARBITRATION: 9,
   CLAIMED: 10,
+  ABANDONED: 11,
 } as const;
 
 export const PKG = {
@@ -61,7 +69,8 @@ export function isTerminalStatus(status: number): boolean {
     status === Status.STALEMATE ||
     status === Status.CANCELLED ||
     status === Status.RESOLVED_BY_ARBITRATION ||
-    status === Status.CLAIMED
+    status === Status.CLAIMED ||
+    status === Status.ABANDONED
   );
 }
 

@@ -34,17 +34,17 @@ contract SettlementOfTest is BaseTest {
         assertEq(p, 0);
     }
 
-    function test_settlementOf_stalemateSplits() public {
+    function test_settlementOf_abandonedDisputePaysTheProvider() public {
         bytes32 id = _activateP2P(1, 1);
         vm.prank(provider);
         escrow.markFiat(id);
         vm.prank(holder);
         escrow.openDisputed(id);
         vm.warp(block.timestamp + 7200);
-        escrow.forceStalemate(id);
+        escrow.forceDisputeTimeout(id);
         (Status st, uint256 h, uint256 p) = escrow.settlementOf(id);
-        assertEq(uint8(st), uint8(Status.STALEMATE));
-        assertEq(h, PRINCIPAL - PRINCIPAL / 2);
-        assertEq(p, PRINCIPAL / 2);
+        assertEq(uint8(st), uint8(Status.ABANDONED));
+        assertEq(h, 0);
+        assertEq(p, PRINCIPAL);
     }
 }

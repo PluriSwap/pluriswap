@@ -54,7 +54,7 @@ export function deriveClocks(clocks: DealClocks, terms: DealTerms, now: bigint):
       origin: clocks.disputedAt,
       duration: terms.disputeDuration,
       durationField: "disputeDuration",
-      dueVerb: "forceStalemate",
+      dueVerb: "forceDisputeTimeout",
       strictlyBeforeVerb: "openCourt from DISPUTED",
     },
     {

@@ -147,7 +147,7 @@ contract StateMachineTest is BaseTest {
         assertEq(token.balanceOf(holder), PRINCIPAL * 6000 / 10_000);
     }
 
-    function test_CASE_CORE_15_forceStalemate() public {
+    function test_CASE_CORE_15_forceDisputeTimeout() public {
         DealTerms memory terms = _p2pTerms();
         terms.releaseDuration = 100;
         terms.disputeDuration = 0;
@@ -155,10 +155,10 @@ contract StateMachineTest is BaseTest {
         _markFiat(id);
         _openDisputed(id);
         vm.prank(address(0xDEAD));
-        escrow.forceStalemate(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
-        assertEq(token.balanceOf(holder), PRINCIPAL / 2);
-        assertEq(token.balanceOf(provider), PRINCIPAL / 2);
+        escrow.forceDisputeTimeout(id);
+        assertEq(uint8(escrow.status(id)), uint8(Status.ABANDONED));
+        assertEq(token.balanceOf(holder), 0);
+        assertEq(token.balanceOf(provider), PRINCIPAL);
     }
 
     function test_CASE_CORE_16_unilateralRejectedWhileDisputed() public {
@@ -195,7 +195,7 @@ contract StateMachineTest is BaseTest {
         bytes32 stalemate = _nextActivateWith(terms);
         _markFiat(stalemate);
         _openDisputed(stalemate);
-        escrow.forceStalemate(stalemate);
+        escrow.forceDisputeTimeout(stalemate);
         _assertTerminal(stalemate);
     }
 
@@ -217,7 +217,7 @@ contract StateMachineTest is BaseTest {
         vm.expectRevert(Escrow.WrongStatus.selector);
         escrow.openDisputed(id);
         vm.expectRevert(Escrow.WrongStatus.selector);
-        escrow.forceStalemate(id);
+        escrow.forceDisputeTimeout(id);
 
         uint256 deadline = block.timestamp + 1 days;
         MutualCancel memory p = MutualCancel({dealId: id, nonce: nonce++, deadline: deadline});

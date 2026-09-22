@@ -170,7 +170,7 @@ contract Paths is Script {
         _broadcastMarkFiat(id);
         _broadcastOpenDisputed(id);
         vm.startBroadcast(holderPk);
-        escrow.forceStalemate(id);
+        escrow.forceDisputeTimeout(id);
         vm.stopBroadcast();
     }
 

@@ -385,7 +385,7 @@ contract EscrowPackagesInvariantTest is Test {
         sel[5] = HandlerBase.release.selector;
         sel[6] = HandlerBase.claim.selector;
         sel[7] = HandlerBase.openDisputed.selector;
-        sel[8] = HandlerBase.forceStalemate.selector;
+        sel[8] = HandlerBase.forceDisputeTimeout.selector;
         sel[9] = HandlerBase.mutualCancel.selector;
         sel[10] = HandlerBase.coSignedRelease.selector;
         sel[11] = HandlerBase.mutualSplit.selector;
@@ -542,7 +542,7 @@ contract EscrowPackagesInvariantTest is Test {
     }
 
     function afterInvariant() public view {
-        uint256[11] memory byStatus;
+        uint256[12] memory byStatus;
         uint256 zkReleased;
         uint256 bondsTerminal;
         uint256 n = h.idsLength();
@@ -558,13 +558,13 @@ contract EscrowPackagesInvariantTest is Test {
         console2.log("FUNDED/FIAT_SENT/DISPUTED", byStatus[1], byStatus[2], byStatus[3]);
         console2.log("RELEASED/SPLIT/STALEMATE", byStatus[4], byStatus[5], byStatus[6]);
         console2.log("CANCELLED/ARB_ACTIVE/ARB_RESOLVED", byStatus[7], byStatus[8], byStatus[9]);
-        console2.log("CLAIMED", byStatus[10]);
+        console2.log("CLAIMED/ABANDONED", byStatus[10], byStatus[11]);
         console2.log("zkReleased/bondsTerminal", zkReleased, bondsTerminal);
         console2.log("sink/controller", token.balanceOf(h.SINK()), token.balanceOf(h.controller()));
     }
 
     function _terminal(Status s) internal pure returns (bool) {
-        return s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE || s == Status.CANCELLED
-            || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
+        return s == Status.ABANDONED || s == Status.RELEASED || s == Status.RESOLVED_SPLIT || s == Status.STALEMATE
+            || s == Status.CANCELLED || s == Status.RESOLVED_BY_ARBITRATION || s == Status.CLAIMED;
     }
 }

@@ -216,8 +216,8 @@ export const PATHS: PathTemplate[] = [
     arbitrationDuration: "0",
     p2p: true,
     needs: ["core"],
-    sequence: "openDisputed luego forceStalemate due",
-    assertion: "STALEMATE 50/50",
+    sequence: "openDisputed luego forceDisputeTimeout due",
+    assertion: "ABANDONED: principal entero al Provider",
   },
   {
     id: "CASE-CORE-16",

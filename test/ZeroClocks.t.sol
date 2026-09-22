@@ -59,8 +59,9 @@ contract ZeroClocksTest is BaseTest {
         escrow.openDisputed(id);
     }
 
-    /// `disputeDuration = 0`: the freeze is a 50/50 the moment it exists.
-    function test_zeroDisputeDuration_makesTheFreezeAnInstantStalemate() public {
+    /// `disputeDuration = 0`: the freeze is an instant forfeit. Since abandoning a dispute loses it
+    /// (§3.11 OUT-14), a zero window means the Controller abandons it in the block they open it.
+    function test_zeroDisputeDuration_forfeitsTheWholePrincipalInstantly() public {
         DealTerms memory t = _p2pTerms();
         t.disputeDuration = 0;
         bytes32 id = _activateP2PWith(t, 7, 8);
@@ -69,11 +70,11 @@ contract ZeroClocksTest is BaseTest {
         vm.prank(holder);
         escrow.openDisputed(id);
         vm.prank(address(0xdead)); // no warp: anyone, in the very next transaction
-        escrow.forceStalemate(id);
+        escrow.forceDisputeTimeout(id);
 
         (Status st, uint256 holderAmt, uint256 providerAmt) = escrow.settlementOf(id);
-        assertEq(uint8(st), uint8(Status.STALEMATE));
-        assertEq(holderAmt, PRINCIPAL / 2);
-        assertEq(providerAmt, PRINCIPAL / 2, "the Holder's only defence cost half the principal");
+        assertEq(uint8(st), uint8(Status.ABANDONED));
+        assertEq(holderAmt, 0);
+        assertEq(providerAmt, PRINCIPAL, "the Holder's only defence cost the whole principal");
     }
 }

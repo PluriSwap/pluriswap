@@ -33,18 +33,18 @@ contract CreditFirstTest is BaseTest {
         assertEq(escrow.creditOf(address(token), provider), 0);
     }
 
-    function test_stalemate_partialPushFailure_keepsBothCredits() public {
+    /// Two beneficiaries in one terminal, one of whose pushes fails: the outcome still commits and the
+    /// failed side keeps a credit. A dual-signed split is the Core terminal that pays both sides now --
+    /// the dispute timeout pays the Provider in full (PLURISWAP.md §3.11 OUT-14).
+    function test_split_partialPushFailure_keepsBothCredits() public {
         DealTerms memory terms = _p2pTerms();
         terms.releaseDuration = 100;
-        terms.disputeDuration = 0;
         bytes32 id = _activateP2PWith(terms, 1, 1);
         vm.prank(provider);
         escrow.markFiat(id);
-        vm.prank(holder);
-        escrow.openDisputed(id);
         vm.mockCallRevert(address(token), abi.encodeCall(IERC20.transfer, (holder, PRINCIPAL / 2)), "blocked");
-        escrow.forceStalemate(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        _mutualSplit(id, 5000, 2, 3);
+        assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_SPLIT));
         assertEq(escrow.creditOf(address(token), holder), PRINCIPAL / 2);
         assertEq(token.balanceOf(provider), PRINCIPAL / 2);
         assertEq(token.balanceOf(holder), 0);
