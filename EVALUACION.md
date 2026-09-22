@@ -227,6 +227,14 @@ Salidas posibles, ninguna gratis:
 Hoy Core **sí** es un modo degradado y la spec dice lo contrario. Esa es la entrada que falta en la
 Parte IV.
 
+**Estado: ABIERTA y declarada** (2026-09-22, Parte IV). La conducta quedó pineada en la suite
+(`test/DisputeIncentives.t.sol` + `Packages.t.sol::test_providerCannotEscalateEvenWithArbitration`),
+incluido el espejo —un Provider que nunca pagó también se lleva la mitad, así que la asimetría no es
+un sesgo contra un asiento— y el hecho de que en Core abrir la pelea no cuesta nada. El principio II.6
+lleva ahora la salvedad, §3.9 dice que `openDisputed` no es simétrico, y la Parte IV registra las
+cuatro opciones sin elegir. **Ninguna está implementada**: elegir es decisión del equipo, no de la
+revisión.
+
 ### B. El único cuadrante limpio es el que no está construido
 
 `PAYMENT_PROOF` (§3.12.1) es el único perfil sin 50/50: proof → `RELEASED`, sin proof → `CANCELLED`.

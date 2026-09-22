@@ -448,6 +448,33 @@ contract PackagesTest is BaseTest {
         assertEq(holder.balance, opener - COURT_ETH, "court fee spent on a verdict that never came");
     }
 
+    /// Selecting ARBITRATION does not give the Provider a way out (§3.12.2: only the Controller opens
+    /// court). The Controller holds the freeze AND the escalation, so a Provider who performed in full
+    /// is still capped at the 50/50 -- see `test/DisputeIncentives.t.sol` for the whole shape, and
+    /// PLURISWAP.md Parte IV (2026-09-22) for the open decision it belongs to.
+    function test_providerCannotEscalateEvenWithArbitration() public {
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _one(court.packageId());
+        terms.arbitrationDuration = 1 days;
+        bytes32 id = _activateWith(terms, _courtMods(), 1, 1);
+        _markFiat(id);
+        vm.prank(holder);
+        escrow.openDisputed(id);
+
+        vm.deal(provider, COURT_ETH);
+        vm.prank(provider);
+        vm.expectRevert(Escrow.Unauthorized.selector);
+        escrow.openCourt{value: COURT_ETH}(id);
+
+        // The only terminal the Provider can reach alone, with the court right there.
+        vm.warp(block.timestamp + terms.disputeDuration);
+        vm.prank(provider);
+        escrow.forceStalemate(id);
+        (Status st,, uint256 providerAmt) = escrow.settlementOf(id);
+        assertEq(uint8(st), uint8(Status.STALEMATE));
+        assertEq(providerAmt, PRINCIPAL / 2);
+    }
+
     function test_p2p_holderWin_slashesBondToHolder() public {
         _fundBonds();
         DealTerms memory terms = _p2pTerms();
