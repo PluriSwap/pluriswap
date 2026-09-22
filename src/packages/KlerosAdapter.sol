@@ -47,6 +47,10 @@ contract KlerosAdapter is ICourt {
     address public immutable kernel;
     uint256 public immutable templateId;
     bytes32 public immutable packageId;
+    /// @dev The contest-open price of this package: flat, in the deal token, from the opener's
+    ///      wallet, once per deal (PLURISWAP.md §3.14.6). Both enter `packageId`.
+    uint256 public immutable contestFee;
+    address public immutable feeRecipient;
     bytes public extraData;
     string public templateUri;
     string public policyUri;
@@ -68,7 +72,9 @@ contract KlerosAdapter is ICourt {
         string memory templateUri_,
         address kernel_,
         address registry_,
-        string memory policyUri_
+        string memory policyUri_,
+        uint256 contestFee_,
+        address feeRecipient_
     ) {
         if (arbitrator_ == address(0) || kernel_ == address(0)) revert ZeroAddress();
         arbitrator = IArbitratorV2(arbitrator_);
@@ -82,7 +88,9 @@ contract KlerosAdapter is ICourt {
             templateId = IDisputeTemplateRegistry(registry_)
                 .setDisputeTemplate(PluriSwapKlerosTemplate.tag(), templateData(), templateMappings());
         }
-        packageId = PackageId.kleros(address(this), arbitrator_, extraData_);
+        contestFee = contestFee_;
+        feeRecipient = feeRecipient_;
+        packageId = PackageId.kleros(address(this), arbitrator_, extraData_, contestFee_, feeRecipient_);
     }
 
     function packageBinding() external view returns (address partner, uint256 key) {

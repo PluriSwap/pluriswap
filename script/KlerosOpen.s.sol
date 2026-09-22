@@ -22,7 +22,8 @@ contract KlerosOpen is KlerosConfig {
         require(holder.balance >= cost, "eth");
 
         vm.startBroadcast(holderPk);
-        KlerosAdapter adapter = new KlerosAdapter(k.core, k.extraData, 0, "", holder, k.registry, k.policyUri);
+        KlerosAdapter adapter =
+            new KlerosAdapter(k.core, k.extraData, 0, "", holder, k.registry, k.policyUri, 0, address(0xFEE));
         _logWhitelist(k.core, address(adapter));
         adapter.openCourt{value: cost}(DEAL, holder);
         vm.stopBroadcast();

@@ -251,6 +251,13 @@ rehúsa todo acuerdo ahora se lleva el 100% en vez del 50%. Core no tiene tribun
 no puede distinguir las dos historias; la decisión es dejar de fingir que un 50/50 era un juicio. Es
 el argumento para ARBITRATION, y II.6 se reescribió para decir lo que el código hace.
 
+Segunda mitad, de la misma sesión: **un deal con tribunal cuesta pelear**. El contest-open vivía sólo
+en el paquete de reputación, así que ARBITRATION sin REPUTATION abría gratis — justo lo que la otra
+mitad corregía. El `ICourt` declara ahora su propio `contestFee` y `feeRecipient` dentro de
+`PackageId.arbitration`. Se eligió eso antes que acoplar ARBITRATION a REPUTATION (una línea en
+`resolve`) porque eso arrastraría un Passport a todo deal que sólo quería tribunal, y la identidad no
+debería ser el precio de poder ir a corte.
+
 ### B. El único cuadrante limpio es el que no está construido
 
 `PAYMENT_PROOF` (§3.12.1) es el único perfil sin 50/50: proof → `RELEASED`, sin proof → `CANCELLED`.

@@ -284,7 +284,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         _requireNotZk(d);
         if (msg.sender != d.terms.controller) revert Unauthorized();
         Clocks.requireStrictlyBefore(d.fiatSentAt, d.terms.releaseDuration);
-        if ((d.pkgs & Packages.REP) != 0) Packages.chargeContest(d, msg.sender);
+        if ((d.pkgs & (Packages.REP | Packages.ARB)) != 0) Packages.chargeContest(d, msg.sender);
         emit Transitioned(dealId, d.status, Status.DISPUTED);
         d.status = Status.DISPUTED;
         d.disputedAt = block.timestamp;
@@ -419,7 +419,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         if (msg.sender != d.terms.controller) revert Unauthorized();
         if (d.status == Status.FIAT_SENT) {
             Clocks.requireStrictlyBefore(d.fiatSentAt, d.terms.releaseDuration);
-            if ((d.pkgs & Packages.REP) != 0) Packages.chargeContest(d, msg.sender);
+            Packages.chargeContest(d, msg.sender); // ARB is already required to be here
         } else {
             Clocks.requireStrictlyBefore(d.disputedAt, d.terms.disputeDuration);
         }

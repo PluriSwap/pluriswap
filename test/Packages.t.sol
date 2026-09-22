@@ -48,6 +48,9 @@ contract PackagesTest is BaseTest {
     MockArbitratorV2 internal arbitrator;
     KlerosAdapter internal court;
     address internal feeRecipient = address(0xFEE);
+    /// @dev The ARBITRATION package prices its own contest, separately from the reputation one.
+    uint256 internal constant COURT_CONTEST = 3_000_000;
+    address internal courtFeeRecipient = address(0xC0F);
     address internal sink = address(0xdeaD);
     bytes internal extraData;
 
@@ -65,7 +68,9 @@ contract PackagesTest is BaseTest {
         zkMod = new ZkMock(verifier, feeRecipient, ZK_FEE, predicted);
         arbitrator = new MockArbitratorV2(COURT_ETH);
         vault = new BondVault(predicted, sink, passport);
-        court = new KlerosAdapter(address(arbitrator), extraData, 0, "", predicted, address(0), "");
+        court = new KlerosAdapter(
+            address(arbitrator), extraData, 0, "", predicted, address(0), "", COURT_CONTEST, courtFeeRecipient
+        );
         escrow = new Escrow();
         assertEq(address(escrow), predicted);
         assertEq(reputation.operator(), address(escrow));
@@ -234,7 +239,9 @@ contract PackagesTest is BaseTest {
             "activation + contest-open + completion: a trade did close"
         );
         assertEq(token.balanceOf(provider), PRINCIPAL - COMP_FEE);
-        assertEq(token.balanceOf(holder), 0);
+        // `_fundContest` mints for both possible contest invoices; this deal carries no court, so the
+        // court's share was never pulled and stays with the opener.
+        assertEq(token.balanceOf(holder), COURT_CONTEST);
     }
 
     /// Decision: CLAIMED is its own terminal. The trade happened: fee on the pot, Provider credited, Holder silent.
@@ -445,6 +452,7 @@ contract PackagesTest is BaseTest {
         terms.arbitrationDuration = 1 days;
         bytes32 id = _activateWith(terms, _courtMods(), 1, 1);
         _markFiat(id);
+        _fundContest();
         vm.prank(holder);
         escrow.openCourt{value: COURT_ETH}(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.ARBITRATION_ACTIVE));
@@ -460,7 +468,9 @@ contract PackagesTest is BaseTest {
         arbitrator.giveRuling(court.disputeOf(id), 1);
         escrow.readRuling(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_BY_ARBITRATION));
-        assertEq(token.balanceOf(holder), PRINCIPAL + ACT_FEE + BOND);
+        // A court-only deal: no reputation fee was ever charged, and `_fundContest` minted for both
+        // invoices, so what comes back is the refund plus the unspent reputation share.
+        assertEq(token.balanceOf(holder), PRINCIPAL + ACT_FEE + BOND + CONTEST_FLOOR);
     }
 
     /// `arbitrationDuration = 0` (PLURISWAP.md §3.8): the arbitration timeout is due in the block
@@ -474,6 +484,7 @@ contract PackagesTest is BaseTest {
         terms.arbitrationDuration = 0;
         bytes32 id = _activateWith(terms, _courtMods(), 1, 1);
         _markFiat(id);
+        _fundContest();
         uint256 opener = holder.balance;
         vm.prank(holder);
         escrow.openCourt{value: COURT_ETH}(id);
@@ -499,6 +510,7 @@ contract PackagesTest is BaseTest {
         terms.arbitrationDuration = 1 days;
         bytes32 id = _activateWith(terms, _courtMods(), 1, 1);
         _markFiat(id);
+        _fundContest();
         vm.prank(holder);
         escrow.openDisputed(id);
 
@@ -586,6 +598,71 @@ contract PackagesTest is BaseTest {
         assertEq(uint8(escrow.status(id)), uint8(Status.DISPUTED));
         assertEq(token.balanceOf(holder), beforeOpener - CONTEST_FLOOR);
         assertEq(token.balanceOf(feeRecipient), beforeDao + CONTEST_FLOOR);
+    }
+
+    /// A deal that selected a tribunal but no reputation used to open a fight for nothing: the
+    /// contest invoice lived only in the reputation package. The court prices its own contest now
+    /// (PLURISWAP.md §3.14.6), so "el Holder que disputa, paga" holds for every deal with a tribunal
+    /// to escalate to -- without forcing a Passport on anyone who only wanted a court.
+    function test_courtOnly_chargesItsOwnContestFee() public {
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _one(court.packageId());
+        terms.arbitrationDuration = 1 days;
+        bytes32 id = _activateWith(terms, _courtMods(), 1, 1);
+        _markFiat(id);
+
+        token.mint(holder, COURT_CONTEST);
+        uint256 beforeOpener = token.balanceOf(holder);
+        uint256 beforeRecipient = token.balanceOf(courtFeeRecipient);
+
+        vm.prank(holder);
+        escrow.openDisputed(id);
+
+        assertEq(uint8(escrow.status(id)), uint8(Status.DISPUTED));
+        assertTrue(escrow.contestPaid(id));
+        assertEq(token.balanceOf(holder), beforeOpener - COURT_CONTEST, "the opener paid");
+        assertEq(token.balanceOf(courtFeeRecipient), beforeRecipient + COURT_CONTEST);
+    }
+
+    /// Entering the fight costs once, whichever door is used: escalating straight to court from
+    /// FIAT_SENT is the same moment as freezing first (§3.14.6).
+    function test_courtOnly_contestIsChargedOnceAcrossBothDoors() public {
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _one(court.packageId());
+        terms.arbitrationDuration = 1 days;
+        bytes32 id = _activateWith(terms, _courtMods(), 1, 1);
+        _markFiat(id);
+        token.mint(holder, COURT_CONTEST * 2);
+        uint256 beforeOpener = token.balanceOf(holder);
+
+        vm.prank(holder);
+        escrow.openDisputed(id);
+        vm.prank(holder);
+        escrow.openCourt{value: COURT_ETH}(id);
+
+        assertEq(token.balanceOf(holder), beforeOpener - COURT_CONTEST, "charged once, not twice");
+    }
+
+    /// Both packages present: each charges its own (§3.14.6, "varios paquetes: cada uno cobra lo suyo").
+    function test_courtAndReputation_bothInvoiceTheContest() public {
+        _fundBonds();
+        DealTerms memory terms = _p2pTerms();
+        terms.packageIds = _sorted4(passport.packageId(), reputation.packageId(), vault.packageId(), court.packageId());
+        terms.arbitrationDuration = 1 days;
+        PackageMods memory mods = _trioMods();
+        mods.court = address(court);
+        bytes32 id = _activateWith(terms, mods, 1, 1);
+        _markFiat(id);
+        _fundContest();
+        token.mint(holder, COURT_CONTEST);
+        uint256 beforeDao = token.balanceOf(feeRecipient);
+        uint256 beforeCourt = token.balanceOf(courtFeeRecipient);
+
+        vm.prank(holder);
+        escrow.openDisputed(id);
+
+        assertEq(token.balanceOf(feeRecipient), beforeDao + CONTEST_FLOOR, "reputation took its own");
+        assertEq(token.balanceOf(courtFeeRecipient), beforeCourt + COURT_CONTEST, "and the court took its own");
     }
 
     function test_openDisputed_shortAllowanceReverts() public {
@@ -1024,8 +1101,11 @@ contract PackagesTest is BaseTest {
         vault.deposit(SUB_P, address(token), BOND);
     }
 
+    /// @dev Entering a fight now costs whatever every selected package prices it at: the reputation
+    ///      floor plus the court's own contest fee (§3.14.6). Minting both keeps the helper usable by
+    ///      deals that carry either, or both.
     function _fundContest() internal {
-        token.mint(holder, CONTEST_FLOOR);
+        token.mint(holder, CONTEST_FLOOR + COURT_CONTEST);
     }
 
     function _openDisputed(bytes32 id) internal override {

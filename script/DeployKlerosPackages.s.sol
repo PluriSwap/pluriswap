@@ -51,7 +51,8 @@ contract DeployKlerosPackages is PassportPicker, KlerosConfig {
         VerifierMock verifier = new VerifierMock();
         ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE, predicted);
         BondVault vault = new BondVault(predicted, SINK, passport);
-        KlerosAdapter court = new KlerosAdapter(k.core, k.extraData, 0, "", predicted, k.registry, k.policyUri);
+        KlerosAdapter court =
+            new KlerosAdapter(k.core, k.extraData, 0, "", predicted, k.registry, k.policyUri, 0, address(0xFEE));
         Escrow escrow = new Escrow();
         vm.stopBroadcast();
 

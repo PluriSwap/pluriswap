@@ -121,7 +121,15 @@ contract PackagesHandler is HandlerBase {
         zk = new ZkMock(new VerifierMock(), FEE_RECIPIENT, ZK_FEE, address(escrow_));
         arbitrator = new MockArbitratorV2(COURT_ETH);
         court = new KlerosAdapter(
-            address(arbitrator), abi.encode(uint256(1), uint256(3), uint256(1)), 0, "", address(escrow_), address(0), ""
+            address(arbitrator),
+            abi.encode(uint256(1), uint256(3), uint256(1)),
+            0,
+            "",
+            address(escrow_),
+            address(0),
+            "",
+            0,
+            address(0xFEE)
         );
         passport.setHuman(holder, SUB_H);
         passport.setHuman(provider, SUB_P);

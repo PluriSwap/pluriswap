@@ -352,7 +352,7 @@ contract PackagesFuzzTest is Test {
             PackageId.passport(a),
             PackageId.bonds(a, b),
             PackageId.reputation(a, b, k, k, 0, 0),
-            PackageId.arbitration(a, b, k),
+            PackageId.arbitration(a, b, k, 0, address(0)),
             PackageId.zk(a, b, b, k)
         ];
         for (uint256 i; i < 5; i++) {

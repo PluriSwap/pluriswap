@@ -37,7 +37,7 @@ contract PoolArbTest is BaseTest {
         arbitrator = new MockArbitratorV2(COURT_ETH);
         uint64 n = vm.getNonce(address(this));
         address predicted = vm.computeCreateAddress(address(this), n + 1);
-        court = new KlerosAdapter(address(arbitrator), extraData, 0, "", predicted, address(0), "");
+        court = new KlerosAdapter(address(arbitrator), extraData, 0, "", predicted, address(0), "", 0, address(0xFEE));
         escrow = new Escrow();
         assertEq(address(escrow), predicted);
 

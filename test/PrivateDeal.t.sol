@@ -842,7 +842,15 @@ contract PrivateDealTest is BaseTest {
     function test_bondDeal_ruledSlashThroughCourt() public {
         MockArbitratorV2 arbitrator = new MockArbitratorV2(0.01 ether);
         KlerosAdapter court = new KlerosAdapter(
-            address(arbitrator), abi.encode(uint256(1), uint256(3), uint256(1)), 0, "", address(escrow), address(0), ""
+            address(arbitrator),
+            abi.encode(uint256(1), uint256(3), uint256(1)),
+            0,
+            "",
+            address(escrow),
+            address(0),
+            "",
+            0,
+            address(0xFEE)
         );
         vm.deal(holder, 1 ether);
 

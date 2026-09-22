@@ -33,14 +33,24 @@ library PackageId {
         );
     }
 
-    function arbitration(address adapter, address tribunal, uint256 courtFee) public pure returns (bytes32) {
-        return keccak256(abi.encode(ARBITRATION_KIND, adapter, tribunal, courtFee));
+    function arbitration(address adapter, address tribunal, uint256 courtFee, uint256 contestFee, address feeRecipient)
+        public
+        pure
+        returns (bytes32)
+    {
+        return keccak256(abi.encode(ARBITRATION_KIND, adapter, tribunal, courtFee, contestFee, feeRecipient));
     }
 
     /// @dev Same kind as `arbitration`. Third word is keccak(extraData) so court/jurors/kit bind the id
     ///      without baking a stale ETH `arbitrationCost`.
-    function kleros(address adapter, address arbitrator, bytes calldata extraData) public pure returns (bytes32) {
-        return arbitration(adapter, arbitrator, uint256(keccak256(extraData)));
+    function kleros(
+        address adapter,
+        address arbitrator,
+        bytes calldata extraData,
+        uint256 contestFee,
+        address feeRecipient
+    ) public pure returns (bytes32) {
+        return arbitration(adapter, arbitrator, uint256(keccak256(extraData)), contestFee, feeRecipient);
     }
 
     function zk(address module, address verifier, address feeRecipient, uint256 verifyFee)

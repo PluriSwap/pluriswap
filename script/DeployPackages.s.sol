@@ -48,7 +48,8 @@ contract DeployPackages is PassportPicker {
         VerifierMock verifier = new VerifierMock();
         ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE, predicted);
         BondVault vault = new BondVault(predicted, SINK, passport);
-        ArbitrationMock arb = new ArbitrationMock(TRIBUNAL, address(token), COURT_FEE, 1 days, predicted);
+        ArbitrationMock arb =
+            new ArbitrationMock(TRIBUNAL, address(token), COURT_FEE, 1 days, predicted, CONTEST_FLOOR, FEE_RECIPIENT);
         Escrow escrow = new Escrow();
         vm.stopBroadcast();
 

@@ -28,19 +28,31 @@ contract ArbitrationMock is ICourt {
     address public immutable operator;
     uint256 public immutable courtFee;
     uint256 public immutable duration;
+    uint256 public immutable contestFee;
+    address public immutable feeRecipient;
     bytes32 public immutable packageId;
 
     mapping(bytes32 dealId => address controller) public controllerOf;
     mapping(bytes32 dealId => uint256 openedAt) public openedAt;
     mapping(bytes32 dealId => Ruling ruling) public rulingOf;
 
-    constructor(address tribunal_, address feeToken_, uint256 courtFee_, uint256 duration_, address operator_) {
+    constructor(
+        address tribunal_,
+        address feeToken_,
+        uint256 courtFee_,
+        uint256 duration_,
+        address operator_,
+        uint256 contestFee_,
+        address feeRecipient_
+    ) {
         tribunal = tribunal_;
         feeToken = feeToken_;
         courtFee = courtFee_;
         duration = duration_;
         operator = operator_;
-        packageId = PackageId.arbitration(address(this), tribunal_, courtFee_);
+        contestFee = contestFee_;
+        feeRecipient = feeRecipient_;
+        packageId = PackageId.arbitration(address(this), tribunal_, courtFee_, contestFee_, feeRecipient_);
     }
 
     function packageBinding() external view returns (address partner, uint256 key) {

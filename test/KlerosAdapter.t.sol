@@ -56,17 +56,22 @@ contract KlerosAdapterTest is Test {
     function setUp() public {
         extraData = abi.encode(uint256(1), uint256(3), uint256(1));
         arbitrator = new MockArbitratorV2(COST);
-        adapter = new KlerosAdapter(address(arbitrator), extraData, 0, "", address(this), address(0), "");
+        adapter =
+            new KlerosAdapter(address(arbitrator), extraData, 0, "", address(this), address(0), "", 0, address(0xFEE));
         vm.deal(address(this), 1 ether);
         vm.deal(controller, 1 ether);
         vm.deal(provider, 1 ether);
     }
 
     function test_packageId_klerosStable() public view {
-        assertEq(adapter.packageId(), PackageId.kleros(address(adapter), address(arbitrator), extraData));
+        assertEq(
+            adapter.packageId(), PackageId.kleros(address(adapter), address(arbitrator), extraData, 0, address(0xFEE))
+        );
         assertEq(
             adapter.packageId(),
-            PackageId.arbitration(address(adapter), address(arbitrator), uint256(keccak256(extraData)))
+            PackageId.arbitration(
+                address(adapter), address(arbitrator), uint256(keccak256(extraData)), 0, address(0xFEE)
+            )
         );
     }
 
@@ -85,9 +90,9 @@ contract KlerosAdapterTest is Test {
 
     function test_constructor_requiresArbitratorAndKernel() public {
         vm.expectRevert(KlerosAdapter.ZeroAddress.selector);
-        new KlerosAdapter(address(0), extraData, 0, "", address(this), address(0), "");
+        new KlerosAdapter(address(0), extraData, 0, "", address(this), address(0), "", 0, address(0xFEE));
         vm.expectRevert(KlerosAdapter.ZeroAddress.selector);
-        new KlerosAdapter(address(arbitrator), extraData, 0, "", address(0), address(0), "");
+        new KlerosAdapter(address(arbitrator), extraData, 0, "", address(0), address(0), "", 0, address(0xFEE));
     }
 
     function test_insufficientFeeReverts() public {
@@ -128,7 +133,15 @@ contract KlerosAdapterTest is Test {
     function test_registersTemplateWhenRegistrySet() public {
         MockTemplateRegistry registry = new MockTemplateRegistry();
         KlerosAdapter wired = new KlerosAdapter(
-            address(arbitrator), extraData, 99, "ipfs://ignore", address(this), address(registry), POLICY
+            address(arbitrator),
+            extraData,
+            99,
+            "ipfs://ignore",
+            address(this),
+            address(registry),
+            POLICY,
+            0,
+            address(0xFEE)
         );
         assertEq(wired.templateId(), 1);
         assertEq(wired.templateUri(), "");
@@ -150,7 +163,15 @@ contract KlerosAdapterTest is Test {
     ///      JSON, carry `policyURI`, and point at the arbitrator of this chain. Placeholders stay literal here.
     function test_templateIsValidDisputeDetails() public {
         KlerosAdapter wired = new KlerosAdapter(
-            address(arbitrator), extraData, 0, "", address(this), address(new MockTemplateRegistry()), POLICY
+            address(arbitrator),
+            extraData,
+            0,
+            "",
+            address(this),
+            address(new MockTemplateRegistry()),
+            POLICY,
+            0,
+            address(0xFEE)
         );
         string memory json = wired.templateData();
         assertEq(vm.parseJsonString(json, ".policyURI"), POLICY);
@@ -185,7 +206,8 @@ contract KlerosAdapterTest is Test {
 
     function test_caseOf_readsKernelTermsAndFormatsAmount() public {
         KernelStub k = new KernelStub();
-        KlerosAdapter wired = new KlerosAdapter(address(arbitrator), extraData, 0, "", address(k), address(0), POLICY);
+        KlerosAdapter wired =
+            new KlerosAdapter(address(arbitrator), extraData, 0, "", address(k), address(0), POLICY, 0, address(0xFEE));
         TokenStub usdc = new TokenStub(6, "USDC");
         k.set(DEAL, address(0xA11CE), address(0xB0B), address(usdc), 1_250_500_000);
 
@@ -206,7 +228,8 @@ contract KlerosAdapterTest is Test {
 
     function test_caseOf_amountEdgeCases() public {
         KernelStub k = new KernelStub();
-        KlerosAdapter wired = new KlerosAdapter(address(arbitrator), extraData, 0, "", address(k), address(0), POLICY);
+        KlerosAdapter wired =
+            new KlerosAdapter(address(arbitrator), extraData, 0, "", address(k), address(0), POLICY, 0, address(0xFEE));
         vm.deal(address(k), 1 ether);
 
         TokenStub usdc = new TokenStub(6, "USDC");

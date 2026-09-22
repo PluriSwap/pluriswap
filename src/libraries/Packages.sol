@@ -86,8 +86,9 @@ library Packages {
             matched++;
         }
         if (mods.court != address(0)) {
-            (address partner, uint256 key) = ICourt(mods.court).packageBinding();
-            _requireNamed(ids, PackageId.arbitration(mods.court, partner, key));
+            ICourt c = ICourt(mods.court);
+            (address partner, uint256 key) = c.packageBinding();
+            _requireNamed(ids, PackageId.arbitration(mods.court, partner, key, c.contestFee(), c.feeRecipient()));
             pkgs |= ARB;
             matched++;
         }
@@ -148,7 +149,36 @@ library Packages {
     function court(Deal storage d) public view returns (ICourt c) {
         c = ICourt(d.mods.court);
         (address partner, uint256 key) = c.packageBinding();
-        if (!named(d, PackageId.arbitration(address(c), partner, key))) revert PackageDrift();
+        if (!named(d, PackageId.arbitration(address(c), partner, key, c.contestFee(), c.feeRecipient()))) {
+            revert PackageDrift();
+        }
+    }
+
+    /// @dev Contest-open invoice of the ARBITRATION package: `(0, 0)` without a court, when it
+    ///      drifted, or when a policy getter reverts. Fail-open like the reputation one, so a Core
+    ///      `openDisputed` is never bricked by a module (KERNEL-04).
+    function courtContestInvoice(Deal storage d) public view returns (uint256 fee, address to) {
+        if ((d.pkgs & ARB) == 0) return (0, address(0));
+        ICourt c = ICourt(d.mods.court);
+        address partner;
+        uint256 key;
+        try c.packageBinding() returns (address p, uint256 k) {
+            partner = p;
+            key = k;
+        } catch {
+            return (0, address(0));
+        }
+        try c.feeRecipient() returns (address recipient) {
+            to = recipient;
+        } catch {
+            return (0, address(0));
+        }
+        try c.contestFee() returns (uint256 amount) {
+            fee = amount;
+        } catch {
+            return (0, address(0));
+        }
+        if (!named(d, PackageId.arbitration(address(c), partner, key, fee, to))) return (0, address(0));
     }
 
     // --- terminals --------------------------------------------------------------------------------------
@@ -245,12 +275,20 @@ library Packages {
     ///      a short allowance reverts and the deal stays where it was.
     function chargeContest(Deal storage d, address payer) public {
         if (d.contestPaid) return;
-        (uint256 fee, address to) = contestInvoice(d);
-        if (fee != 0) {
-            Settlement.pullExact(d.terms.token, payer, fee);
-            IERC20(d.terms.token).safeTransfer(to, fee);
-        }
+        // Each selected package invoices its own contest (PLURISWAP.md §3.14.6). A deal with a
+        // tribunal costs something to fight in even without a reputation package -- otherwise
+        // freezing is free for the only party who can freeze.
+        (uint256 repFee, address repTo) = contestInvoice(d);
+        (uint256 courtFee, address courtTo) = courtContestInvoice(d);
         d.contestPaid = true;
+        _pullFee(d.terms.token, payer, repFee, repTo);
+        _pullFee(d.terms.token, payer, courtFee, courtTo);
+    }
+
+    function _pullFee(address token, address payer, uint256 fee, address to) private {
+        if (fee == 0) return;
+        Settlement.pullExact(token, payer, fee);
+        IERC20(token).safeTransfer(to, fee);
     }
 
     // --- post-terminal work -----------------------------------------------------------------------------------

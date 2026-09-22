@@ -19,14 +19,14 @@ contract ArbitrationMockTest is Test {
 
     function setUp() public {
         token = new TestToken();
-        arb = new ArbitrationMock(tribunal, address(token), COURT_FEE, DURATION, address(0));
+        arb = new ArbitrationMock(tribunal, address(token), COURT_FEE, DURATION, address(0), 0, address(0xFEE));
         token.mint(controller, COURT_FEE * 4);
         vm.prank(controller);
         token.approve(address(arb), type(uint256).max);
     }
 
     function test_packageId_arbitrationStable() public view {
-        assertEq(arb.packageId(), PackageId.arbitration(address(arb), tribunal, COURT_FEE));
+        assertEq(arb.packageId(), PackageId.arbitration(address(arb), tribunal, COURT_FEE, 0, address(0xFEE)));
     }
 
     function test_onlyControllerOpens() public {

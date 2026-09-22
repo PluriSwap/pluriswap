@@ -26,7 +26,7 @@ abstract contract KlerosForkBase is Test {
         forked = true;
         core = IArbitratorV2(core_);
         registry = registry_;
-        adapter = new KlerosAdapter(core_, EXTRA, 0, "", kernel, registry_, POLICY);
+        adapter = new KlerosAdapter(core_, EXTRA, 0, "", kernel, registry_, POLICY, 0, address(0xFEE));
         vm.deal(kernel, 1 ether);
     }
 
