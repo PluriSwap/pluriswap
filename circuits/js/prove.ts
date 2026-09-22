@@ -46,10 +46,13 @@ const BIN = join(process.env.HOME ?? "", ".pluri-zk/bin");
 type Circuit = {
   /** nargo package name (crates/<name>) */
   name: string;
-  /** the Solidity verifier contract this circuit's vk generates (file and contract) */
-  contract: string;
+  /** the Solidity verifier contract this circuit's vk generates — undefined for the
+   *  off-chain circuits (F4): no EVM verifier is written, the VK itself is the fixture */
+  contract?: string;
   /** public input count in the proof blob (order = the circuit's pub signature order) */
   pubs: number;
+  /** off-chain circuit (F4): verify with bb / bb.js, commit the vk instead of initcode */
+  offchain?: boolean;
   /** Prover.toml content, from the vectors fixture (reduced where keccak-derived) */
   proverToml: (v: Vectors) => string;
 };
@@ -160,6 +163,48 @@ type WithdrawVectors = {
   sk_id: string;
 };
 
+type AttestVectors = {
+  sk_id: string;
+  handle_salt: string;
+  handle_commit: string;
+  count: string;
+  volume: string;
+  penalty: string;
+  in_flight: string;
+  leaf_token: string;
+  salt: string;
+  version: string;
+  token: string;
+  decimals: string;
+  tier: string;
+  count_claimed: string;
+  expiry: string;
+  root: string;
+  siblings: string[];
+  indices: number[];
+};
+
+type RevealVectors = {
+  handle_commit: string;
+  fields_mask: string;
+  out_volume: string;
+  out_penalty: string;
+  requester: string;
+  token: string;
+  sk_id: string;
+  handle_salt: string;
+  count: string;
+  volume: string;
+  penalty: string;
+  in_flight: string;
+  leaf_token: string;
+  salt: string;
+  version: string;
+  root: string;
+  siblings: string[];
+  indices: number[];
+};
+
 type Vectors = {
   registry: RegistryVectors;
   prepare: PrepareVectors;
@@ -168,6 +213,8 @@ type Vectors = {
   claim: ClaimVectors;
   reabsorb: ReabsorbVectors;
   withdraw: WithdrawVectors;
+  attest: AttestVectors;
+  reveal: RevealVectors;
 };
 
 const CIRCUIT_LIST: Circuit[] = [
@@ -352,6 +399,59 @@ const CIRCUIT_LIST: Circuit[] = [
         `indices = [${v.withdraw.indices.join(", ")}]`,
       ]),
   },
+  // ------------------------------------------------------------- F4: the disclosure circuits (off-chain)
+  {
+    name: "attest_base",
+    offchain: true,
+    pubs: 7,
+    proverToml: (v) =>
+      toml([
+        `handle_commit = ${str(v.attest.handle_commit)}`,
+        `tier = ${str(v.attest.tier)}`,
+        `count = ${str(v.attest.count_claimed)}`,
+        `expiry = ${str(v.attest.expiry)}`,
+        `token = ${str(v.attest.token)}`,
+        `decimals = ${str(v.attest.decimals)}`,
+        `rep_root = ${str(v.attest.root)}`,
+        `sk_id = ${str(v.attest.sk_id)}`,
+        `handle_salt = ${str(modP(BigInt(v.attest.handle_salt)))}`,
+        `count_actual = ${str(v.attest.count)}`,
+        `volume = ${str(v.attest.volume)}`,
+        `penalty = ${str(v.attest.penalty)}`,
+        `in_flight = ${str(v.attest.in_flight)}`,
+        `leaf_token = ${str(v.attest.leaf_token)}`,
+        `salt = ${str(modP(BigInt(v.attest.salt)))}`,
+        `version = ${str(v.attest.version)}`,
+        `siblings = [${v.attest.siblings.map(str).join(", ")}]`,
+        `indices = [${v.attest.indices.join(", ")}]`,
+      ]),
+  },
+  {
+    name: "reveal_advanced",
+    offchain: true,
+    pubs: 7,
+    proverToml: (v) =>
+      toml([
+        `handle_commit = ${str(v.reveal.handle_commit)}`,
+        `fields_mask = ${str(v.reveal.fields_mask)}`,
+        `out_volume = ${str(v.reveal.out_volume)}`,
+        `out_penalty = ${str(v.reveal.out_penalty)}`,
+        `requester = ${str(v.reveal.requester)}`,
+        `token = ${str(v.reveal.token)}`,
+        `rep_root = ${str(v.reveal.root)}`,
+        `sk_id = ${str(v.reveal.sk_id)}`,
+        `handle_salt = ${str(modP(BigInt(v.reveal.handle_salt)))}`,
+        `count = ${str(v.reveal.count)}`,
+        `volume = ${str(v.reveal.volume)}`,
+        `penalty = ${str(v.reveal.penalty)}`,
+        `in_flight = ${str(v.reveal.in_flight)}`,
+        `leaf_token = ${str(v.reveal.leaf_token)}`,
+        `salt = ${str(modP(BigInt(v.reveal.salt)))}`,
+        `version = ${str(v.reveal.version)}`,
+        `siblings = [${v.reveal.siblings.map(str).join(", ")}]`,
+        `indices = [${v.reveal.indices.join(", ")}]`,
+      ]),
+  },
 ];
 
 // ---------------------------------------------------------------- shell + toml helpers
@@ -418,6 +518,20 @@ function main() {
     );
     console.log(`  proof fixture: ${pubs.length} bytes of public inputs (== ${circuit.pubs} Field elements)`);
 
+    if (circuit.offchain || !circuit.contract) {
+      // The off-chain circuits (F4): the consumer verifies with bb (or bb.js later), so
+      // the verification KEY is the fixture — no EVM verifier, no initcode. Committed as
+      // hex exactly like the adapters' initcode: the consumer pins it, nothing deploys it.
+      const vkFixtureDir = join(REPO, "test/fixtures/vks");
+      mkdirSync(vkFixtureDir, { recursive: true });
+      writeFileSync(
+        join(vkFixtureDir, `${circuit.name}.json`),
+        JSON.stringify({ vk: hex(readFileSync(join(vkDir, "vk"))) }, null, 2) + "\n",
+      );
+      console.log(`  vk fixture: test/fixtures/vks/${circuit.name}.json`);
+      continue;
+    }
+
     // The verifier contract: bb writes `HonkVerifier`/`IVerifier`; two circuits cannot both
     // declare those names in one solc run, so each file is renamed to its circuit's contract.
     const verifierPath = join(REPO, "verifiers", "src", `${circuit.contract}.sol`);
@@ -436,6 +550,7 @@ function main() {
   const initcodeDir = join(REPO, "test/fixtures/verifiers");
   mkdirSync(initcodeDir, { recursive: true });
   for (const circuit of CIRCUIT_LIST) {
+    if (circuit.offchain || !circuit.contract) continue; // off-chain: no initcode to extract
     const artifact = join(
       REPO,
       "verifiers",

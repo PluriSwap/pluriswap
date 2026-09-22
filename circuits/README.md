@@ -41,10 +41,14 @@ circuits/
   crates/claim/                   # V3: the §3.15.5 terminal delta as arithmetic (8 pubs)
   crates/reabsorb/                # V3: the released lock merges back (7 pubs, no root)
   crates/withdraw/                # V3: the exit — conservation + whole-consumption mask (6 pubs)
+  crates/attest_base/             # F4: the listing attestation — tier/count as LOWER bounds (7 pubs, off-chain)
+  crates/reveal_advanced/         # F4: the profile reveal — chosen fields as mask arithmetic (7 pubs, off-chain)
   js/
     lib/fields.ts, poseidon.ts, commitments.ts, merkle.ts, tiers.ts   # the JS twin
+    lib/verify.ts, chain.ts       # F4: the consumer side — bb verify + semantic checks + chain consistency
+    lib/verify.test.ts, chain.test.ts   # the F4 suite: semantics on stubs; the real-bb path skips itself without the toolchain
     vectors.ts                    # generator: vectors.json + the GENERATED .nr files
-    prove.ts                      # prover: witness TOMLs + proofs + verifiers + initcode
+    prove.ts                      # prover: witness TOMLs + proofs + verifiers + initcode (+ VK fixtures for F4)
 ```
 
 ## Commands
@@ -52,8 +56,24 @@ circuits/
 ```sh
 bun circuits:vectors    # regenerate test/fixtures/vectors.json + constants_p*.nr + vectors.nr
 (cd circuits && nargo test)   # parity tests: zero gate (circomlib vector) + builders + tree
+bun circuits:test       # the F4 consumer side: verify/chain semantics (stubs; the real-bb
+                        # fixture path skips itself where the toolchain is absent)
 forge test --match-contract PrivacyCommitmentsTest   # the Solidity twin against the same fixture
 ```
+
+## The off-chain circuits (F4)
+
+`attest_base` and `reveal_advanced` are verified OFF-CHAIN (§3.15.9): no adapter, no
+Solidity verifier, no initcode. What prove.ts commits for them is the proof (the same
+`test/fixtures/proofs/<name>.json` blob format) plus the **verification key**
+(`test/fixtures/vks/<name>.json`, bare hex) — the consumer pins the VK exactly like the
+adapters pin initcode; nothing deploys it. The consumer surface is `circuits/js/lib/verify.ts`:
+`bb verify` (the same pinned binary, or a future bb.js/WASM verifier via
+`opts.verifyProof`) + the semantic checks the circuit cannot make — `expiry` against the
+consumer's clock, `decimals` against the served ERC-20, `repRoot` against the tree's
+live roots. The public-input binding is part of the Honk statement (the same wire that
+pins withdraw's `dest`), and the tamper tests of `verify.test.ts` pin that empirically:
+an edited pub — an overstated tier, a re-targeted requester — breaks `bb verify`.
 
 The zero gate is `poseidonT3(1, 2) == 7853200120776062878684798364095072458815029376092732009249414926327459813530`
 (circomlib `poseidonperm_x5_254_3([1,2])`, the same vector `test/PoseidonTree.t.sol` pins) —

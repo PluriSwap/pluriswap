@@ -32,3 +32,15 @@ export function capRaw(sc: bigint, withBond: boolean, decimals: bigint): bigint 
   const units = capUnits(sc, withBond);
   return units === null ? null : units * 10n ** decimals;
 }
+
+/** The tier ordinal a score buys (1..5) — the disclosure layer's (F4) reading of the same
+ *  ladder: `attest_base`'s claimed tier is a LOWER bound of this. `capUnits` returns 0
+ *  for T5; here the ordinal is explicit — the attestation's public semantics is the
+ *  tier, not the cap. */
+export function tierOf(sc: bigint): bigint {
+  if (sc >= 100n) return 5n;
+  if (sc >= 50n) return 4n;
+  if (sc >= 25n) return 3n;
+  if (sc >= 10n) return 2n;
+  return 1n;
+}

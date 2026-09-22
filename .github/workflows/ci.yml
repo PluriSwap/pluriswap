@@ -180,3 +180,8 @@ jobs:
             git diff --stat -- test/fixtures/vectors.json circuits/crates/pluri_commitments/src/
             exit 1
           fi
+      - name: circuits js suite (verify + chain, semantic layer)
+        # The consumer-side libs of F4: semantic checks against a stub verifier (the
+        # real-bb fixture tests skip themselves where the toolchain is absent — the
+        # proofs are committed fixtures; a developer regenerating runs them locally).
+        run: bun test circuits/js

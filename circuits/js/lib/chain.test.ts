@@ -1,0 +1,134 @@
+// The chain lib's suite: pure logic against a stub verifier — the consistency semantics
+// a consumer's cadence policy sits on (one handle, raw monotonicity), plus the two
+// negative shapes the design says must REJECT (a spliced series, a decreasing counter).
+
+import { describe, expect, test } from "bun:test";
+import { ChainElement, verifyAttestationChain } from "./chain.ts";
+import { AttestBasePubs, RevealAdvancedPubs } from "./verify.ts";
+
+const clock = { now: 1_700_000_000n, verifyProof: () => true } as const;
+
+function base(pubs: Partial<AttestBasePubs>): ChainElement {
+  return {
+    kind: "base",
+    proof: "00",
+    vk: "00",
+    pubs: {
+      handle_commit: "777",
+      tier: "2",
+      count: "12",
+      expiry: "1800000000",
+      token: "1",
+      decimals: "6",
+      rep_root: "555",
+      ...pubs,
+    },
+  };
+}
+
+function reveal(pubs: Partial<RevealAdvancedPubs>): ChainElement {
+  return {
+    kind: "reveal",
+    proof: "00",
+    vk: "00",
+    pubs: {
+      handle_commit: "777",
+      fields_mask: "3",
+      out_volume: "750000000",
+      out_penalty: "5",
+      requester: "42",
+      token: "1",
+      rep_root: "555",
+      ...pubs,
+    },
+  };
+}
+
+describe("verifyAttestationChain", () => {
+  test("an empty chain discloses nothing", async () => {
+    const r = await verifyAttestationChain([], clock);
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("empty chain");
+  });
+
+  test("a single element is a (trivial) consistent chain", async () => {
+    const r = await verifyAttestationChain([base({})], clock);
+    expect(r.ok).toBeTrue();
+  });
+
+  test("a count that grows across attestations is the honest trajectory", async () => {
+    const r = await verifyAttestationChain([base({ count: "12" }), base({ count: "15" })], clock);
+    expect(r.ok).toBeTrue();
+    expect(r.checks.join(" ")).toContain("one handle across 2 elements");
+  });
+
+  test("a decreasing count is a fabricated series — count never decreases (§3.15.5)", async () => {
+    const r = await verifyAttestationChain([base({ count: "15" }), base({ count: "12" })], clock);
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("count 12 decreased from 15");
+  });
+
+  test("two handles spliced into one series fail as one account's disclosure", async () => {
+    const r = await verifyAttestationChain(
+      [base({}), base({ handle_commit: "888" })],
+      clock,
+    );
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("handle_commit differs");
+  });
+
+  test("revealed volume and penalty track monotone across reveals", async () => {
+    const r = await verifyAttestationChain(
+      [reveal({ out_volume: "750000000", out_penalty: "5" }), reveal({ out_volume: "900000000", out_penalty: "5" })],
+      clock,
+    );
+    expect(r.ok).toBeTrue();
+  });
+
+  test("a decreasing revealed penalty is a fabricated series", async () => {
+    const r = await verifyAttestationChain(
+      [reveal({ out_penalty: "10" }), reveal({ out_penalty: "5" })],
+      clock,
+    );
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("penalty 5 decreased from 10");
+  });
+
+  test("a hidden field does not participate in the track (mask 0b10 hides volume)", async () => {
+    const r = await verifyAttestationChain(
+      [
+        reveal({ fields_mask: "3", out_volume: "900000000", out_penalty: "5" }),
+        reveal({ fields_mask: "2", out_volume: "0", out_penalty: "5" }), // volume hidden
+      ],
+      clock,
+    );
+    expect(r.ok).toBeTrue();
+  });
+
+  test("a mixed series: count tracks across reveals, reveals track their fields", async () => {
+    const r = await verifyAttestationChain(
+      [
+        base({ count: "12" }),
+        reveal({ out_volume: "750000000", out_penalty: "5" }),
+        base({ count: "12", tier: "1" }), // a mid-chain penalty may drop the tier — honest
+      ],
+      clock,
+    );
+    expect(r.ok).toBeTrue();
+  });
+
+  test("a mixed series with a count that drops after a reveal still fails", async () => {
+    const r = await verifyAttestationChain(
+      [base({ count: "12" }), reveal({}), base({ count: "10" })],
+      clock,
+    );
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("count 10 decreased from 12");
+  });
+
+  test("a failing element's own errors ride into the chain result", async () => {
+    const r = await verifyAttestationChain([base({}), base({ expiry: "100" })], clock);
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("element 1: attestation expired");
+  });
+});

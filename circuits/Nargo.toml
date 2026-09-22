@@ -10,4 +10,6 @@ members = [
     "crates/claim",
     "crates/reabsorb",
     "crates/withdraw",
+    "crates/attest_base",
+    "crates/reveal_advanced",
 ]

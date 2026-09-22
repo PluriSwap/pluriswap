@@ -21,7 +21,7 @@ forge test                       # unit + fuzz (256 runs) + invariants (32 x 256
 FOUNDRY_PROFILE=ci forge test    # fuzz 2048, invariants 128 x 512
 ```
 
-CI (push y PR): `forge fmt --check`, `forge build --sizes` con gate de margen de bytecode, `forge test`, Slither (`--fail-medium`), Aderyn (`--fail-high`), consola del lab (vitest + build), gate de drift de los circuits (bun regenera los vectors y exige `git diff --exit-code`; CI nunca necesita nargo/bb — proofs y verifiers viven como fixtures comprometidos). Nightly con perfil `ci`. Detalle y ley de TDD en `PLURISWAP.md` §5.4.
+CI (push y PR): `forge fmt --check`, `forge build --sizes` con gate de margen de bytecode, `forge test`, Slither (`--fail-medium`), Aderyn (`--fail-high`), consola del lab (vitest + build), gate de drift de los circuits (bun regenera los vectors y exige `git diff --exit-code`) + suite JS del consumer side de F4 (verify/chain, semántica con stubs); CI nunca necesita nargo/bb — proofs, verifiers y VKs viven como fixtures comprometidos. Nightly con perfil `ci`. Detalle y ley de TDD en `PLURISWAP.md` §5.4.
 
 ## Layout
 
@@ -32,7 +32,7 @@ src/libraries/              Consent, Terms, Settlement, Clocks, Types, PackageId
 src/packages/               módulos opt-in detrás de interfaces
 src/pools/                  Holder-contrato vault + factory
 src/ramps/                  composers (Stargate)
-circuits/                   la capa ZK: 9 circuitos Noir + el twin JS (ver circuits/README.md)
+circuits/                   la capa ZK: 11 circuitos Noir + el twin JS + la lib de consumer side F4 (verify/chain; ver circuits/README.md)
 verifiers/                  subproyecto de los verifiers Honk generados (via_ir off)
 lab/                        consola de operador (read-only)
 script/                     deploy y deal scripts

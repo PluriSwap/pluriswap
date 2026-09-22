@@ -82,6 +82,25 @@ const WITHDRAW_AMOUNT = 400_000_000n;
 const WITHDRAW_CHANGE_AMOUNT = BOND_CHANGE_AMOUNT - WITHDRAW_AMOUNT;
 const WITHDRAW_CHANGE_SALT = BigInt(keccak("pluri:withdraw-change-salt:1"));
 
+// The disclosure layer of F4 (§3.15.7): the same account tree, one more leaf later in
+// the account's life. The sample account is mid-history — 12 deals completed, 3 lots of
+// volume, a +5 penalty already absorbed — score = 12 + 3 − 5 = 10, exactly at the T2
+// boundary (the tier the penalty shaped: without it, 15 would read T3). Nothing in
+// flight: the loan-consumer's question ("how has this account behaved"), not the deal
+// engine's ("how much can it take now"). Version 3, the salt rotated past V3's claim.
+// The attestation claims the HONEST exact bounds (tier 2, count 12); understating is
+// the circuit's own tests. `expiry` is a pinned promise the consumer's clock checks.
+const ATTEST_SALT = BigInt(keccak("pluri:attest-salt:1"));
+const ATTEST_COUNT = 12n;
+const ATTEST_VOLUME = 750_000_000n; // 3 lots at 6 decimals
+const ATTEST_PENALTY = 5n;
+const ATTEST_VERSION = 3n;
+const ATTEST_EXPIRY = 1_800_000_000n;
+const ATTEST_DECIMALS = 6n;
+// The reveal's optional requester bind (§3.15.7 "bind a su pubkey efímera"): the pubkey
+// hash of the one requester this profile was minted for, keccak-derived and reduced.
+const REVEAL_REQUESTER = BigInt(keccak("pluri:requester:1"));
+
 async function main() {
   // ---------------------------------------------------------------- zero gate
   const zero = await poseidon2(1n, 2n);
@@ -430,6 +449,74 @@ async function main() {
     sk_id: dec(SK_ID),
   };
 
+  // ---------------------------------------------------------------- attest vectors (F4)
+  // The disclosure layer (§3.15.7): attest_base and reveal_advanced prove against the SAME
+  // account tree the on-chain circuits use — this leaf enters at index 2, after V3's
+  // claim (leaf0 at 0, the prepare's new leaf at 1), and each proof references its own
+  // insert-time root. Both circuits share this one witness: the listing attestation and
+  // the profile reveal are two views of one account state.
+  const attestLeaf = await c.leafRep(
+    sampleS, ATTEST_COUNT, ATTEST_VOLUME, ATTEST_PENALTY, 0n, TOKEN_ID, ATTEST_SALT, ATTEST_VERSION,
+  );
+  const attestRoot = await accountTree.insert(attestLeaf);
+  const attestProof = accountTree.proofOf(2);
+  const attestHandle = await c.handleCommit(SK_ID, HANDLE_SALT);
+  const attestScore = tiers.score(ATTEST_COUNT, ATTEST_VOLUME, ATTEST_PENALTY, ATTEST_DECIMALS);
+  const attestTier = tiers.tierOf(attestScore);
+  if (attestScore !== 10n || attestTier !== 2n) {
+    throw new Error(`attest sample stats must sit exactly at the T2 boundary: score ${attestScore}`);
+  }
+  const attestVectors = {
+    depth: ACCOUNT_DEPTH,
+    sk_id: dec(SK_ID),
+    handle_salt: dec(HANDLE_SALT),
+    handle_commit: dec(attestHandle),
+    // The leaf's own stats (§3.15.3 leafRep order) — the state, not the claim.
+    count: dec(ATTEST_COUNT),
+    volume: dec(ATTEST_VOLUME),
+    penalty: dec(ATTEST_PENALTY),
+    in_flight: "0",
+    leaf_token: dec(TOKEN_ID),
+    salt: dec(ATTEST_SALT),
+    version: dec(ATTEST_VERSION),
+    // The statement: the token the stats are denominated in (with its decimals — the
+    // tier is a function of both, so the consumer cross-checks them against the ERC20),
+    // the claimed bounds, and the freshness promise.
+    token: dec(TOKEN_ID),
+    decimals: dec(ATTEST_DECIMALS),
+    tier: dec(attestTier),
+    count_claimed: dec(ATTEST_COUNT),
+    expiry: dec(ATTEST_EXPIRY),
+    score: dec(attestScore),
+    siblings: attestProof.siblings.map(dec),
+    indices: attestProof.indices,
+    root: dec(attestRoot),
+  };
+
+  // reveal_advanced (§3.15.7 "campos elegidos"): the exact profile under the same handle,
+  // both fields revealed (mask 0b11), minted for the pinned requester. A hidden field's
+  // output is zero — the mask semantics are the circuit's own tests.
+  const revealVectors = {
+    handle_commit: dec(attestHandle),
+    fields_mask: "3",
+    out_volume: dec(ATTEST_VOLUME),
+    out_penalty: dec(ATTEST_PENALTY),
+    requester: dec(field(dec(REVEAL_REQUESTER))),
+    token: dec(TOKEN_ID),
+    sk_id: dec(SK_ID),
+    handle_salt: dec(HANDLE_SALT),
+    count: dec(ATTEST_COUNT),
+    volume: dec(ATTEST_VOLUME),
+    penalty: dec(ATTEST_PENALTY),
+    in_flight: "0",
+    leaf_token: dec(TOKEN_ID),
+    salt: dec(ATTEST_SALT),
+    version: dec(ATTEST_VERSION),
+    siblings: attestProof.siblings.map(dec),
+    indices: attestProof.indices,
+    root: dec(attestRoot),
+  };
+
   const vectors = {
     provenance: {
       generator: "circuits/js/vectors.ts (bun circuits:vectors)",
@@ -453,6 +540,8 @@ async function main() {
     claim: claimVectors,
     reabsorb: reabsorbVectors,
     withdraw: withdrawVectors,
+    attest: attestVectors,
+    reveal: revealVectors,
   };
 
   // ---------------------------------------------------------------- write vectors.json
@@ -685,6 +774,50 @@ type WithdrawVectors = {
   indices: number[];
   root: string;
   sk_id: string;
+};
+
+type AttestVectors = {
+  depth: number;
+  sk_id: string;
+  handle_salt: string;
+  handle_commit: string;
+  count: string;
+  volume: string;
+  penalty: string;
+  in_flight: string;
+  leaf_token: string;
+  salt: string;
+  version: string;
+  token: string;
+  decimals: string;
+  tier: string;
+  count_claimed: string;
+  expiry: string;
+  score: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
+};
+
+type RevealVectors = {
+  handle_commit: string;
+  fields_mask: string;
+  out_volume: string;
+  out_penalty: string;
+  requester: string;
+  token: string;
+  sk_id: string;
+  handle_salt: string;
+  count: string;
+  volume: string;
+  penalty: string;
+  in_flight: string;
+  leaf_token: string;
+  salt: string;
+  version: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
 };
 
 function renderNoirVectors(
@@ -923,6 +1056,60 @@ function renderNoirVectors(
   nr.push(...w.siblings.map((x) => `    ${x},`));
   nr.push("];");
   nr.push(`pub global WITHDRAW_INDICES: [u8; ${w.indices.length}] = [${w.indices.join(", ")}];`);
+  nr.push("");
+  // Attest section (F4): the disclosure samples of §3.15.7. The account is mid-history
+  // (12 deals, 3 lots, a +5 penalty — score 10, exactly T2), nothing in flight, version
+  // 3. The membership witness is the leaf's OWN insert-time root (index 2 of the account
+  // tree, after V3's claim). The claim is the honest exact one; understating is the
+  // circuit's own tests. handle_salt and salt are keccak-derived (raw >= p) — reduced.
+  const a = (v as { attest: AttestVectors }).attest;
+  nr.push(`pub global ATTEST_DEPTH: u32 = ${a.depth};`);
+  nr.push(`pub global ATTEST_SK_ID: Field = ${a.sk_id};`);
+  nr.push(`pub global ATTEST_HANDLE_SALT: Field = ${dec(field(a.handle_salt))};`);
+  nr.push(`pub global ATTEST_HANDLE_COMMIT: Field = ${a.handle_commit};`);
+  nr.push(`pub global ATTEST_COUNT: Field = ${a.count};`);
+  nr.push(`pub global ATTEST_VOLUME: Field = ${a.volume};`);
+  nr.push(`pub global ATTEST_PENALTY: Field = ${a.penalty};`);
+  nr.push(`pub global ATTEST_IN_FLIGHT: Field = ${a.in_flight};`);
+  nr.push(`pub global ATTEST_LEAF_TOKEN: Field = ${a.leaf_token};`);
+  nr.push(`pub global ATTEST_SALT: Field = ${dec(field(a.salt))};`);
+  nr.push(`pub global ATTEST_VERSION: Field = ${a.version};`);
+  nr.push(`pub global ATTEST_TOKEN: Field = ${a.token};`);
+  nr.push(`pub global ATTEST_DECIMALS: Field = ${a.decimals};`);
+  nr.push(`pub global ATTEST_TIER: Field = ${a.tier};`);
+  nr.push(`pub global ATTEST_COUNT_CLAIMED: Field = ${a.count_claimed};`);
+  nr.push(`pub global ATTEST_EXPIRY: Field = ${a.expiry};`);
+  nr.push(`pub global ATTEST_SCORE: Field = ${a.score};`);
+  nr.push(`pub global ATTEST_ROOT: Field = ${a.root};`);
+  nr.push(`pub global ATTEST_SIBLINGS: [Field; ${a.siblings.length}] = [`);
+  nr.push(...a.siblings.map((x) => `    ${x},`));
+  nr.push("];");
+  nr.push(`pub global ATTEST_INDICES: [u8; ${a.indices.length}] = [${a.indices.join(", ")}];`);
+  nr.push("");
+  // Reveal section (F4): the exact profile under the same handle — both fields chosen
+  // (mask 0b11), minted for the pinned requester (keccak-derived, reduced). The witness
+  // is the SAME account state as the attest section (one leaf, two views).
+  const rv = (v as { reveal: RevealVectors }).reveal;
+  nr.push(`pub global REVEAL_HANDLE_COMMIT: Field = ${rv.handle_commit};`);
+  nr.push(`pub global REVEAL_FIELDS_MASK: Field = ${rv.fields_mask};`);
+  nr.push(`pub global REVEAL_OUT_VOLUME: Field = ${rv.out_volume};`);
+  nr.push(`pub global REVEAL_OUT_PENALTY: Field = ${rv.out_penalty};`);
+  nr.push(`pub global REVEAL_REQUESTER: Field = ${rv.requester};`);
+  nr.push(`pub global REVEAL_TOKEN: Field = ${rv.token};`);
+  nr.push(`pub global REVEAL_SK_ID: Field = ${rv.sk_id};`);
+  nr.push(`pub global REVEAL_HANDLE_SALT: Field = ${dec(field(rv.handle_salt))};`);
+  nr.push(`pub global REVEAL_COUNT: Field = ${rv.count};`);
+  nr.push(`pub global REVEAL_VOLUME: Field = ${rv.volume};`);
+  nr.push(`pub global REVEAL_PENALTY: Field = ${rv.penalty};`);
+  nr.push(`pub global REVEAL_IN_FLIGHT: Field = ${rv.in_flight};`);
+  nr.push(`pub global REVEAL_LEAF_TOKEN: Field = ${rv.leaf_token};`);
+  nr.push(`pub global REVEAL_SALT: Field = ${dec(field(rv.salt))};`);
+  nr.push(`pub global REVEAL_VERSION: Field = ${rv.version};`);
+  nr.push(`pub global REVEAL_ROOT: Field = ${rv.root};`);
+  nr.push(`pub global REVEAL_SIBLINGS: [Field; ${rv.siblings.length}] = [`);
+  nr.push(...rv.siblings.map((x) => `    ${x},`));
+  nr.push("];");
+  nr.push(`pub global REVEAL_INDICES: [u8; ${rv.indices.length}] = [${rv.indices.join(", ")}];`);
   nr.push("");
   return nr.join("\n");
 }

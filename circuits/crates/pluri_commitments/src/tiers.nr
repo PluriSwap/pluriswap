@@ -96,6 +96,27 @@ fn cap_units(sc: u128, with_bond: bool) -> Field {
     }
 }
 
+/// The tier ordinal a score buys (1..5) — the disclosure layer's (F4) reading of the same
+/// ladder: `attest_base`'s claimed tier is a LOWER bound of this. `cap_units` encodes T5
+/// as 0; here the ordinal is explicit — the attestation's public semantics is the tier,
+/// not the cap. Same thresholds, same `u128` ordered comparison (no relational ops on
+/// Field in this nargo).
+pub fn tier_of(sc: Field) -> u8 {
+    let s: u128 = sc as u128;
+    assert(s as Field == sc, "score too big");
+    if s >= 100 {
+        5
+    } else if s >= 50 {
+        4
+    } else if s >= 25 {
+        3
+    } else if s >= 10 {
+        2
+    } else {
+        1
+    }
+}
+
 // ---------------------------------------------------------------- parity tests (vectors.nr)
 
 #[test]
@@ -104,6 +125,20 @@ fn pow10_matches() {
     assert(pow10(1) == 10, "10^1");
     assert(pow10(6) == 1000000, "10^6");
     assert(pow10(18) == 1000000000000000000, "10^18");
+}
+
+#[test]
+fn tier_ordinals_match_the_ladder() {
+    // §3.14.7's ladder as ordinals: the five thresholds, boundary-anchored on both sides.
+    assert(tier_of(0) == 1, "T1 floor");
+    assert(tier_of(9) == 1, "just under T2");
+    assert(tier_of(10) == 2, "T2 boundary");
+    assert(tier_of(24) == 2, "just under T3");
+    assert(tier_of(25) == 3, "T3 boundary");
+    assert(tier_of(49) == 3, "just under T4");
+    assert(tier_of(50) == 4, "T4 boundary");
+    assert(tier_of(99) == 4, "just under T5");
+    assert(tier_of(100) == 5, "T5 boundary");
 }
 
 #[test]
