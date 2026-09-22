@@ -33,6 +33,12 @@ library Packages {
     uint8 internal constant POST_BOND_A = 0x04;
     uint8 internal constant POST_BOND_B = 0x08;
 
+    /// @dev A bond disposal TRUST-03 fails open on: the vault stopped answering or drifted off its signed
+    ///      id, so the bit is cleared like a success and the lock stays in the vault permanently. It clears
+    ///      exactly like a success, which is precisely why it needs its own announcement: `postPending`
+    ///      reaching zero cannot tell the two apart, and one of them is real value nobody gets back.
+    event BondDisposalAbandoned(bytes32 indexed dealId, address indexed vault);
+
     error UnknownPackage();
     error IncompatiblePackages();
     error PackageRequired();
@@ -307,6 +313,7 @@ library Packages {
             }
             if (!readable || !named(d, PackageId.bonds(address(vault), sink))) {
                 left &= ~(POST_BOND_A | POST_BOND_B);
+                emit BondDisposalAbandoned(dealId, address(vault));
                 return left;
             }
             BondAction bond = BondAction(bondAction);

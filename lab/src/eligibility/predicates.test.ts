@@ -126,6 +126,28 @@ describe("Deal matrix (CASE-CORE)", () => {
     expect(evalOpenCourt(ctx).reason).toBe(R.PackageNotSelected);
   });
 
+  // Parity with the kernel: `Escrow._requireNotZk` guards exactly four verbs (markFiat, claim,
+  // openDisputed, openCourt). A ZK deal is proof-or-timeout (§3.12.1), so the console must not offer
+  // any of them. If a fifth guard ever appears in the kernel, this is the test that should have
+  // failed first -- the previous coverage only pinned markFiat.
+  it("ZK closes every edge the kernel closes, and nothing else", () => {
+    const zk = deal({ status: Status.FUNDED, kinds: PKG.ZK | PKG.ARB });
+    const funded = { deal: zk, sender: controller, credit: null, ruling: null, dualSign: null };
+    expect(evalMarkFiat({ ...funded, sender: provider }).reason).toBe(R.EdgeOff);
+    expect(evalOpenCourt(funded).reason).toBe(R.EdgeOff);
+
+    // claim and openDisputed live in FIAT_SENT, which a ZK deal can never reach -- but the console
+    // evaluates them off a snapshot, so they have to answer EdgeOff rather than look reachable.
+    const sent = deal({ status: Status.FIAT_SENT, kinds: PKG.ZK | PKG.ARB });
+    const live = { deal: sent, sender: controller, credit: null, ruling: null, dualSign: null };
+    expect(evalClaim(live).reason).toBe(R.EdgeOff);
+    expect(evalOpenDisputed(live).reason).toBe(R.EdgeOff);
+
+    // The exits a ZK deal does have stay open: proof, or the fiat clock.
+    expect(evalTimeoutFiat(funded).reason).not.toBe(R.EdgeOff);
+    expect(evalVerifyProof({ ...funded, proof: "0x1234" }).enabled).toBe(true);
+  });
+
   it("ARB mock without court allowance is InexactPull, not ENABLED", () => {
     const d = deal({
       status: Status.FIAT_SENT,

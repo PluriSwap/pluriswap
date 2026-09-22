@@ -9,6 +9,7 @@ import {
     ControllerAcceptance,
     PackageMods
 } from "../src/libraries/Types.sol";
+import {Vm} from "forge-std/Vm.sol";
 import {Clocks} from "../src/libraries/Clocks.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {Packages} from "../src/libraries/Packages.sol";
@@ -799,6 +800,55 @@ contract PackagesTest is BaseTest {
         assertEq(vault.lockOf(SUB_H, id), BOND, "the lock stays in the vault, as TRUST-03 specifies");
         vm.expectRevert(Escrow.NothingPending.selector);
         escrow.retryPostTerminal(id);
+    }
+
+    /// Observability of the debt (§3.19). `postPending` is a getter, which means a keeper has to already
+    /// know a deal exists to discover it owes something — and the reputation bits are deliberately never
+    /// abandoned (§3.12.4: dropping a notification would hide a subject's `inFlight` leak), so a module that
+    /// never comes back leaves them set forever with nothing announcing it. Two events close that: the debt
+    /// is announced whenever it changes, and a bond disposal that TRUST-03 fails open is announced as the
+    /// permanent loss it is, since that one is silent in `postPending` — it clears exactly like a success.
+    function test_postTerminal_announcesTheDebtAndTheAbandonment() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        vm.mockCallRevert(address(vault), abi.encodeWithSelector(IBondVault.unlock.selector), "vault down");
+        vm.mockCallRevert(address(reputation), abi.encodeWithSelector(IReputation.notifyTerminal.selector), "rep down");
+        _markFiat(id);
+
+        vm.expectEmit(true, false, false, true, address(escrow));
+        emit Escrow.PostTerminalPending(id, 0x0F);
+        vm.prank(holder);
+        escrow.release(id);
+
+        // The reputation comes back; the vault drifts off its signed id instead.
+        vm.clearMockedCalls();
+        vm.mockCall(address(vault), abi.encodeWithSelector(IBondVault.sink.selector), abi.encode(address(0xBAD)));
+
+        // The abandonment is announced by address and deal, because the lock stays in the vault forever.
+        vm.expectEmit(true, true, false, false, address(escrow));
+        emit Packages.BondDisposalAbandoned(id, address(vault));
+        // And the debt is announced again at its new value — zero, which is what tells a keeper to stop.
+        vm.expectEmit(true, false, false, true, address(escrow));
+        emit Escrow.PostTerminalPending(id, 0);
+        escrow.retryPostTerminal(id);
+
+        assertEq(escrow.postPending(id), 0);
+    }
+
+    /// A clean terminal announces nothing: silence is the signal that nothing is owed, and a Core-only deal
+    /// must not pay for the observability of a path it never takes.
+    function test_postTerminal_cleanTerminalIsSilent() public {
+        _fundBonds();
+        bytes32 id = _activateTrio(1, 1);
+        _markFiat(id);
+        vm.recordLogs();
+        vm.prank(holder);
+        escrow.release(id);
+        Vm.Log[] memory logs = vm.getRecordedLogs();
+        for (uint256 i; i < logs.length; i++) {
+            assertTrue(logs[i].topics[0] != Escrow.PostTerminalPending.selector, "nothing was owed");
+        }
+        assertEq(escrow.postPending(id), 0);
     }
 
     /// Guards on the entry point: a live deal has nothing to retry, and neither does a Core-only terminal,

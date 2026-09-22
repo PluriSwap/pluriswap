@@ -53,6 +53,13 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     event Transitioned(bytes32 dealId, Status from, Status to);
     event Settled(bytes32 dealId, Status status, uint256 holderAmt, uint256 providerAmt);
     event NonceCancelled(address signer, uint256 nonce);
+    /// @dev The post-terminal debt of a deal, every time it changes: non-zero when `_close` could not
+    ///      deliver a package call, and again after every `retryPostTerminal`, including the zero that
+    ///      says a keeper can stop. Silence means nothing was ever owed. This is the only announcement
+    ///      of a debt that `postPending` would otherwise only reveal to someone already looking, and the
+    ///      reputation bits are deliberately never abandoned (EXT-12), so a module that never comes back
+    ///      leaves them set forever -- that is a subject's capacity leaking, and it should be visible.
+    event PostTerminalPending(bytes32 indexed dealId, uint8 pending);
 
     uint16 internal constant ALL = 10_000;
     uint16 internal constant HALF = 5_000;
@@ -468,7 +475,9 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         if (!isTerminal(d.status)) revert WrongStatus();
         uint8 pending = d.postPending;
         if (pending == 0) revert NothingPending();
-        d.postPending = Packages.runPostTerminal(d, dealId, d.closeH, d.closeP, d.bondAction, pending);
+        uint8 left = Packages.runPostTerminal(d, dealId, d.closeH, d.closeP, d.bondAction, pending);
+        d.postPending = left;
+        emit PostTerminalPending(dealId, left);
     }
 
     function cancelNonce(uint256 nonce) external {
@@ -527,6 +536,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
                 d.closeP = uint8(o.closeP);
                 d.bondAction = uint8(o.bond);
                 d.postPending = left;
+                emit PostTerminalPending(dealId, left);
             }
         }
     }

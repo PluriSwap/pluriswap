@@ -168,7 +168,20 @@ ninguno es el *payment proof*. No es una tarea: es la decisión de prioridad de 
 - `postPending` de reputación nunca llega a cero si el módulo rechaza permanentemente
   (`AlreadyPending`). Es deliberado (§3.12.4), pero no hay evento ni métrica que lo exponga.
 
-**Estado:** abierto.
+**Estado: PARCIAL** (2026-09-22, Parte IV). Dos de tres cerrados.
+
+*ZK en el lab*: el wart estaba desactualizado — los predicados ya apagaban los cuatro verbos que el
+kernel guarda con `_requireNotZk`. Lo que faltaba era la prueba: sólo `markFiat` estaba testeado, así
+que ahora hay un test de paridad contra la lista del kernel, que es el que debería fallar si aparece
+un quinto guard.
+
+*Observabilidad de `postPending`*: dos eventos. `PostTerminalPending(dealId, pending)` cada vez que la
+deuda cambia, incluido el cero que le dice al keeper que pare (un terminal limpio no emite nada), y
+`BondDisposalAbandoned(dealId, vault)` en el fail-open de TRUST-03 — hace falta aparte porque limpia
+el bit **igual que un éxito**, y `postPending == 0` no distingue "se entregó" de "el lock se perdió
+para siempre". Escrow 16.448 → 16.526 B.
+
+*bb.js/WASM en browser*: sigue abierto. No es un wart, es un pedazo de trabajo.
 
 ---
 
