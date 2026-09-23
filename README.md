@@ -19,28 +19,28 @@ ejercitan sobre una chain real en cada corrida de `script/e2e.sh` — no sólo e
 ```mermaid
 stateDiagram-v2
     direction TB
-    [*] --> FUNDED: activación atómica<br/>(firma Holder + firma Provider + pull exacto)
+    [*] --> FUNDED: activación atómica
 
     FUNDED --> CANCELLED: Provider cancela
     FUNDED --> CANCELLED: cualquiera, pasado el fiat deadline
-    FUNDED --> RELEASED: proof de V ·· sólo deals ZK
+    FUNDED --> RELEASED: proof de V, sólo deals ZK
     FUNDED --> FIAT_SENT: Provider marca fiat
 
     FIAT_SENT --> RELEASED: Controller libera
     FIAT_SENT --> CLAIMED: cualquiera, pasado el release deadline
-    FIAT_SENT --> DISPUTED: Controller congela ·· antes del reloj
+    FIAT_SENT --> DISPUTED: Controller congela, antes del reloj
     FIAT_SENT --> ARBITRATION_ACTIVE: Controller abre corte
 
-    DISPUTED --> ABANDONED: cualquiera, pasado el dispute deadline<br/>el que abrió la pelea la pierde
-    DISPUTED --> ARBITRATION_ACTIVE: Controller abre corte ·· antes del reloj
+    DISPUTED --> ABANDONED: cualquiera, pasado el dispute deadline
+    DISPUTED --> ARBITRATION_ACTIVE: Controller abre corte, antes del reloj
 
     ARBITRATION_ACTIVE --> RESOLVED_BY_ARBITRATION: ruling Holder o Provider
     ARBITRATION_ACTIVE --> STALEMATE: tribunal rehúsa
-    ARBITRATION_ACTIVE --> STALEMATE: el tribunal no contesta<br/>pasado el arbitration deadline
+    ARBITRATION_ACTIVE --> STALEMATE: el tribunal no contesta, pasado el reloj
 
-    note right of FIAT_SENT
+    note right of DISPUTED
         Desde cualquier estado vivo, dual-sign
-        (Provider + Controller) termina el deal
+        Provider + Controller termina el deal
         en RELEASED, CANCELLED o RESOLVED_SPLIT
         sin esperar ningún reloj.
     end note
