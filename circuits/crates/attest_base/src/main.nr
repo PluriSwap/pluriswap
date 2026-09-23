@@ -32,6 +32,7 @@ fn main(
     handle_commit: pub Field,
     tier: pub Field,
     count: pub Field,
+    volume_band: pub Field,
     penalty_band: pub Field,
     expiry: pub Field,
     token: pub Field,
@@ -82,6 +83,19 @@ fn main(
     let c_actual: u64 = count_actual as u64; // score() already bound it under 2^64
     assert((c_actual as u128) >= c_claimed, "claimed count over the account's");
 
+    // The volume band (§3.15.7): what the account has moved, as the protocol's own unit — LOTS of
+    // `UNIT = 250·10^decimals`, the same measure the score buys tier with. A lower bound like the two
+    // above, and for the same reason: understating what you moved is a weaker true statement.
+    //
+    // A band and not the figure, because the listing is public: an exact volume is a fingerprint,
+    // where "has moved more than 5.000" is what a counterparty actually asks. `decimals` being public
+    // is what makes the claim mean anything — with a private scale, dust would buy the top band.
+    let v_actual: u8 = tiers::volume_band(volume, decimals);
+    let v_claimed: u8 = volume_band as u8;
+    assert(v_claimed as Field == volume_band, "volume band not an ordinal");
+    assert(v_claimed <= 5, "volume band too big");
+    assert(v_actual >= v_claimed, "claimed volume band over the account's");
+
     // The penalty band, and the ONE claim here whose honest direction is upward. Tier and count
     // are lower bounds — understating is a weaker true statement, so it is allowed. Understating a
     // penalty is not weaker, it is a lie, so the assert runs the other way: a claimed band must
@@ -112,6 +126,7 @@ fn attest_base_sample_verifies() {
         v::ATTEST_HANDLE_COMMIT,
         v::ATTEST_TIER,
         v::ATTEST_COUNT_CLAIMED,
+        v::ATTEST_VOLUME_BAND,
         v::ATTEST_PENALTY_BAND,
         v::ATTEST_EXPIRY,
         v::ATTEST_TOKEN,
@@ -139,7 +154,8 @@ fn understating_verifies() {
         v::ATTEST_HANDLE_COMMIT,
         1, // tier T1 — under the account's T2
         0, // count 0 — under the account's 12
-        3, // band 3 — OVER the account's 1, the one claim whose honest direction is up
+        0, // volume band 0 — under the account's 1, like every other good stat
+        3, // penalty band 3 — OVER the account's 1, the one claim whose honest direction is up
         v::ATTEST_EXPIRY,
         v::ATTEST_TOKEN,
         v::ATTEST_DECIMALS,
@@ -201,6 +217,7 @@ fn understating_the_penalty_has_no_proof() {
         v::ATTEST_HANDLE_COMMIT,
         v::ATTEST_TIER,
         v::ATTEST_COUNT_CLAIMED,
+        v::ATTEST_VOLUME_BAND,
         0, // clean — against an account that is not
         v::ATTEST_EXPIRY,
         v::ATTEST_TOKEN,
@@ -217,4 +234,47 @@ fn understating_the_penalty_has_no_proof() {
         v::ATTEST_SIBLINGS,
         v::ATTEST_INDICES,
     );
+}
+
+#[test(should_fail_with = "claimed volume band over the account's")]
+fn overstating_the_volume_has_no_proof() {
+    // The good stats' own direction, on the new field: the sample moved 3 lots (750 of the 6-dec
+    // token) which is band 1, so claiming band 2 — "more than 1.000 moved" — has no witness. This is
+    // the claim the listing exists to make trustworthy: volume is what a counterparty reads as skin.
+    main(
+        v::ATTEST_HANDLE_COMMIT,
+        v::ATTEST_TIER,
+        v::ATTEST_COUNT_CLAIMED,
+        v::ATTEST_VOLUME_BAND + 1,
+        v::ATTEST_PENALTY_BAND,
+        v::ATTEST_EXPIRY,
+        v::ATTEST_TOKEN,
+        v::ATTEST_DECIMALS,
+        v::ATTEST_ROOT,
+        v::ATTEST_SK_ID,
+        v::ATTEST_HANDLE_SALT,
+        v::ATTEST_COUNT,
+        v::ATTEST_VOLUME,
+        v::ATTEST_PENALTY,
+        v::ATTEST_IN_FLIGHT,
+        v::ATTEST_LEAF_TOKEN,
+        v::ATTEST_VERSION,
+        v::ATTEST_SIBLINGS,
+        v::ATTEST_INDICES,
+    );
+}
+
+#[test]
+fn the_listing_shows_floors_and_one_ceiling() {
+    // The shape of the whole statement, in one place. Three of the four aggregates are FLOORS the
+    // account is at least at (tier, count, volume band) and one is a CEILING it is at most at
+    // (penalty band). That asymmetry is the listing: everything good can only be understated,
+    // everything bad can only be overstated, and both directions are the same word — honest.
+    assert(tiers::tier_of(v::ATTEST_SCORE) as Field == v::ATTEST_TIER, "tier floor");
+    assert(v::ATTEST_COUNT_CLAIMED == v::ATTEST_COUNT, "count floor, claimed exactly here");
+    assert(
+        tiers::volume_band(v::ATTEST_VOLUME, v::ATTEST_DECIMALS) as Field == v::ATTEST_VOLUME_BAND,
+        "volume floor",
+    );
+    assert(tiers::penalty_band(v::ATTEST_PENALTY) as Field == v::ATTEST_PENALTY_BAND, "penalty ceiling");
 }

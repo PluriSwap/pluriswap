@@ -269,6 +269,7 @@ async function main() {
       // The §3.15.7 aggregate: off-chain only (no Solidity twin — the band is a disclosure
       // reading of the same counter), pinned JS<->Noir through these rows.
       band: dec(BigInt(tiers.penaltyBand(penalty))),
+      volume_band: dec(BigInt(tiers.volumeBand(volume, decimals))),
     };
   });
 
@@ -524,6 +525,7 @@ async function main() {
     count_claimed: dec(ATTEST_COUNT),
     // The aggregate a listing carries about what went wrong: the sample absorbed one +5,
     // so band 1 -- visible as "something happened" without publishing the counter.
+    volume_band: String(tiers.volumeBand(ATTEST_VOLUME, ATTEST_DECIMALS)),
     penalty_band: String(tiers.penaltyBand(ATTEST_PENALTY)),
     expiry: dec(ATTEST_EXPIRY),
     score: dec(attestScore),
@@ -682,6 +684,7 @@ type TierVectors = {
   cap_base: string;
   cap_bond: string;
   band: string;
+  volume_band: string;
   unbounded: boolean;
 }[];
 
@@ -835,6 +838,8 @@ type AttestVectors = {
   decimals: string;
   tier: string;
   count_claimed: string;
+  volume_band: string;
+  penalty_band: string;
   expiry: string;
   score: string;
   siblings: string[];
@@ -976,6 +981,9 @@ function renderNoirVectors(
   nr.push("];");
   nr.push(`pub global TIER_BANDS: [Field; ${ti.length}] = [`);
   nr.push(...ti.map((x) => `    ${x.band},`));
+  nr.push("];");
+  nr.push(`pub global TIER_VOLUME_BANDS: [Field; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.volume_band},`));
   nr.push("];");
   nr.push(`pub global TIER_UNBOUNDED: [bool; ${ti.length}] = [`);
   nr.push(...ti.map((x) => `    ${x.unbounded},`));
@@ -1127,6 +1135,7 @@ function renderNoirVectors(
   nr.push(`pub global ATTEST_DECIMALS: Field = ${a.decimals};`);
   nr.push(`pub global ATTEST_TIER: Field = ${a.tier};`);
   nr.push(`pub global ATTEST_COUNT_CLAIMED: Field = ${a.count_claimed};`);
+  nr.push(`pub global ATTEST_VOLUME_BAND: Field = ${a.volume_band};`);
   nr.push(`pub global ATTEST_PENALTY_BAND: Field = ${a.penalty_band};`);
   nr.push(`pub global ATTEST_EXPIRY: Field = ${a.expiry};`);
   nr.push(`pub global ATTEST_SCORE: Field = ${a.score};`);

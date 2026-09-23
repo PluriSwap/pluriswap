@@ -42,6 +42,7 @@ function baseEnv(over: Partial<AttestBasePubs> = {}): AttestationEnvelope<Attest
       handle_commit: "123456789",
       tier: "2",
       count: "12",
+      volume_band: "2",
       penalty_band: "1",
       expiry: "1800000000",
       token: "97433442488726861213578988847752201310395502865",
@@ -144,6 +145,25 @@ describe("verifyAttestationBase (semantic checks)", () => {
     const r = await verifyAttestationBase(baseEnv({ tier: "6" }), { ...clock, verifyProof: stubOk });
     expect(r.ok).toBeFalse();
     expect(r.errors.join(" ")).toContain("ladder");
+  });
+
+  test("the volume band reads as a floor, never as a figure", async () => {
+    const r = await verifyAttestationBase(baseEnv(), { ...clock, verifyProof: stubOk });
+    expect(r.checks.join(" ")).toContain("1000 tokens+ moved");
+  });
+
+  test("a volume band outside the lot ladder fails", async () => {
+    const r = await verifyAttestationBase(baseEnv({ volume_band: "6" }), { ...clock, verifyProof: stubOk });
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("volume_band out of range");
+  });
+
+  test("band 0 says under one lot, not zero volume", async () => {
+    // The same trap the hidden-field zero is: a fresh account has not moved a lot yet, which is not
+    // the same statement as "moved nothing", and the listing must not read as an accusation.
+    const r = await verifyAttestationBase(baseEnv({ volume_band: "0" }), { ...clock, verifyProof: stubOk });
+    expect(r.ok).toBeTrue();
+    expect(r.checks.join(" ")).toContain("under one lot");
   });
 
   test("the band is read out, labelled by the events behind it", async () => {

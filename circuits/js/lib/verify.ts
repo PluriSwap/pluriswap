@@ -22,13 +22,14 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { penaltyBand } from "./tiers.ts";
+import { penaltyBand, volumeBandFloor } from "./tiers.ts";
 
 /** The pub orders, exactly as the circuits declare them (the fixture blob's tail). */
 export const ATTEST_BASE_PUBS = [
   "handle_commit",
   "tier",
   "count",
+  "volume_band",
   "penalty_band",
   "expiry",
   "token",
@@ -51,6 +52,7 @@ export type AttestBasePubs = {
   tier: string;
   count: string;
   /** The §3.15.7 aggregate: 0 clean, 1 (1..5), 2 (6..15), 3 (16+). Cannot be understated. */
+  volume_band: string;
   penalty_band: string;
   expiry: string;
   token: string;
@@ -150,6 +152,14 @@ export function bbVerifier(vkHex: string): ProofVerifier {
 
 // ---------------------------------------------------------------- semantic checks
 
+/** The §3.15.7 volume band, as a listing renders it: the floor in WHOLE tokens, or the honest
+ *  nothing-yet for band 0. The caller supplies the symbol — the proof carries the token's address,
+ *  not its name, and inventing one is exactly the kind of claim this lib does not make. */
+export function volumeBandLabel(band: number, symbol = "tokens"): string {
+  const floor = volumeBandFloor(band);
+  return floor === null ? `under one lot moved (250 ${symbol})` : `${floor} ${symbol}+ moved`;
+}
+
 /** The §3.15.7 bands, as a consumer reads them: the cuts are events (+5 a stalemate or an
  *  abandoned dispute, +15 an arbitration loss), so the label is the history, not a grade. */
 export const PENALTY_BAND_LABELS = [
@@ -204,6 +214,15 @@ export async function verifyAttestationBase(
   const tier = BigInt(att.pubs.tier);
   if (tier < 1n || tier > 5n) {
     errors.push(`tier out of the ladder: ${att.pubs.tier}`);
+  }
+
+  // The volume band (§3.15.7): a floor like tier and count — the circuit proves the account is at
+  // least here, so the lib range-checks it and states it as a floor, never as a figure.
+  const vband = BigInt(att.pubs.volume_band);
+  if (vband < 0n || vband > 5n) {
+    errors.push(`volume_band out of range: ${att.pubs.volume_band}`);
+  } else {
+    checks.push(`volume ${volumeBandLabel(Number(vband))}`);
   }
 
   // The band (§3.15.7): mandatory and never understated — the circuit asserts the claimed

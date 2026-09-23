@@ -117,6 +117,46 @@ pub fn tier_of(sc: Field) -> u8 {
     }
 }
 
+/// The volume BAND of §3.15.7: the other aggregate a public listing carries, where the exact figure
+/// belongs to the advanced reveal.
+///
+/// The cuts are LOTS, not round numbers of someone's favourite token: a lot is `UNIT = 250·10^decimals`,
+/// the same unit `score` buys tier with, so the band is denominated in the protocol's own measure and
+/// reads correctly in any token and any decimals. In whole tokens the floors are 250, 1.000, 5.000,
+/// 20.000 and 100.000 — which is what a listing shows, since `token` and `decimals` are public too:
+///
+///   0  under one lot   nothing meaningful moved yet
+///   1  1..3            250+
+///   2  4..19           1.000+
+///   3  20..79          5.000+
+///   4  80..399         20.000+
+///   5  400+            100.000+
+///
+/// It is a LOWER bound, like tier and count and unlike the penalty band: understating what you moved
+/// is a weaker true statement, overstating it has no witness. A band rather than the figure because a
+/// public listing is read by everyone and an exact volume is a fingerprint; a counterparty asking "is
+/// this person moving hundreds or hundreds of thousands" gets the answer, and whoever wants the exact
+/// number asks for the profile.
+pub fn volume_band(volume: Field, decimals: Field) -> u8 {
+    let vol: u128 = volume as u128;
+    assert(vol as Field == volume, "volume too big");
+    let unit: u128 = (250 * pow10(decimals)) as u128;
+    let lots: u128 = vol / unit;
+    if lots >= 400 {
+        5
+    } else if lots >= 80 {
+        4
+    } else if lots >= 20 {
+        3
+    } else if lots >= 4 {
+        2
+    } else if lots >= 1 {
+        1
+    } else {
+        0
+    }
+}
+
 /// The penalty BAND of §3.15.7: the aggregate a public listing carries, where the raw number
 /// belongs to the advanced reveal.
 ///
@@ -212,5 +252,42 @@ fn penalty_bands_match_vectors() {
     for i in 0..vectors::TIER_COUNT {
         let b = penalty_band(vectors::TIER_PENALTIES[i]);
         assert(b as Field == vectors::TIER_BANDS[i], "band mismatch");
+    }
+}
+
+#[test]
+fn volume_bands_match_the_lots() {
+    // The cuts as LOTS, anchored on both sides, at 6 decimals (a lot = 250_000_000 raw).
+    let unit: Field = 250000000;
+    assert(volume_band(0, 6) == 0, "nothing moved");
+    assert(volume_band(unit - 1, 6) == 0, "just under one lot");
+    assert(volume_band(unit, 6) == 1, "one lot");
+    assert(volume_band(unit * 3, 6) == 1, "three lots");
+    assert(volume_band(unit * 4, 6) == 2, "four lots");
+    assert(volume_band(unit * 19, 6) == 2, "nineteen lots");
+    assert(volume_band(unit * 20, 6) == 3, "twenty lots");
+    assert(volume_band(unit * 79, 6) == 3, "just under eighty");
+    assert(volume_band(unit * 80, 6) == 4, "eighty lots");
+    assert(volume_band(unit * 399, 6) == 4, "just under four hundred");
+    assert(volume_band(unit * 400, 6) == 5, "four hundred lots");
+}
+
+#[test]
+fn volume_bands_are_per_decimals() {
+    // The band is denominated in the token's own scale: the same RAW number is a different band in a
+    // 6-dec token than in an 18-dec one. This is exactly why `decimals` is a public input — a private
+    // one would let a listing claim the top band with dust.
+    let six: Field = 250000000; // one lot at 6 decimals
+    assert(volume_band(six, 6) == 1, "one lot at 6 decimals");
+    assert(volume_band(six, 18) == 0, "the same raw amount is dust at 18 decimals");
+}
+
+#[test]
+fn volume_bands_match_vectors() {
+    // The JS twin's own rows, so the listing a consumer reads and the profile a generator mints
+    // cannot drift apart.
+    for i in 0..vectors::TIER_COUNT {
+        let b = volume_band(vectors::TIER_VOLUMES[i], vectors::TIER_DECIMALS[i]);
+        assert(b as Field == vectors::TIER_VOLUME_BANDS[i], "volume band mismatch");
     }
 }

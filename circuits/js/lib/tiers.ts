@@ -46,6 +46,35 @@ export function tierOf(sc: bigint): bigint {
 }
 
 /**
+ * The volume BAND of §3.15.7 — the other aggregate a public listing carries, where the exact figure
+ * belongs to the advanced reveal.
+ *
+ * The cuts are LOTS (`UNIT = 250 * 10^decimals`), the same unit the score buys tier with, so the
+ * band reads correctly in any token at any scale. In whole tokens the floors are 250, 1.000, 5.000,
+ * 20.000, 100.000 — see [[volumeBandFloor]], which is what a listing renders, since `token` and
+ * `decimals` ride public alongside.
+ *
+ * A LOWER bound, like tier and count: understating what you moved is a weaker true statement,
+ * overstating it has no witness. The band rather than the figure because a listing is read by
+ * everyone and an exact volume is a fingerprint.
+ */
+export function volumeBand(volume: bigint, decimals: bigint): number {
+  const lots = volume / (250n * 10n ** decimals);
+  if (lots >= 400n) return 5;
+  if (lots >= 80n) return 4;
+  if (lots >= 20n) return 3;
+  if (lots >= 4n) return 2;
+  if (lots >= 1n) return 1;
+  return 0;
+}
+
+/** The band's floor in WHOLE tokens — what a listing shows ("≥ 5.000 USDC"). Band 0 has no floor
+ *  to state: it means less than one lot, which is the honest way to render a fresh account. */
+export function volumeBandFloor(band: number): bigint | null {
+  return [null, 250n, 1000n, 5000n, 20000n, 100000n][band] ?? null;
+}
+
+/**
  * The penalty BAND of §3.15.7 — the aggregate a public listing carries, where the raw counter
  * belongs to the advanced reveal. A listing is read by everyone, and a raw counter is a
  * fingerprint; a band informs without identifying.

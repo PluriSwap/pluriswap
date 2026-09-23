@@ -17,6 +17,7 @@ function base(pubs: Partial<AttestBasePubs>): ChainElement {
       handle_commit: "777",
       tier: "2",
       count: "12",
+      volume_band: "2",
       penalty_band: "1",
       expiry: "1800000000",
       token: "1",
@@ -148,6 +149,17 @@ describe("verifyAttestationChain", () => {
       [reveal({ out_penalty: "5" }), base({ penalty_band: "3" })],
       clock,
     );
+    expect(r.ok).toBeTrue();
+  });
+
+  test("a volume band that walks backwards is a fabricated series", async () => {
+    const r = await verifyAttestationChain([base({ volume_band: "3" }), base({ volume_band: "1" })], clock);
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("volume band 1 decreased from 3");
+  });
+
+  test("a volume band that climbs is the honest trajectory", async () => {
+    const r = await verifyAttestationChain([base({ volume_band: "1" }), base({ volume_band: "3" })], clock);
     expect(r.ok).toBeTrue();
   });
 

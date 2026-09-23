@@ -9,7 +9,8 @@
 //     splice of several (the handle is the only continuity the chain has: the §3.15.7
 //     model is states, not events, so nothing else binds the series together);
 //   * the RAW counters are component-wise monotone NON-DECREASING in the order given:
-//     count (attest_base's claim and reveal_advanced's `out_count` are the SAME counter),
+//     count (attest_base's claim and reveal_advanced's `out_count` are the SAME counter), the
+//     listing's volume BAND (a floor over the same figure the reveals state exactly),
 //     volume where revealed, and the penalty — which every reveal states raw (§3.15.7 keeps
 //     it outside the mask). §3.15.5's deltas only ever ADD — a decreasing element is a
 //     fabricated sequence, and this is the check that catches it;
@@ -85,6 +86,7 @@ export async function verifyAttestationChain(
   let lastCount: bigint | undefined;
   let lastVolume: bigint | undefined;
   let lastPenalty: bigint | undefined;
+  let lastVolumeBand: number | undefined;
   let floorBand = 0;
   chain.forEach((el, i) => {
     if (el.kind === "base") {
@@ -93,6 +95,13 @@ export async function verifyAttestationChain(
         errors.push(`element ${i}: count ${count} decreased from ${lastCount} — count never decreases (§3.15.5)`);
       }
       lastCount = count;
+      // The volume band is a floor over the same figure, so it tracks with the same policy: the
+      // underlying volume only ever grows, and a series whose floors walk backwards is fabricated.
+      const vband = Number(BigInt(el.pubs.volume_band));
+      if (lastVolumeBand !== undefined && vband < lastVolumeBand) {
+        errors.push(`element ${i}: volume band ${vband} decreased from ${lastVolumeBand} — volume never decreases (§3.15.5)`);
+      }
+      lastVolumeBand = vband;
       const band = Number(BigInt(el.pubs.penalty_band));
       if (band < floorBand) {
         errors.push(

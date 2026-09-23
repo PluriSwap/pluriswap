@@ -241,6 +241,21 @@ pub global TIER_BANDS: [Field; 13] = [
     2,
     3,
 ];
+pub global TIER_VOLUME_BANDS: [Field; 13] = [
+    0,
+    2,
+    2,
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    0,
+    0,
+];
 pub global TIER_UNBOUNDED: [bool; 13] = [
     false,
     false,
@@ -504,6 +519,7 @@ pub global ATTEST_TOKEN: Field = 97433442488726861213578988847752201310395502865
 pub global ATTEST_DECIMALS: Field = 6;
 pub global ATTEST_TIER: Field = 2;
 pub global ATTEST_COUNT_CLAIMED: Field = 12;
+pub global ATTEST_VOLUME_BAND: Field = 1;
 pub global ATTEST_PENALTY_BAND: Field = 1;
 pub global ATTEST_EXPIRY: Field = 1800000000;
 pub global ATTEST_SCORE: Field = 10;
