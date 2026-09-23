@@ -4,10 +4,9 @@ Escrow P2P de principal cripto contra fiat offchain. Kernel neutral (sin dueño,
 
 **Toda la documentación del protocolo vive en [`PLURISWAP.md`](./PLURISWAP.md)**: visión, espíritu, diseño, decisiones e implementación. Empezá ahí.
 
-Artefactos operativos (fuera del monolito por necesidad, no por fragmentación):
+Artefacto operativo (fuera del monolito por necesidad, no por fragmentación):
 
 - [`KLEROS_POLICY.md`](./KLEROS_POLICY.md) — policy que leen los jurados; se pinea a IPFS como `KLEROS_POLICY_URI` (PLURISWAP.md §5.8)
-- [`LAB_UI.md`](./LAB_UI.md) — referencia de la consola de laboratorio
 
 ## Stack
 
@@ -21,7 +20,7 @@ forge test                       # unit + fuzz (256 runs) + invariants (32 x 256
 FOUNDRY_PROFILE=ci forge test    # fuzz 2048, invariants 128 x 512
 ```
 
-CI (push y PR): `forge fmt --check`, `forge build --sizes` con gate de margen de bytecode, `forge test`, Slither (`--fail-medium`), Aderyn (`--fail-high`), consola del lab (vitest + build), **deploy + catálogo Core sobre una chain fría** (`script/e2e.sh`: despliega todo el stack en anvil, camina CASE-CORE-03..15 y verifica los terminales que aterrizaron), gates de drift de fixtures (bun regenera los vectors de los circuits y el fixture de los singletons Poseidon, y exige `git diff --exit-code`) + suite JS del consumer side de F4 (verify/chain, semántica con stubs); CI nunca necesita nargo/bb — proofs, verifiers y VKs viven como fixtures comprometidos. Nightly con perfil `ci`. Detalle y ley de TDD en `PLURISWAP.md` §5.4.
+CI (push y PR): `forge fmt --check`, `forge build --sizes` con gate de margen de bytecode, `forge test`, Slither (`--fail-medium`), Aderyn (`--fail-high`), **deploy + catálogo Core sobre una chain fría** (`script/e2e.sh`: despliega todo el stack en anvil, camina CASE-CORE-03..15 y verifica los terminales que aterrizaron), gates de drift de fixtures (bun regenera los vectors de los circuits y el fixture de los singletons Poseidon, y exige `git diff --exit-code`) + suite JS del consumer side de F4 (verify/chain, semántica con stubs); CI nunca necesita nargo/bb — proofs, verifiers y VKs viven como fixtures comprometidos. Nightly con perfil `ci`. Detalle y ley de TDD en `PLURISWAP.md` §5.4.
 
 ## Layout
 
@@ -34,7 +33,6 @@ src/pools/                  Holder-contrato vault + factory
 src/ramps/                  composers (Stargate)
 circuits/                   la capa ZK: 11 circuitos Noir + el twin JS + la lib de consumer side F4 (verify/chain; ver circuits/README.md)
 verifiers/                  subproyecto de los verifiers Honk generados (via_ir off)
-lab/                        consola de operador (read-only)
 script/                     deploy y deal scripts
 deployments/                addresses, no secrets
 test/                       un área de catálogo por archivo (+ fuzz/, invariant/, fork/)

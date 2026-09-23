@@ -74,8 +74,8 @@ para que `test/DeployPrivate.t.sol` lo ejerza directo con los proofs de register
 wiring desplegado y el testeado no pueden divergir. La corrida contra Sepolia confirmó además lo que
 LHF-1 asumía sobre la chain destino (`PoseidonT3` ya está; `PoseidonT2` lo pone el script).
 
-Falta lo que no puedo hacer desde acá: el **broadcast** (necesita la key financiada) y el **wiring del
-lab** — la consola sigue sin conocer las direcciones privadas. Comando:
+Falta sólo lo que no puedo hacer desde acá: el **broadcast** (necesita la key financiada). El wiring
+del lab dejó de ser pendiente el 2026-09-23, cuando la UI salió del repo. Comando:
 
 ```sh
 HOLDER_PRIVATE_KEY=… forge script script/DeployPrivate.s.sol:DeployPrivate \
@@ -104,13 +104,15 @@ con el court fee ya pagado. Las cuatro pineadas contra el kernel (`test/ZeroCloc
 
 El kernel no cambia: `duration >= 0` se queda, porque las duraciones son de las partes y un mínimo de
 kernel sería una opinión sobre cuánto tarda una transferencia bancaria. Lo que se agrega es una
-obligación de cliente declarada en §3.8, con implementación de referencia pura
-(`lab/src/consent/termsReview.ts`, función sobre los términos para que cualquier cliente la corra), y
-dos severidades que no se mezclan: *peligro* (un cero — nunca intencional; bloquea las tres firmas y el
-relayer hasta un reconocimiento explícito, que se borra en cada edición de los términos) y *piso de
-producción* (un juicio, que los paths del catálogo del lab rompen a propósito para poder recorrerse en
-una sesión). Bajo `PAYMENT_PROOF` sólo se revisa `fiatDuration` y se dice que el resto está inerte.
-12 tests de vitest, 5 de forge.
+obligación de cliente declarada en §3.8, que desde el **2026-09-23 se sostiene sola**: cuando se borró
+el lab, §3.8 se reescribió para enumerar los cuatro peligros, los pisos de producción con su razón, el
+techo, y qué relojes quedan inertes bajo `PAYMENT_PROOF` — un cliente conforme se implementa desde la
+spec, sin leer código.
+
+Separa dos afirmaciones que no son la misma: *peligro* (un cero — nunca intencional; no se firma sin
+reconocimiento explícito, y el reconocimiento se borra si los términos cambian) y *piso de producción*
+(un juicio, no protocolo). Las cuatro conductas siguen pineadas contra el kernel por 5 tests de forge,
+que es donde importa: si el kernel cambia, fallan los tests y no la prosa.
 
 ### LHF-4 — `ROOT_HISTORY = 64` es demasiado chico para un árbol compartido
 
@@ -170,10 +172,10 @@ ninguno es el *payment proof*. No es una tarea: es la decisión de prioridad de 
 
 **Estado: PARCIAL** (2026-09-22, Parte IV). Dos de tres cerrados.
 
-*ZK en el lab*: el wart estaba desactualizado — los predicados ya apagaban los cuatro verbos que el
-kernel guarda con `_requireNotZk`. Lo que faltaba era la prueba: sólo `markFiat` estaba testeado, así
-que ahora hay un test de paridad contra la lista del kernel, que es el que debería fallar si aparece
-un quinto guard.
+*ZK en el lab*: el wart ya estaba desactualizado cuando lo encontré — los predicados apagaban los
+cuatro verbos que el kernel guarda con `_requireNotZk`; lo que faltaba era la prueba, y se agregó un
+test de paridad contra la lista del kernel. Moot desde el 2026-09-23: la UI salió del repo. Lo que
+sobrevive es la lista del kernel, que es lo que cualquier cliente futuro tiene que espejar.
 
 *Observabilidad de `postPending`*: dos eventos. `PostTerminalPending(dealId, pending)` cada vez que la
 deuda cambia, incluido el cero que le dice al keeper que pare (un terminal limpio no emite nada), y
