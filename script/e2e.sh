@@ -56,6 +56,10 @@ STEPS=(
   "script/DeployPoolFactory.s.sol:DeployPoolFactory"
   "script/PoolDeal.s.sol:PoolDeal"
   "script/DeployPrivate.s.sol:DeployPrivate"
+  # The reputation package is a curve, not a transition: no single deal shows what it does, so this
+  # walks the tiers, both refusals and the demotion. It is also the only on-chain coverage that the
+  # cap, the concurrency check and the penalty have.
+  "script/ReputationLadder.s.sol:ReputationLadder"
 )
 # The ramp needs a Stargate V2 pool, which only exists on a real chain (StargateSepolia.sol pins the
 # Arbitrum Sepolia one). It is the only component with no path on anvil, so it runs where it can.
