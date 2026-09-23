@@ -415,6 +415,20 @@ contract PrivatePrepareTest is Test {
         bytes32 nullifier,
         uint256 deadline_
     ) internal view returns (PrivateReputation.Side memory) {
+        return _sideOf(module, DEAL_ID, wallet, pk, subject, leaf, nullifier, deadline_);
+    }
+
+    /// @dev The consent names the deal, so a side signed for one deal is not valid in another.
+    function _sideOf(
+        address module,
+        bytes32 dealId_,
+        address wallet,
+        uint256 pk,
+        bytes32 subject,
+        bytes32 leaf,
+        bytes32 nullifier,
+        uint256 deadline_
+    ) internal view returns (PrivateReputation.Side memory) {
         return PrivateReputation.Side({
             wallet: wallet,
             dealSubject: subject,
@@ -422,7 +436,7 @@ contract PrivatePrepareTest is Test {
             nullRep: nullifier,
             lockCommit: bytes32(0),
             proof: ok(true),
-            walletSig: _sig(module, pk, DEAL_ID, subject, deadline_)
+            walletSig: _sig(module, pk, dealId_, subject, deadline_)
         });
     }
 
@@ -470,6 +484,88 @@ contract PrivatePrepareTest is Test {
         assertEq(bufH, SUBJECT_H, "holder buffered");
         assertEq(bufX, SUBJECT_X, "provider buffered");
         assertEq(rep2.pairTagOf(DEAL_ID), PAIR_TAG, "the pair is recorded once");
+    }
+
+    /// Concurrency, at the only level where it exists on chain: transactions are ordered, so "at the
+    /// same time" means "the second one sees what the first left". These are the races that matter for
+    /// a two-sided prepare, and each is already closed by something that was there for another reason.
+    function test_prepareBoth_racesAreClosedByTheNullifier() public {
+        uint256 deadline_ = block.timestamp + 1 hours;
+
+        // The same account on BOTH sides of one deal: the two sides burn the same version nullifier,
+        // so the call cannot complete. The counterparty rule has a subject-level guard in the kernel
+        // (`SameSubject`), but the module does not need it — the tree refuses first.
+        (PrivateReputation rep2,) = _freshModule();
+        // Every argument built BEFORE the expectation: an external call in the argument list is a
+        // call, and forge matches the expectation against the next one it sees.
+        PrivateReputation.Side memory sameH = _side(address(rep2), holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline_);
+        PrivateReputation.Side memory sameP = _side(address(rep2), other, otherPk, SUBJECT_X, NEW_LEAF_X, NULLREP_H, deadline_);
+        bytes32 root2 = rep2.accountTree().root();
+        vm.expectRevert(PoseidonTree.NullifierUsed.selector);
+        rep2.prepareBoth(
+            DEAL_ID,
+            sameH,
+            sameP,
+            TOKEN,
+            PRINCIPAL,
+            root2,
+            PAIR_TAG,
+            deadline_
+        );
+
+        // Two activations of the same account racing: whoever lands first spends the version, and the
+        // second dies on the nullifier rather than double-spending the cap.
+        (PrivateReputation rep3,) = _freshModule();
+        rep3.prepareBoth(
+            DEAL_ID,
+            _side(address(rep3), holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline_),
+            _side(address(rep3), other, otherPk, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), deadline_),
+            TOKEN,
+            PRINCIPAL,
+            rep3.accountTree().root(),
+            PAIR_TAG,
+            deadline_
+        );
+        bytes32 movedRoot = rep3.accountTree().root();
+        PrivateReputation.Side memory againH =
+            _sideOf(address(rep3), DEAL_ID_2, holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline_);
+        PrivateReputation.Side memory freshP =
+            _sideOf(address(rep3), DEAL_ID_2, other, otherPk, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-2"), deadline_);
+        vm.expectRevert(PoseidonTree.NullifierUsed.selector);
+        rep3.prepareBoth(
+            DEAL_ID_2,
+            againH,
+            freshP,
+            TOKEN,
+            PRINCIPAL,
+            movedRoot,
+            PAIR_TAG,
+            deadline_
+        );
+    }
+
+    /// The root moving under a proof is not a race at all: a prepare that landed first advances the
+    /// root, and the one behind it still verifies because the ring keeps the old roots live. That is
+    /// what the window is for, and the two-sided call makes it matter less — the two sides of one deal
+    /// no longer move the root on each other at all.
+    function test_prepareBoth_anOlderRootStillVerifies() public {
+        uint256 deadline_ = block.timestamp + 1 hours;
+        (PrivateReputation rep2, PoseidonTree tree2) = _freshModule();
+        bytes32 rootBefore = tree2.root();
+
+        // Somebody else's activation lands first and moves the root.
+        rep2.prepareBoth(
+            DEAL_ID,
+            _side(address(rep2), holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline_),
+            _side(address(rep2), other, otherPk, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), deadline_),
+            TOKEN,
+            PRINCIPAL,
+            rootBefore,
+            PAIR_TAG,
+            deadline_
+        );
+        assertTrue(tree2.root() != rootBefore, "the root moved");
+        assertTrue(tree2.isKnownRoot(rootBefore), "and the old one is still accepted");
     }
 
     function test_prepareBoth_costsLess() public {
