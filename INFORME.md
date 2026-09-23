@@ -100,10 +100,15 @@ una chain real (ahí además corre la rampa Stargate, el único componente sin c
 
 Dicho explícitamente, porque un informe que sólo lista lo verde es propaganda.
 
-- **La capa privada no corre un deal on-chain.** `DeployPrivate` la despliega y el doctor verifica su
-  cableado, pero el recorrido con proofs reales vive en `test/VaultRealProof.t.sol`, no en un script.
-  El motivo es real: el `dealId` del kernel se deriva de los terms y las nonces, así que los proofs
-  comprometidos no sirven para un deal arbitrario — hace falta un prover por deal.
+- **La capa privada registra una cuenta on-chain, pero no corre un deal.** Desde el 2026-09-23
+  `script/PrivateRegister.s.sol` registra la cuenta de muestra con los proofs comprometidos, así que
+  hay una cuenta privada real en la chain y el indexer del prover tiene qué leer. Lo que sigue sin
+  correr es un *deal* privado: el `dealId` del kernel se deriva de los terms y las nonces, así que los
+  proofs comprometidos no sirven para un deal arbitrario — hace falta el prover, que está a medias
+  (`lib/tree.ts` + `lib/indexer.ts` leen el estado; faltan los witness builders y correr `bb`).
+- **El `salt` de `leafRep` no se deriva de nada**, así que una cuenta no se recupera desde `sk_id`
+  sino desde una base de datos local. Hay que arreglarlo antes de que exista un deployment con
+  usuarios (§3.15.11).
 - **El slot ZK del kernel usa `VerifierMock`.** Acepta cualquier `abi.encode(dealId, nullifier)`. No
   hay circuito de payment proof todavía; es el próximo trabajo grande.
 - **Kleros en Arbitrum One** necesita que la gobernanza liste el adapter (`openCourt` revierte hasta

@@ -63,6 +63,10 @@ STEPS=(
   # Everything downstream of a verdict, which Core cannot reach because Core has no tribunal: the two
   # slashes, the two stalemates, and what an abandoned dispute does with bonds on the table.
   "script/ArbitrationPaths.s.sol:ArbitrationPaths"
+  # The first time the private layer runs on a chain rather than in a test: the sample account,
+  # registered with the committed proofs. It leaves a leaf in the accounts tree, which is what the
+  # prover's indexer needs to have something real to read.
+  "script/PrivateRegister.s.sol:PrivateRegister"
 )
 # The ramp needs a Stargate V2 pool, which only exists on a real chain (StargateSepolia.sol pins the
 # Arbitrum Sepolia one). It is the only component with no path on anvil, so it runs where it can.
@@ -110,6 +114,14 @@ for row in rows:
 assert got == EXPECTED, f"terminal histogram {got} != {EXPECTED}"
 print(f"[OK]   {len(rows)} Core terminals on chain, principal conserved in every one")
 '
+
+# The prover's chain reader, against the tree the run just put a leaf in. Skips itself if bun is
+# absent; the point is that reconstruction is checked against a REAL tree, not a fixture.
+if command -v bun >/dev/null 2>&1; then
+  TREE=$(python3 -c "import json;print(json.load(open('deployments/${CHAIN/421614/sepolia}-private.json'))['accountTree'])" 2>/dev/null \
+    || python3 -c "import json;print(json.load(open('deployments/$CHAIN-private.json'))['accountTree'])")
+  PLURI_RPC="$RPC" PLURI_TREE="$TREE" bun test circuits/js/lib/indexer.test.ts 2>&1 | tail -4
+fi
 
 # Finally, ask the doctor whether the records just written still describe the chain. On a chain built
 # ten seconds ago every answer must be yes, which is what makes the same script trustworthy when it

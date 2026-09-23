@@ -10,6 +10,7 @@
   },
   "devDependencies": {
     "circomlibjs": "^0.1.7",
-    "js-sha3": "^0.13.0"
+    "js-sha3": "^0.13.0",
+    "viem": "^2.56.8"
   }
 }
