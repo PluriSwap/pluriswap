@@ -4,6 +4,9 @@ Escrow P2P de principal cripto contra fiat offchain. Kernel neutral (sin dueño,
 
 **Toda la documentación del protocolo vive en [`PLURISWAP.md`](./PLURISWAP.md)**: visión, espíritu, diseño, decisiones e implementación. Empezá ahí.
 
+Estado de verificación: [`INFORME.md`](./INFORME.md) — qué camino se ejercita, cómo, y qué no.
+Hallazgos abiertos de la revisión: [`EVALUACION.md`](./EVALUACION.md).
+
 Artefacto operativo (fuera del monolito por necesidad, no por fragmentación):
 
 - [`KLEROS_POLICY.md`](./KLEROS_POLICY.md) — policy que leen los jurados; se pinea a IPFS como `KLEROS_POLICY_URI` (PLURISWAP.md §5.8)

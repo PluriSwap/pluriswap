@@ -60,6 +60,9 @@ STEPS=(
   # walks the tiers, both refusals and the demotion. It is also the only on-chain coverage that the
   # cap, the concurrency check and the penalty have.
   "script/ReputationLadder.s.sol:ReputationLadder"
+  # Everything downstream of a verdict, which Core cannot reach because Core has no tribunal: the two
+  # slashes, the two stalemates, and what an abandoned dispute does with bonds on the table.
+  "script/ArbitrationPaths.s.sol:ArbitrationPaths"
 )
 # The ramp needs a Stargate V2 pool, which only exists on a real chain (StargateSepolia.sol pins the
 # Arbitrum Sepolia one). It is the only component with no path on anvil, so it runs where it can.
