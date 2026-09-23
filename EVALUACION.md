@@ -357,18 +357,14 @@ Sepolia siguen versionados.
 
 ## Estado de Sepolia (2026-09-23)
 
-`script/Doctor.s.sol` apuntado al Sepolia actual: **7 fallas de 41**. No hay ambigüedad sobre si
-hace falta redesplegar:
+`script/Doctor.s.sol` apuntado al Sepolia que había: **7 fallas de 41** — el escrow sin
+`forceDisputeTimeout` *ni* `retryPostTerminal` (anterior incluso a esta rama), la reputación sin los
+getters de contest (anterior al 2026-09-17), los dos courts sin `contestFee` (anterior a ayer).
 
-- el escrow no tiene `forceDisputeTimeout` **ni** `retryPostTerminal` — o sea que es anterior incluso
-  a esta rama;
-- la reputación no tiene los getters de contest (anterior al 2026-09-17);
-- los dos courts no tienen `contestFee` / `feeRecipient` (anterior a ayer).
-
-Lo que sí está sano: el pool factory (codehash del clon coincide con la factory y con la
-implementación registrada), PoseidonT3 vivo y circomlib-compatible, y el escrow contestando su
-domain separator. `PoseidonT2` no está, pero lo pone `script/Poseidon.s.sol` — prerequisito, no
-registro roto.
+**Ese stack se borró.** No se arregla incrementalmente, y leer un registro stale es peor que no leer
+ninguno porque parece autoritativo: alguien apunta un pool a ese escrow, firma contra ese dominio, y
+se entera cuando ya hay plata adentro. La historia queda en git. El próximo deploy es el primero
+hecho con la cadena entera en un solo comando.
 
 Contra una chain recién construida el mismo doctor da **42 de 42**, que es lo que hace confiable la
 lectura sobre Sepolia.
