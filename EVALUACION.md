@@ -241,6 +241,40 @@ propio insert de peor caso al activarse, y negarnos el batching deja de ser un a
 misma lógica del bond — se calibra contra quien se porta mal, no contra el caso normal.
 `activationFee >= 2 · insertGas(depth) · gasPrice · precioETH / precioToken`.
 
+**La recursión, medida (2026-09-23) — y descartada.** El toolchain pineado la soporta: bb 6.0 tiene
+`--verifier_target noir-recursive`, y `std::verify_proof_with_type` compila contra un proof recursivo
+**no-ZK** de 410 campos con vk de 115 y `proof_type = 0` (la variante ZK, 458 campos, la rechaza el
+UltraBuilder; los tamaños son CONSTANTES, no dependen del circuito interno). Lo que la descarta es el
+precio:
+
+| | gates | tiempo de prueba (24 hilos) |
+| --- | ---: | ---: |
+| `claim`, el circuito más grande que tenemos | 122.055 | 753 ms *(medido)* |
+| **una** verificación recursiva adentro de un circuito | **681.097** | ~4,2 s |
+| agregador de los seis proofs del bundle | ~4.086.582 | **~25 s** |
+
+Veinticinco segundos en un desktop de 24 hilos; en un browser o un teléfono, minutos. Se ahorra ~$16
+de blob en un pico, y se lo cobramos al usuario en espera cada vez que activa.
+
+**Lo que sí conviene, y salió de medir la recursión: FUSIONAR, no agregar.** Los tres circuitos de un
+lado suman 135.933 gates — *menos de un cuarto de una sola verificación recursiva* — y encima
+`prepare_passport` y `prepare_admit` prueban **la misma membresía de la misma hoja bajo la misma
+raíz**, así que el fusionado real es más chico que esa suma. Un proof por lado en vez de tres:
+
+| | hoy | fusionado |
+| --- | ---: | ---: |
+| proofs por activación | 6 | **2** |
+| calldata a L1 | 53.824 B | **~18.000 B** |
+| gas de verificación | 4,36M | **~1,5M** |
+| tiempo de prueba por lado | ~0,9 s (tres proofs) | **~0,8 s** |
+
+Gana en los cuatro ejes a la vez, incluido el que la recursión empeora. El obstáculo no es
+criptográfico sino arquitectónico: hoy cada módulo verifica su propio statement con su propio
+verifier. Un proof fusionado exige o que un módulo verifique y los otros le crean —rompe la propiedad
+de que cada paquete verifica lo suyo— o un verifier de bundle compartido que los tres lean dentro de
+la misma tx (storage transitorio), bindeado por `packageId` como todo lo demás. Esa decisión es de
+arquitectura y está sin tomar.
+
 **Sigue abierto**: el `activate` del kernel no está descompuesto, y los precios de arriba son supuestos
 (ETH, gwei, blob) sobre gases medidos — el número firme sale de una chain real.
 
