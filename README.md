@@ -94,10 +94,14 @@ cerrado al tope vale 2 puntos, porque el cap de T1 *es* la unidad de volumen del
 | 5 | 10 | 500 | 700 |
 | 10 | 25 | 1.000 | 1.500 |
 | 15 | 50 | 2.000 | 5.000 |
-| 21 | 104 | sin límite | sin límite |
+| 21 | 104 | 5.000 | sin límite |
 
 Veintiún deals limpios de T1 a T5, acelerando solo — a cap más alto, más volumen por deal. Un
 abandono o un stalemate resta 5 y **baja de tier en el acto**. Lento de ganar, rápido de perder.
+
+Esa curva es la del sujeto en aislamiento. En un mercado son **21 contrapartes distintas** (el crédito
+es una vez por contraparte, §3.14.7) y el cap que ata es el más chico de los dos lados: contra novatos
+cada deal vale 2 puntos y llegar arriba son ~50 personas. La escalera premia amplitud.
 
 `script/ReputationLadder.s.sol` camina esta curva on-chain y la narra; `test/ReputationCurve.t.sol`
 la pinea para que la tabla de arriba no se pudra en silencio.

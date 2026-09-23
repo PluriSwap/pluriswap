@@ -626,15 +626,17 @@ Cada lado se evalúa solo y **gana el más chico**: un Provider T5 no obliga al 
 
 **La curva, medida.** `script/ReputationLadder.s.sol` la camina on-chain y la narra; los números de acá salen de esa corrida, no de la aritmética de esta sección. Un deal al tope del cap vale **2 puntos** (+1 de count, +1 de volumen porque el cap de T1 *es* el `UNIT`), así que:
 
-| Deals cerrados al tope | Score | Cap |
-| ---: | ---: | ---: |
-| 0 | 0 | 250 |
-| 5 | 10 | 500 |
-| 10 | 25 | 1.000 |
-| 15 | 50 | 2.000 |
-| 21 | 104 | sin límite |
+| Deals cerrados al tope | Score | Cap | Cap con bond |
+| ---: | ---: | ---: | ---: |
+| 0 | 0 | 250 | 400 |
+| 5 | 10 | 500 | 700 |
+| 10 | 25 | 1.000 | 1.500 |
+| 15 | 50 | 2.000 | 5.000 |
+| 21 | 104 | 5.000 | sin límite |
 
-Veintiún deals limpios de T1 a T5, y el ritmo se acelera solo: a cap más alto, cada deal aporta más volumen. Un stalemate o un dispute abandonado resta 5 — dos deals y medio al tope de T1 — y **puede bajarte de tier en el acto**: score 10 con cap 500, un abandono, score 5 y cap 250 otra vez. Lento de ganar, rápido de perder, a propósito.
+Veintiún deals limpios de T1 a T5, y el ritmo se acelera solo: a cap más alto, cada deal aporta más volumen.
+
+**Qué asume "al tope" (2026-09-23).** Esa curva es la del sujeto *en aislamiento*: cada deal al tope de SU cap. En un mercado real hacen falta dos cosas más, y las dos son sociales. Primero, el crédito es una vez por contraparte, así que los 21 deals son **21 personas distintas**. Segundo, el cap que ata es el más chico de los dos lados: contra novatos cada deal vale 250 —2 puntos— y llegar a 100 son unas **50 contrapartes distintas**; contra cuentas ya establecidas los deals son más grandes y la curva de arriba se recupera. La escalera premia amplitud, y se acelera cuando el mercado entero subió con vos. Lo que NO cambia es el negocio de todos los días: un deal repetido con un cliente habitual libera su capacidad igual, cobra igual y castiga igual — simplemente no vuelve a sumar. Un stalemate o un dispute abandonado resta 5 — dos deals y medio al tope de T1 — y **puede bajarte de tier en el acto**: score 10 con cap 500, un abandono, score 5 y cap 250 otra vez. Lento de ganar, rápido de perder, a propósito.
 
 **El cap es concurrente, no por deal.** `inFlight + principal <= cap` se chequea contra todo lo que siga abierto: en T2 podés tener un deal de 500 o dos de 250, nunca dos de 500. Es la confusión más común y la escalera la demuestra pidiendo un tercer deal de 1 token con el cap lleno.
 
