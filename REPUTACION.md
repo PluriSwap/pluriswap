@@ -91,9 +91,7 @@ lee igual en cualquier token y a cualquier escala.
 | 4 | 80–399 | 20.000+ |
 | 5 | 400+ | 100.000+ |
 
-El cupo de T5 es **sin límite sólo con bond**: sin él la escalera topea en 5.000. La única exposición
-ilimitada del protocolo tiene siempre un lock vivo detrás — al 10% de §3.14.5, respaldada en un 10%
-por su propio dueño.
+El cupo de T5 es **sin límite sólo con bond**: sin él la escalera topea en 5.000.
 
 **Castigo** — los cortes son *eventos*: un stalemate o una disputa abandonada suma 5, una derrota en
 tribunal suma 15 (§3.14.7).
@@ -121,6 +119,35 @@ El **tier** y su cupo salen de la misma tabla (§3.14.7):
 acota `inFlight + principal`: es **exposición concurrente**, no tamaño máximo de un deal. Y el que
 ata es **el más chico de los dos lados**, así que una posición grande necesita una contraparte que
 también se la haya ganado.
+
+### El bond, y por qué levanta el cupo
+
+| Tier | Cap base | Cap con bond |
+| --- | ---: | ---: |
+| T1 | 250 | 400 |
+| T2 | 500 | 700 |
+| T3 | 1.000 | 1.500 |
+| T4 | 2.000 | 5.000 |
+| T5 | 5.000 | sin límite |
+
+Es un mecanismo, no un premio. El cap mide cuánto acepta el protocolo dejar expuesto por lo que
+alguien **demostró**, y un historial informa pero no responde por nada. El bond sí: es capital propio
+trabado, en riesgo del mismo veredicto que castigaría a su dueño. Se pierde exactamente cuando un
+tribunal falla en contra —el lock del perdedor va a la address del ganador— y vuelve entero en todo lo
+demás: cierre pacífico, tribunal que rehúsa, timeout de arbitraje, disputa abandonada, deal ZK. El
+dinero sólo se mueve con culpa probada.
+
+El ratio es 10% del principal, **por deal y acumulativo**: la suma de locks cubre el 10% de todo lo
+que tengas en vuelo, así que el cupo con bond no se recicla entre posiciones abiertas.
+
+**Dos cosas que un frontend tiene que tener claras.** El bond sube el techo de *quien lo puso*, no el
+del deal: el cap que ata sigue siendo el más chico de los dos lados, así que un T4 con bond frente a
+un T1 sin bond hace un deal de 250. Y **tener bond no se puede exhibir de antemano** — el vault
+privado rechaza las lecturas de saldo (un agregado por sujeto linkearía todos los deals de ese
+sujeto), y ningún attestation prueba capacidad de bond. La columna "con bond" del listado es
+*potencial*, no un hecho probado. Lo único que demuestra que el lock existe es la activación: si el
+deal se activó con BONDS, el lock está. Mostrar "tiene bond" antes de eso es afirmar algo que nadie
+probó — la quinta trampa de la lista de abajo.
 
 ---
 
@@ -186,9 +213,9 @@ nadie crea que chequeó algo que no chequeó. `now` es la excepción: sin reloj 
 
 ---
 
-## 7. Cuatro trampas al mostrarlo
+## 7. Cinco trampas al mostrarlo
 
-Las cuatro son fáciles de cometer y las cuatro difaman a alguien:
+Las cinco son fáciles de cometer, y cada una afirma de alguien algo que la prueba no dice:
 
 1. **Un campo oculto llega en cero.** Cuando el bit de la máscara está apagado, `out_volume` vale 0
    *por construcción*. Mostrarlo como "0 de volumen" es acusar a alguien de no haber operado nunca.
@@ -199,6 +226,9 @@ Las cuatro son fáciles de cometer y las cuatro difaman a alguien:
    estás publicando como hecho algo que la prueba no dice.
 4. **El cupo es concurrente.** El tier acota `inFlight + principal`, no el tamaño de un deal: "hasta
    1.000 USDC en juego a la vez", no "por deal".
+5. **La columna con bond es potencial.** Nadie prueba tener bond antes de activar, y el vault privado
+   no deja leerlo. Mostralo como lo que es — el cupo al que esa cuenta *podría* llegar si traba el
+   10% — nunca como un sello de que ya lo hizo.
 
 ---
 
