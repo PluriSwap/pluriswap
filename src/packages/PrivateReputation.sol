@@ -59,6 +59,9 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
         address token;
         uint256 principal;
         uint256 deadline;
+        /// @dev `Poseidon(pairId(S_self, S_other), dealId)` — proven by `prepare_admit`, checked
+        ///      against the other side's at `admit`, spent by `claim` (§3.14.7).
+        bytes32 pairTag;
     }
 
     /// @dev The terminal delta owed to a deal subject, as the kernel reported it (PLURISWAP.md §3.15.5).
@@ -88,6 +91,12 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
 
     mapping(bytes32 => bool) public registeredHn;
     mapping(address => PreparedAdmit) public preparedAdmit;
+    /// @dev The pair tag of a deal, written by the first admit and matched by the second (§3.14.7).
+    ///      It survives the activation because the claim spends it: the counterparty a credit is asked
+    ///      for has to be the one the deal was actually made with.
+    mapping(bytes32 dealId => bytes32 pairTag) public pairTagOf;
+    /// @dev The rate window the claim circuit is told about — one day, matching the public module.
+    uint256 internal constant EPOCH = 1 days;
     mapping(bytes32 => Pending) public pending;
     mapping(bytes32 => bool) public claimed;
 
@@ -108,6 +117,8 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
     error UnknownRoot();
     error AdmitProofFailed();
     error ClaimProofFailed();
+    error PairMismatch();
+    error NoPair();
     error InvalidWalletSignature();
     error NoPrepare();
     error PrepareMismatch();
@@ -186,28 +197,48 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
         uint256 principal,
         bytes32 lockCommit,
         bytes32 repRoot,
+        bytes32 pairTag,
         uint256 deadline,
         bytes calldata proof,
         bytes calldata walletSig
     ) external {
         if (block.timestamp > deadline) revert PrepareExpired();
         if (!accountTree.isKnownRoot(repRoot)) revert UnknownRoot();
-        if (!admitVerifier.verifyAdmit(dealSubject, newLeaf, nullRep, token, principal, lockCommit, repRoot, proof)) {
+        if (
+            !admitVerifier.verifyAdmit(
+                dealSubject, newLeaf, nullRep, token, principal, lockCommit, repRoot, pairTag, proof
+            )
+        ) {
             revert AdmitProofFailed();
         }
         bytes32 digest =
             _hashTypedDataV4(keccak256(abi.encode(PREPARE_TYPEHASH, dealId, dealSubject, address(this), deadline)));
         if (!SignatureChecker.isValidSignatureNow(wallet, digest, walletSig)) revert InvalidWalletSignature();
+        // The pair (§3.14.7): both sides of this activation prove a tag over the SAME two account
+        // commitments, so the first prepare records it and the second has to match. A side that named
+        // a counterparty of its own invention cannot agree with the other's proof — the commutative
+        // `pairId` has no other solution — so this one comparison is what makes the counterparty real,
+        // and it sits here, where the proof that carries the tag is actually verified.
+        bytes32 seen = pairTagOf[dealId];
+        if (seen == bytes32(0)) {
+            pairTagOf[dealId] = pairTag;
+        } else if (seen != pairTag) {
+            revert PairMismatch();
+        }
+
         // Burn the version nullifier before inserting: concurrent prepares against the same account
         // serialize here, and a replayed transition dies before it can grow the tree.
         accountTree.spend(nullRep);
         accountTree.insert(newLeaf);
-        preparedAdmit[wallet] = PreparedAdmit(dealSubject, token, principal, deadline);
+        preparedAdmit[wallet] = PreparedAdmit(dealSubject, token, principal, deadline, pairTag);
         emit ReputationPrepared(wallet, dealSubject, newLeaf, deadline);
     }
 
     /// @inheritdoc IReputation
-    function admit(address wallet, address token, uint256 principal, address vault) external returns (bytes32 subject) {
+    function admit(address wallet, bytes32 dealId, address token, uint256 principal, address vault)
+        external
+        returns (bytes32 subject)
+    {
         if (msg.sender != operator) revert Unauthorized();
         // The F3 binding (§3.15.6): a vault-less deal (vault == 0) or THE bound private vault —
         // nothing else. A counterparty signs a BONDS deal trusting that the lock exists; a foreign
@@ -228,7 +259,9 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
     // ------------------------------------------------------------------ terminal edge (F2)
 
     /// @inheritdoc IReputation
-    function notifyTerminal(bytes32 subject, address token, uint256 principal, IReputation.Close kind) external {
+    function notifyTerminal(bytes32 subject, bytes32, address token, uint256 principal, IReputation.Close kind)
+        external
+    {
         if (msg.sender != operator) revert Unauthorized();
         if (claimed[subject]) revert AlreadyClaimed();
         if (pending[subject].token != address(0)) revert AlreadyPending();
@@ -251,8 +284,22 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
         Pending memory p = pending[dealSubject];
         if (p.token == address(0)) revert NothingToClaim();
         if (!accountTree.isKnownRoot(repRoot)) revert UnknownRoot();
+        // The two inputs the prover does not get to choose (§3.14.7): the pair tag both sides signed
+        // up to when the deal activated, and the epoch, which the circuit cannot read for itself.
+        bytes32 tag = pairTagOf[dealId];
+        if (tag == bytes32(0)) revert NoPair();
         if (!claimVerifier.verifyClaim(
-                dealId, dealSubject, newLeaf, nullRep, p.kind, p.token, p.principal, repRoot, proof
+                dealId,
+                dealSubject,
+                newLeaf,
+                nullRep,
+                p.kind,
+                p.token,
+                p.principal,
+                repRoot,
+                tag,
+                block.timestamp / EPOCH,
+                proof
             )) {
             revert ClaimProofFailed();
         }

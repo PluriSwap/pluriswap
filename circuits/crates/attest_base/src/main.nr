@@ -49,6 +49,11 @@ fn main(
     in_flight: Field,
     leaf_token: Field,
     version: Field,
+    // The §3.14.7 anti-farming state: part of the leaf, so part of the membership proof — and never
+    // part of the statement. What a disclosure says about an account is its stats, not who it met.
+    cp_root: Field,
+    epoch: Field,
+    epoch_credits: Field,
     // Depth-32 account-tree membership witness for the CURRENT leaf.
     siblings: [Field; 32],
     indices: [u8; 32],
@@ -64,7 +69,19 @@ fn main(
     assert(leaf_token == token, "leaf token mismatch");
     let s = account_commitment(sk_id);
     let leaf =
-        leaf_rep(s, count_actual, volume, penalty_actual, in_flight, leaf_token, leaf_salt(sk_id, version), version);
+        leaf_rep(
+            s,
+            count_actual,
+            volume,
+            penalty_actual,
+            in_flight,
+            leaf_token,
+            leaf_salt(sk_id, version),
+            version,
+            cp_root,
+            epoch,
+            epoch_credits,
+        );
     assert(is_member::<32>(leaf, siblings, indices, rep_root), "not a live account leaf");
 
     // The tier bound, IN-CIRCUIT: `score` range-checks count/penalty (u64) and volume
@@ -140,6 +157,9 @@ fn attest_base_sample_verifies() {
         v::ATTEST_IN_FLIGHT,
         v::ATTEST_LEAF_TOKEN,
         v::ATTEST_VERSION,
+        v::ATTEST_CP_ROOT,
+        v::ATTEST_EPOCH,
+        v::ATTEST_EPOCH_CREDITS,
         v::ATTEST_SIBLINGS,
         v::ATTEST_INDICES,
     );
@@ -168,6 +188,9 @@ fn understating_verifies() {
         v::ATTEST_IN_FLIGHT,
         v::ATTEST_LEAF_TOKEN,
         v::ATTEST_VERSION,
+        v::ATTEST_CP_ROOT,
+        v::ATTEST_EPOCH,
+        v::ATTEST_EPOCH_CREDITS,
         v::ATTEST_SIBLINGS,
         v::ATTEST_INDICES,
     );
@@ -231,6 +254,9 @@ fn understating_the_penalty_has_no_proof() {
         v::ATTEST_IN_FLIGHT,
         v::ATTEST_LEAF_TOKEN,
         v::ATTEST_VERSION,
+        v::ATTEST_CP_ROOT,
+        v::ATTEST_EPOCH,
+        v::ATTEST_EPOCH_CREDITS,
         v::ATTEST_SIBLINGS,
         v::ATTEST_INDICES,
     );
@@ -259,6 +285,9 @@ fn overstating_the_volume_has_no_proof() {
         v::ATTEST_IN_FLIGHT,
         v::ATTEST_LEAF_TOKEN,
         v::ATTEST_VERSION,
+        v::ATTEST_CP_ROOT,
+        v::ATTEST_EPOCH,
+        v::ATTEST_EPOCH_CREDITS,
         v::ATTEST_SIBLINGS,
         v::ATTEST_INDICES,
     );

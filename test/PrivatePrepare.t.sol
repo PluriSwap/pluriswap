@@ -23,6 +23,11 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      hoisted to a local BEFORE `vm.expectRevert` — the expectation is consumed by the next
 ///      call, whatever it is.
 contract PrivatePrepareTest is Test {
+
+    /// @dev The §3.14.7 pair tag. With a mock verifier nothing checks its VALUE — what these tests
+    ///      exercise is that both sides of one activation carry the SAME one, which is what the module
+    ///      compares. The real value is pinned by the fixture tests and by the circuit itself.
+    bytes32 internal constant PAIR_TAG = keccak256("pluri:test:pair-tag");
     bytes32 internal constant PREPARE_TYPEHASH =
         keccak256("PrivatePrepare(bytes32 dealId,bytes32 dealSubject,address module,uint256 deadline)");
 
@@ -244,6 +249,7 @@ contract PrivatePrepareTest is Test {
             PRINCIPAL,
             bytes32(0),
             tree.root(),
+            PAIR_TAG,
             deadline,
             ok(true),
             _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
@@ -251,7 +257,7 @@ contract PrivatePrepareTest is Test {
         assertTrue(tree.isSpent(NULLREP_H), "version nullifier not burned");
         assertEq(tree.nextIndex(), 1, "transition leaf not inserted");
         assertTrue(tree.isKnownRoot(tree.root()));
-        (bytes32 buffered, address bufferedToken, uint256 bufferedPrincipal, uint256 bufferedDeadline) =
+        (bytes32 buffered, address bufferedToken, uint256 bufferedPrincipal, uint256 bufferedDeadline,) =
             reputation.preparedAdmit(holder);
         assertEq(buffered, SUBJECT_H);
         assertEq(bufferedToken, TOKEN);
@@ -270,6 +276,7 @@ contract PrivatePrepareTest is Test {
             PRINCIPAL,
             bytes32(0),
             tree.root(),
+            PAIR_TAG,
             deadline,
             ok(true),
             _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
@@ -288,6 +295,7 @@ contract PrivatePrepareTest is Test {
             PRINCIPAL,
             bytes32(0),
             root,
+            PAIR_TAG,
             deadline,
             ok(true),
             sig
@@ -309,13 +317,14 @@ contract PrivatePrepareTest is Test {
             PRINCIPAL,
             bytes32(0),
             root,
+            PAIR_TAG,
             deadline,
             ok(false),
             sig
         );
         assertFalse(tree.isSpent(NULLREP_H));
         assertEq(tree.nextIndex(), 0);
-        (bytes32 buffered,,,) = reputation.preparedAdmit(holder);
+        (bytes32 buffered,,,,) = reputation.preparedAdmit(holder);
         assertEq(buffered, 0);
     }
 
@@ -331,6 +340,7 @@ contract PrivatePrepareTest is Test {
             PRINCIPAL,
             bytes32(0),
             FAKE_ROOT,
+            PAIR_TAG,
             deadline,
             ok(true),
             _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
@@ -351,6 +361,7 @@ contract PrivatePrepareTest is Test {
             PRINCIPAL,
             bytes32(0),
             root,
+            PAIR_TAG,
             deadline,
             ok(true),
             _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
@@ -371,6 +382,7 @@ contract PrivatePrepareTest is Test {
             PRINCIPAL,
             bytes32(0),
             root,
+            PAIR_TAG,
             deadline,
             ok(true),
             sig

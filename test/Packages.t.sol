@@ -1404,12 +1404,12 @@ contract DriftReputation is IReputation {
         return (0, feeRecipient);
     }
 
-    function admit(address wallet, address, uint256, address) external returns (bytes32 subject) {
+    function admit(address wallet, bytes32, address, uint256, address) external returns (bytes32 subject) {
         if (msg.sender != operator) revert Unauthorized();
         subject = passport.identify(wallet);
     }
 
-    function notifyTerminal(bytes32, address, uint256, IReputation.Close) external {
+    function notifyTerminal(bytes32, bytes32, address, uint256, IReputation.Close) external {
         if (msg.sender != operator) revert Unauthorized();
     }
 }
@@ -1593,12 +1593,12 @@ contract LyingReputation is IReputation {
         return (0, feeRecipient);
     }
 
-    function admit(address wallet, address, uint256, address) external returns (bytes32 subject) {
+    function admit(address wallet, bytes32, address, uint256, address) external returns (bytes32 subject) {
         if (msg.sender != operator) revert Unauthorized();
         subject = passport.identify(wallet);
     }
 
-    function notifyTerminal(bytes32, address, uint256, IReputation.Close) external {
+    function notifyTerminal(bytes32, bytes32, address, uint256, IReputation.Close) external {
         if (msg.sender != operator) revert Unauthorized();
     }
 }
@@ -1677,12 +1677,12 @@ contract RevertingGettersReputation is IReputation {
         return (0, _feeRecipient);
     }
 
-    function admit(address wallet, address, uint256, address) external returns (bytes32 subject) {
+    function admit(address wallet, bytes32, address, uint256, address) external returns (bytes32 subject) {
         if (msg.sender != operator) revert Unauthorized();
         subject = passport.identify(wallet);
     }
 
-    function notifyTerminal(bytes32, address, uint256, IReputation.Close) external {
+    function notifyTerminal(bytes32, bytes32, address, uint256, IReputation.Close) external {
         if (msg.sender != operator) revert Unauthorized();
     }
 }

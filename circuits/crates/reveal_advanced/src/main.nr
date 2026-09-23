@@ -40,6 +40,11 @@ fn main(
     in_flight: Field,
     leaf_token: Field,
     version: Field,
+    // The §3.14.7 anti-farming state: part of the leaf, so part of the membership proof — and never
+    // part of the statement. What a disclosure says about an account is its stats, not who it met.
+    cp_root: Field,
+    epoch: Field,
+    epoch_credits: Field,
     // Depth-32 account-tree membership witness for the CURRENT leaf.
     siblings: [Field; 32],
     indices: [u8; 32],
@@ -60,7 +65,19 @@ fn main(
     assert(token != 0, "zero token");
     assert(leaf_token == token, "leaf token mismatch");
     let s = account_commitment(sk_id);
-    let leaf = leaf_rep(s, count, volume, penalty, in_flight, leaf_token, leaf_salt(sk_id, version), version);
+    let leaf = leaf_rep(
+        s,
+        count,
+        volume,
+        penalty,
+        in_flight,
+        leaf_token,
+        leaf_salt(sk_id, version),
+        version,
+        cp_root,
+        epoch,
+        epoch_credits,
+    );
     assert(is_member::<32>(leaf, siblings, indices, rep_root), "not a live account leaf");
 
     // Bounds for the masked arithmetic.
@@ -105,6 +122,9 @@ fn reveal_sample_verifies() {
         v::REVEAL_IN_FLIGHT,
         v::REVEAL_LEAF_TOKEN,
         v::REVEAL_VERSION,
+        v::REVEAL_CP_ROOT,
+        v::REVEAL_EPOCH,
+        v::REVEAL_EPOCH_CREDITS,
         v::REVEAL_SIBLINGS,
         v::REVEAL_INDICES,
     );
@@ -135,6 +155,9 @@ fn the_mask_covers_count_and_volume_only() {
         v::REVEAL_IN_FLIGHT,
         v::REVEAL_LEAF_TOKEN,
         v::REVEAL_VERSION,
+        v::REVEAL_CP_ROOT,
+        v::REVEAL_EPOCH,
+        v::REVEAL_EPOCH_CREDITS,
         v::REVEAL_SIBLINGS,
         v::REVEAL_INDICES,
     );
@@ -157,6 +180,9 @@ fn the_mask_covers_count_and_volume_only() {
         v::REVEAL_IN_FLIGHT,
         v::REVEAL_LEAF_TOKEN,
         v::REVEAL_VERSION,
+        v::REVEAL_CP_ROOT,
+        v::REVEAL_EPOCH,
+        v::REVEAL_EPOCH_CREDITS,
         v::REVEAL_SIBLINGS,
         v::REVEAL_INDICES,
     );
@@ -184,6 +210,9 @@ fn a_profile_cannot_hide_its_penalty() {
         v::REVEAL_IN_FLIGHT,
         v::REVEAL_LEAF_TOKEN,
         v::REVEAL_VERSION,
+        v::REVEAL_CP_ROOT,
+        v::REVEAL_EPOCH,
+        v::REVEAL_EPOCH_CREDITS,
         v::REVEAL_SIBLINGS,
         v::REVEAL_INDICES,
     );

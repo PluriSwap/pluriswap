@@ -21,6 +21,18 @@ contract Reputation is IReputation {
         uint256 volume;
     }
 
+    /// @dev The rate window of §3.14.7: how much credit a subject has already taken this epoch.
+    struct Rate {
+        uint64 epoch;
+        uint64 credits;
+    }
+
+    /// @dev One epoch of the rate limit, and how many credited deals fit in it. The cap sits far above
+    ///      any honest retail trader (sixteen NEW counterparties in a day) and only bites automated
+    ///      bursts: it cannot stop a patient farmer, it turns a weekend into a year.
+    uint256 internal constant EPOCH = 1 days;
+    uint64 internal constant MAX_CREDITS_PER_EPOCH = 16;
+
     IPassport public immutable passport;
     address public immutable operator;
     address public immutable feeRecipient;
@@ -32,6 +44,12 @@ contract Reputation is IReputation {
 
     mapping(bytes32 subject => mapping(address token => uint256 amount)) public inFlight;
     mapping(bytes32 subject => mapping(address token => Stat)) internal _stat;
+    /// @dev Who has already vouched for this subject by trading with it. Public on purpose: the public
+    ///      layer's subjects are wallet-derived and already visible, so hiding the pair here would buy
+    ///      nothing. The PRIVATE layer cannot use a map at all — it would publish the trading graph —
+    ///      and proves the same rule inside the circuit against a per-account tree (§3.15.5).
+    mapping(bytes32 subject => mapping(bytes32 counterparty => bool)) public credited;
+    mapping(bytes32 subject => Rate) internal _rate;
 
     constructor(
         IPassport passport_,
@@ -87,7 +105,7 @@ contract Reputation is IReputation {
         return (s.successCount, s.penalty, s.volume);
     }
 
-    function admit(address wallet, address token, uint256 principal, address vault) external returns (bytes32 subject) {
+    function admit(address wallet, bytes32, address token, uint256 principal, address vault) external returns (bytes32 subject) {
         if (msg.sender != operator) revert Unauthorized();
         subject = passport.identify(wallet);
         uint256 next = inFlight[subject][token] + principal;
@@ -131,19 +149,58 @@ contract Reputation is IReputation {
         if ((vault.locked(subject, token) + lockAmount) * 10 < next) revert InsufficientBond();
     }
 
-    function notifyTerminal(bytes32 subject, address token, uint256 principal, IReputation.Close kind) external {
+    /// @dev Credit is once per COUNTERPARTY; penalties are every time. The asymmetry is the same one
+    ///      the disclosure layer has (§3.15.7's floors and ceiling) read from the other end: what is
+    ///      good about you counts once per person who vouched for it by trading with you, what went
+    ///      wrong counts always.
+    ///
+    ///      This is what prices the farm. The anti-sybil root limits how many identities exist, never
+    ///      how many times two of them trade with each other — so a pair used to buy an unbounded
+    ///      ladder for the cost of fees. Now a closed cluster SATURATES: each member can be credited
+    ///      by each other member exactly once, so a clique of k tops out near its own size and the
+    ///      climb is paid in identities, which is where the Passport actually bites.
+    ///
+    ///      What it costs honest users, stated: a repeat customer stops building your reputation after
+    ///      the first deal. That is deliberate — this number measures BREADTH, how many distinct people
+    ///      have transacted with you, not how busy you are with the ones you already trust.
+    function notifyTerminal(
+        bytes32 subject,
+        bytes32 counterparty,
+        address token,
+        uint256 principal,
+        IReputation.Close kind
+    ) external {
         if (msg.sender != operator) revert Unauthorized();
         uint256 inf = inFlight[subject][token];
         if (principal > inf) revert InFlightUnderflow();
         inFlight[subject][token] = inf - principal;
         Stat storage s = _stat[subject][token];
         if (kind == IReputation.Close.Peaceful) {
-            s.successCount += 1;
-            s.volume += principal;
+            if (_creditable(subject, counterparty)) {
+                s.successCount += 1;
+                s.volume += principal;
+            }
         } else if (kind == IReputation.Close.Stalemate) {
             s.penalty += 5;
         } else if (kind == IReputation.Close.ArbLoss) {
             s.penalty += 15;
         }
+    }
+
+    /// @dev True exactly once per (subject, counterparty), and at most `MAX_CREDITS_PER_EPOCH` times
+    ///      per epoch. Burns the pair either way: a deal that arrives over the rate limit does not get
+    ///      to come back for its credit later, or the limit would only be a delay.
+    function _creditable(bytes32 subject, bytes32 counterparty) internal returns (bool) {
+        if (credited[subject][counterparty]) return false;
+        credited[subject][counterparty] = true;
+        Rate storage r = _rate[subject];
+        uint64 epoch = uint64(block.timestamp / EPOCH);
+        if (r.epoch != epoch) {
+            r.epoch = epoch;
+            r.credits = 0;
+        }
+        if (r.credits >= MAX_CREDITS_PER_EPOCH) return false;
+        r.credits += 1;
+        return true;
     }
 }

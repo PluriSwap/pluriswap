@@ -9,7 +9,8 @@
 // from the secret. If a client's state is lost, wrong, or was never written, recovery still works.
 
 import type { Address, PublicClient } from "viem";
-import { accountCommitment, dealSubject, leafRep, leafSalt, nullRep } from "./commitments.ts";
+import { CP_DEPTH, accountCommitment, dealSubject, leafRep, leafSalt, nullRep } from "./commitments.ts";
+import { SparseTree } from "./sparse.ts";
 import type { TreeSnapshot } from "./indexer.ts";
 import type { Path } from "./tree.ts";
 
@@ -21,9 +22,28 @@ export type Stats = {
   inFlight: bigint;
   /** The token the stats are denominated in; zero on the genesis leaf. */
   token: bigint;
+  /** The §3.14.7 anti-farming state: the root of this account's counterparty tree, and the rate
+   *  window it is in. A fresh account carries the empty tree and a cold window. */
+  cpRoot: bigint;
+  epoch: bigint;
+  epochCredits: bigint;
 };
 
-export const GENESIS: Stats = { count: 0n, volume: 0n, penalty: 0n, inFlight: 0n, token: 0n };
+/** The genesis state: every counter zero, no token, an EMPTY counterparty tree (it has met nobody)
+ *  and a cold rate window. `cpRoot` is computed lazily because the empty root is a fold of zeros. */
+export async function genesis(): Promise<Stats> {
+  const tree = await SparseTree.create(CP_DEPTH);
+  return {
+    count: 0n,
+    volume: 0n,
+    penalty: 0n,
+    inFlight: 0n,
+    token: 0n,
+    cpRoot: tree.emptyRoot(),
+    epoch: 0n,
+    epochCredits: 0n,
+  };
+}
 
 export type AccountState = {
   skId: bigint;
@@ -51,6 +71,9 @@ export async function leafFor(skId: bigint, stats: Stats, version: bigint): Prom
     stats.token,
     await leafSalt(skId, version),
     version,
+    stats.cpRoot,
+    stats.epoch,
+    stats.epochCredits,
   );
 }
 
@@ -94,7 +117,7 @@ export async function locate(
  * exists and it is the account's own leaf.
  */
 export async function registrationBlock(snapshot: TreeSnapshot, skId: bigint): Promise<bigint | null> {
-  const leaf = await leafFor(skId, GENESIS, 0n);
+  const leaf = await leafFor(skId, await genesis(), 0n);
   const index = snapshot.state.indexOf(leaf);
   return index < 0 ? null : (snapshot.insertedAt[index] ?? null);
 }

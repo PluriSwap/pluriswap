@@ -44,6 +44,24 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      is hoisted to a local BEFORE `vm.expectRevert` — the expectation is consumed by the next
 ///      call, whatever it is.
 contract PrivateDealTest is BaseTest {
+
+    /// @dev The §3.14.7 pair tag. With a mock verifier nothing checks its VALUE — what these tests
+    ///      exercise is that both sides of one activation carry the SAME one, which is what the module
+    ///      compares. The real value is pinned by the fixture tests and by the circuit itself.
+    bytes32 internal constant PAIR_TAG = keccak256("pluri:test:pair-tag");
+
+    /// @dev A fresh deal id / counterparty per call: these tests predate the 2026-09-23 rule that credit
+    ///      is once per counterparty, and they all mean "another deal with somebody new". The ones that
+    ///      mean "the same somebody again" say so by passing a fixed tag.
+    uint256 private _tagNonce;
+
+    function _dealTag() internal returns (bytes32) {
+        return keccak256(abi.encode("deal", ++_tagNonce));
+    }
+
+    function _cpTag() internal returns (bytes32) {
+        return keccak256(abi.encode("counterparty", ++_tagNonce));
+    }
     bytes32 internal constant PREPARE_TYPEHASH =
         keccak256("PrivatePrepare(bytes32 dealId,bytes32 dealSubject,address module,uint256 deadline)");
 
@@ -329,7 +347,8 @@ contract PrivateDealTest is BaseTest {
             bondHa.deadline
         );
         return relayer.activatePrivate(
-            escrow, passport, reputation, vault, bondHa, hs, bondPa, ps, ca, "", bondMods, bondDealId, sideH, sideP
+            escrow, passport, reputation, vault, bondHa, hs, bondPa, ps, ca, "", bondMods, bondDealId, sideH, sideP,
+            PAIR_TAG
         );
     }
 
@@ -357,7 +376,8 @@ contract PrivateDealTest is BaseTest {
             mods,
             dealId,
             sideH,
-            sideP
+            sideP,
+            PAIR_TAG
         );
     }
 
@@ -383,8 +403,8 @@ contract PrivateDealTest is BaseTest {
         assertTrue(tree.isSpent(NULLREP_H1));
         assertTrue(tree.isSpent(NULLREP_P1));
         // The admit buffers are consumed: no second deal against the same transition.
-        (bytes32 admitH,,,) = reputation.preparedAdmit(holder);
-        (bytes32 admitP,,,) = reputation.preparedAdmit(provider);
+        (bytes32 admitH,,,,) = reputation.preparedAdmit(holder);
+        (bytes32 admitP,,,,) = reputation.preparedAdmit(provider);
         assertEq(admitH, 0);
         assertEq(admitP, 0);
         // The passport buffers persist (identify is view — accepted limitation, §3.15.4).
@@ -417,14 +437,15 @@ contract PrivateDealTest is BaseTest {
             mods,
             dealId,
             sideH,
-            sideP
+            sideP,
+            PAIR_TAG
         );
         // The failed activation reverted the prepares with it: no leaves, no nullifiers, no buffers.
         assertEq(tree.nextIndex(), 2);
         assertFalse(tree.isSpent(NULLREP_H1));
         assertFalse(tree.isSpent(NULLREP_P1));
-        (bytes32 admitH,,,) = reputation.preparedAdmit(holder);
-        (bytes32 admitP,,,) = reputation.preparedAdmit(provider);
+        (bytes32 admitH,,,,) = reputation.preparedAdmit(holder);
+        (bytes32 admitP,,,,) = reputation.preparedAdmit(provider);
         assertEq(admitH, 0);
         assertEq(admitP, 0);
         (bytes32 passH,) = passport.preparedPassport(holder);
@@ -456,7 +477,7 @@ contract PrivateDealTest is BaseTest {
     function test_admit_onlyOperator() public {
         vm.prank(address(0xB0B));
         vm.expectRevert(PrivateReputation.Unauthorized.selector);
-        reputation.admit(holder, address(token), PRINCIPAL, address(0));
+        reputation.admit(holder, _dealTag(), address(token), PRINCIPAL, address(0));
     }
 
     function test_admit_consumesBufferAndCrossChecks() public {
@@ -474,6 +495,7 @@ contract PrivateDealTest is BaseTest {
             PRINCIPAL,
             bytes32(0),
             root,
+            PAIR_TAG,
             ha.deadline,
             ok(true),
             admitSig
@@ -481,9 +503,9 @@ contract PrivateDealTest is BaseTest {
         vm.expectEmit(true, true, true, true, address(reputation));
         emit PrivateReputation.Admitted(holder, SUBJECT_H, address(token), PRINCIPAL);
         vm.prank(address(escrow));
-        bytes32 subject = reputation.admit(holder, address(token), PRINCIPAL, address(0));
+        bytes32 subject = reputation.admit(holder, _dealTag(), address(token), PRINCIPAL, address(0));
         assertEq(subject, SUBJECT_H);
-        (bytes32 buffered,,,) = reputation.preparedAdmit(holder);
+        (bytes32 buffered,,,,) = reputation.preparedAdmit(holder);
         assertEq(buffered, 0);
     }
 
@@ -500,21 +522,22 @@ contract PrivateDealTest is BaseTest {
             PRINCIPAL,
             bytes32(0),
             root,
+            PAIR_TAG,
             ha.deadline,
             ok(true),
             admitSig
         );
         vm.prank(address(escrow));
         vm.expectRevert(PrivateReputation.UnsupportedVault.selector);
-        reputation.admit(holder, address(token), PRINCIPAL, address(0xB0B));
+        reputation.admit(holder, _dealTag(), address(token), PRINCIPAL, address(0xB0B));
         vm.prank(address(escrow));
         vm.expectRevert(PrivateReputation.PrepareMismatch.selector);
-        reputation.admit(holder, address(token), PRINCIPAL / 2, address(0));
+        reputation.admit(holder, _dealTag(), address(token), PRINCIPAL / 2, address(0));
         vm.prank(address(escrow));
         vm.expectRevert(PrivateReputation.NoPrepare.selector);
-        reputation.admit(provider, address(token), PRINCIPAL, address(0));
+        reputation.admit(provider, _dealTag(), address(token), PRINCIPAL, address(0));
         // Nothing was consumed by the failed admits.
-        (bytes32 buffered,,,) = reputation.preparedAdmit(holder);
+        (bytes32 buffered,,,,) = reputation.preparedAdmit(holder);
         assertEq(buffered, SUBJECT_H);
     }
 
@@ -534,13 +557,14 @@ contract PrivateDealTest is BaseTest {
             PRINCIPAL,
             bytes32(0),
             root,
+            PAIR_TAG,
             ha.deadline,
             ok(true),
             admitSig
         );
         vm.prank(address(escrow));
         vm.expectRevert(PrivateReputation.PeerMismatch.selector);
-        reputation.admit(holder, address(token), PRINCIPAL, address(0));
+        reputation.admit(holder, _dealTag(), address(token), PRINCIPAL, address(0));
     }
 
     function test_admit_expiredPrepareFailsClosed() public {
@@ -556,6 +580,7 @@ contract PrivateDealTest is BaseTest {
             PRINCIPAL,
             bytes32(0),
             root,
+            PAIR_TAG,
             ha.deadline,
             ok(true),
             admitSig
@@ -563,7 +588,7 @@ contract PrivateDealTest is BaseTest {
         vm.warp(ha.deadline + 1);
         vm.prank(address(escrow));
         vm.expectRevert(PrivateReputation.NoPrepare.selector);
-        reputation.admit(holder, address(token), PRINCIPAL, address(0));
+        reputation.admit(holder, _dealTag(), address(token), PRINCIPAL, address(0));
     }
 
     // ---------------------------------------------------------------- terminal
@@ -588,27 +613,39 @@ contract PrivateDealTest is BaseTest {
     function test_notifyTerminal_onlyOperator() public {
         vm.prank(address(0xB0B));
         vm.expectRevert(PrivateReputation.Unauthorized.selector);
-        reputation.notifyTerminal(SUBJECT_H, address(token), PRINCIPAL, IReputation.Close.Peaceful);
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), PRINCIPAL, IReputation.Close.Peaceful);
     }
 
     function test_notifyTerminal_doublePendingFailsClosed() public {
         vm.prank(address(escrow));
-        reputation.notifyTerminal(SUBJECT_H, address(token), PRINCIPAL, IReputation.Close.Peaceful);
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), PRINCIPAL, IReputation.Close.Peaceful);
         // Same subject twice: the same human on both ends of a deal is pathological, and the
         // module fails closed rather than overwrite a delta (the account punishes itself).
         vm.prank(address(escrow));
         vm.expectRevert(PrivateReputation.AlreadyPending.selector);
-        reputation.notifyTerminal(SUBJECT_H, address(token), PRINCIPAL, IReputation.Close.Silent);
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), PRINCIPAL, IReputation.Close.Silent);
     }
 
     function test_notifyTerminal_afterClaimFailsClosed() public {
-        vm.prank(address(escrow));
-        reputation.notifyTerminal(SUBJECT_H, address(token), PRINCIPAL, IReputation.Close.Peaceful);
+        // Through the real activation, because the claim now needs the deal's pair tag — the module
+        // will not hand out a credit for a counterparty no activation ever recorded (§3.14.7).
+        _terminalReleased();
         bytes32 root = tree.root();
         reputation.claim(dealId, SUBJECT_H, CLAIM_LEAF_H, NULLREP_H2, root, ok(true));
         vm.prank(address(escrow));
         vm.expectRevert(PrivateReputation.AlreadyClaimed.selector);
-        reputation.notifyTerminal(SUBJECT_H, address(token), PRINCIPAL, IReputation.Close.Silent);
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), PRINCIPAL, IReputation.Close.Silent);
+    }
+
+    /// A claim for a deal nobody ever activated has no pair behind it, so there is no counterparty to
+    /// ask credit for. Fail-closed: the module refuses rather than crediting an unnamed partner.
+    function test_claim_withoutAnActivationHasNoPair() public {
+        vm.prank(address(escrow));
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), PRINCIPAL, IReputation.Close.Peaceful);
+        bytes32 root = tree.root();
+        bytes memory proof = ok(true);
+        vm.expectRevert(PrivateReputation.NoPair.selector);
+        reputation.claim(keccak256("a deal that never happened"), SUBJECT_H, CLAIM_LEAF_H, NULLREP_H2, root, proof);
     }
 
     // ---------------------------------------------------------------- claim
@@ -679,12 +716,13 @@ contract PrivateDealTest is BaseTest {
             PRINCIPAL,
             bytes32(0),
             root,
+            PAIR_TAG,
             ha.deadline,
             ok(true),
             admitSig
         );
         vm.prank(address(escrow));
-        bytes32 subject = reputation.admit(holder, address(token), PRINCIPAL, address(vault));
+        bytes32 subject = reputation.admit(holder, _dealTag(), address(token), PRINCIPAL, address(vault));
         assertEq(subject, SUBJECT_H, "the bound vault is the one vault this reputation admits");
     }
 
@@ -703,6 +741,7 @@ contract PrivateDealTest is BaseTest {
             PRINCIPAL,
             bytes32(0),
             root,
+            PAIR_TAG,
             ha.deadline,
             ok(true),
             admitSig
@@ -711,7 +750,7 @@ contract PrivateDealTest is BaseTest {
         // the same reputation would fake that protection, so the binding refuses it.
         vm.prank(address(escrow));
         vm.expectRevert(PrivateReputation.UnsupportedVault.selector);
-        reputation.admit(holder, address(token), PRINCIPAL, address(0xB0B));
+        reputation.admit(holder, _dealTag(), address(token), PRINCIPAL, address(0xB0B));
     }
 
     function test_bondDeal_fullBundle() public {
@@ -770,7 +809,8 @@ contract PrivateDealTest is BaseTest {
         );
         vm.expectRevert(Escrow.InvalidProviderSignature.selector);
         relayer.activatePrivate(
-            escrow, passport, reputation, vault, bondHa, hs, bondPa, ps, ca, "", bondMods, bondDealId, sideH, sideP
+            escrow, passport, reputation, vault, bondHa, hs, bondPa, ps, ca, "", bondMods, bondDealId, sideH, sideP,
+            PAIR_TAG
         );
         // The deposits predate the bundle and survive it; the splits did not land.
         assertEq(vault.notesTree().nextIndex(), 2);
@@ -898,7 +938,8 @@ contract PrivateDealTest is BaseTest {
             courtPa.deadline
         );
         bytes32 id = relayer.activatePrivate(
-            escrow, passport, reputation, vault, courtHa, hs, courtPa, ps, ca, "", courtMods, courtDealId, sideH, sideP
+            escrow, passport, reputation, vault, courtHa, hs, courtPa, ps, ca, "", courtMods, courtDealId, sideH, sideP,
+            PAIR_TAG
         );
         assertEq(id, courtDealId);
 

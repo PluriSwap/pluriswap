@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { createPublicClient, http, type Address } from "viem";
 import { readFileSync } from "node:fs";
-import { GENESIS, leafFor, locate, registrationBlock, scanDeals } from "./account.ts";
+import { genesis, leafFor, locate, registrationBlock, scanDeals } from "./account.ts";
 import { readTree } from "./indexer.ts";
 import { foldPath } from "./tree.ts";
 
@@ -20,15 +20,15 @@ const SK_ID = BigInt(vectors.registry.sk_id ?? vectors.prepare.sk_id);
 
 describe("leafFor", () => {
   test("rebuilds the registered genesis leaf from the secret alone", async () => {
-    expect(await leafFor(SK_ID, GENESIS, 0n)).toBe(BigInt(vectors.registry.sample_leaf0));
+    expect(await leafFor(SK_ID, await genesis(), 0n)).toBe(BigInt(vectors.registry.sample_leaf0));
   });
 
   test("a different version is a different leaf, with no stored salt anywhere", async () => {
-    expect(await leafFor(SK_ID, GENESIS, 0n)).not.toBe(await leafFor(SK_ID, GENESIS, 1n));
+    expect(await leafFor(SK_ID, await genesis(), 0n)).not.toBe(await leafFor(SK_ID, await genesis(), 1n));
   });
 
   test("a different secret cannot land on the same leaf", async () => {
-    expect(await leafFor(SK_ID + 1n, GENESIS, 0n)).not.toBe(BigInt(vectors.registry.sample_leaf0));
+    expect(await leafFor(SK_ID + 1n, await genesis(), 0n)).not.toBe(BigInt(vectors.registry.sample_leaf0));
   });
 });
 
@@ -36,7 +36,7 @@ describe("locate, against a chain", () => {
   test.skipIf(!live)("the secret finds its own leaf in the contract's tree", async () => {
     const client = createPublicClient({ transport: http(RPC) });
     const snapshot = await readTree(client, TREE!);
-    const state = await locate(snapshot, SK_ID, GENESIS, 0n);
+    const state = await locate(snapshot, SK_ID, await genesis(), 0n);
 
     expect(state).not.toBeNull();
     expect(state!.index).toBe(0);
@@ -48,8 +48,8 @@ describe("locate, against a chain", () => {
   test.skipIf(!live)("a state the account is not in returns null rather than a wrong leaf", async () => {
     const client = createPublicClient({ transport: http(RPC) });
     const snapshot = await readTree(client, TREE!);
-    expect(await locate(snapshot, SK_ID, GENESIS, 7n)).toBeNull();
-    expect(await locate(snapshot, SK_ID + 1n, GENESIS, 0n)).toBeNull();
+    expect(await locate(snapshot, SK_ID, await genesis(), 7n)).toBeNull();
+    expect(await locate(snapshot, SK_ID + 1n, await genesis(), 0n)).toBeNull();
   });
 
   // The answer to "where do I start looking": the account's own leaf, not a token held by a wallet.

@@ -11,6 +11,19 @@ import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {IReputation} from "../src/packages/interfaces/IReputation.sol";
 
 contract ReputationTest is Test {
+
+    /// @dev A fresh deal id / counterparty per call: these tests predate the 2026-09-23 rule that credit
+    ///      is once per counterparty, and they all mean "another deal with somebody new". The ones that
+    ///      mean "the same somebody again" say so by passing a fixed tag.
+    uint256 private _tagNonce;
+
+    function _dealTag() internal returns (bytes32) {
+        return keccak256(abi.encode("deal", ++_tagNonce));
+    }
+
+    function _cpTag() internal returns (bytes32) {
+        return keccak256(abi.encode("counterparty", ++_tagNonce));
+    }
     uint256 internal constant UNIT = 250 * 1e6;
     bytes32 internal constant SUBJECT_H = keccak256("subject-h");
     address internal holder = address(0xA11CE);
@@ -73,52 +86,52 @@ contract ReputationTest is Test {
         passport.setHuman(holder2, SUBJECT_H);
         assertEq(passport.identify(holder), SUBJECT_H);
         assertEq(passport.identify(holder2), SUBJECT_H);
-        reputation.admit(holder, address(token), UNIT / 2, address(0));
-        reputation.admit(holder2, address(token), UNIT / 2, address(0));
+        reputation.admit(holder, _dealTag(), address(token), UNIT / 2, address(0));
+        reputation.admit(holder2, _dealTag(), address(token), UNIT / 2, address(0));
         assertEq(reputation.inFlight(SUBJECT_H, address(token)), UNIT);
         vm.expectRevert(Reputation.CapExceeded.selector);
-        reputation.admit(holder2, address(token), 1, address(0));
+        reputation.admit(holder2, _dealTag(), address(token), 1, address(0));
     }
 
     function test_admit_onlyOperator() public {
         vm.prank(holder);
         vm.expectRevert(Reputation.Unauthorized.selector);
-        reputation.admit(holder, address(token), 1, address(0));
+        reputation.admit(holder, _dealTag(), address(token), 1, address(0));
     }
 
     function test_notifyTerminal_onlyOperator() public {
-        reputation.admit(holder, address(token), UNIT, address(0));
+        reputation.admit(holder, _dealTag(), address(token), UNIT, address(0));
         vm.prank(holder);
         vm.expectRevert(Reputation.Unauthorized.selector);
-        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Peaceful);
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT, IReputation.Close.Peaceful);
         assertEq(reputation.inFlight(SUBJECT_H, address(token)), UNIT);
     }
 
     function test_noPassport_noAdmit() public {
         vm.expectRevert(IPassport.NoPassport.selector);
-        reputation.admit(address(0xB0B), address(token), 1, address(0));
+        reputation.admit(address(0xB0B), _dealTag(), address(token), 1, address(0));
     }
 
     function test_notify_unknownSubject_inFlightUnderflow() public {
         vm.expectRevert(Reputation.InFlightUnderflow.selector);
-        reputation.notifyTerminal(keccak256("nobody"), address(token), 1, IReputation.Close.Peaceful);
+        reputation.notifyTerminal(keccak256("nobody"), _cpTag(), address(token), 1, IReputation.Close.Peaceful);
     }
 
     function test_notify_usesSubject_afterPassportRevoked() public {
-        reputation.admit(holder, address(token), UNIT, address(0));
+        reputation.admit(holder, _dealTag(), address(token), UNIT, address(0));
         passport.setHuman(holder, bytes32(0));
-        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Peaceful);
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT, IReputation.Close.Peaceful);
         assertEq(reputation.inFlight(SUBJECT_H, address(token)), 0);
         assertEq(reputation.score(SUBJECT_H, address(token)), 2);
     }
 
     function test_t1Cap() public {
         vm.expectRevert(Reputation.CapExceeded.selector);
-        reputation.admit(holder, address(token), UNIT + 1, address(0));
-        reputation.admit(holder, address(token), UNIT, address(0));
+        reputation.admit(holder, _dealTag(), address(token), UNIT + 1, address(0));
+        reputation.admit(holder, _dealTag(), address(token), UNIT, address(0));
         assertEq(reputation.inFlight(SUBJECT_H, address(token)), UNIT);
         vm.expectRevert(Reputation.CapExceeded.selector);
-        reputation.admit(holder, address(token), 1, address(0));
+        reputation.admit(holder, _dealTag(), address(token), 1, address(0));
     }
 
     function test_withBond_t1Cap400() public {
@@ -127,19 +140,19 @@ contract ReputationTest is Test {
         vm.prank(holder);
         vault.deposit(SUBJECT_H, address(token), capBond);
         vm.expectRevert(Reputation.CapExceeded.selector);
-        reputation.admit(holder, address(token), capBond + 1, address(vault));
-        reputation.admit(holder, address(token), capBond, address(vault));
+        reputation.admit(holder, _dealTag(), address(token), capBond + 1, address(vault));
+        reputation.admit(holder, _dealTag(), address(token), capBond, address(vault));
         assertEq(reputation.inFlight(SUBJECT_H, address(token)), capBond);
     }
 
     function test_withBond_insufficientAvailable() public {
         vm.expectRevert(Reputation.InsufficientBond.selector);
-        reputation.admit(holder, address(token), UNIT, address(vault));
+        reputation.admit(holder, _dealTag(), address(token), UNIT, address(vault));
     }
 
     function test_notifyPeaceful_updatesScore() public {
-        reputation.admit(holder, address(token), UNIT, address(0));
-        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Peaceful);
+        reputation.admit(holder, _dealTag(), address(token), UNIT, address(0));
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT, IReputation.Close.Peaceful);
         (uint32 count, uint32 penalty, uint256 volume) = reputation.stats(SUBJECT_H, address(token));
         assertEq(count, 1);
         assertEq(penalty, 0);
@@ -149,8 +162,8 @@ contract ReputationTest is Test {
     }
 
     function test_notifySilent_noScore() public {
-        reputation.admit(holder, address(token), UNIT, address(0));
-        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Silent);
+        reputation.admit(holder, _dealTag(), address(token), UNIT, address(0));
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT, IReputation.Close.Silent);
         (uint32 count, uint32 penalty, uint256 volume) = reputation.stats(SUBJECT_H, address(token));
         assertEq(count, 0);
         assertEq(penalty, 0);
@@ -160,37 +173,37 @@ contract ReputationTest is Test {
     }
 
     function test_notifyStalemate_penaltyFive() public {
-        reputation.admit(holder, address(token), UNIT, address(0));
-        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Stalemate);
+        reputation.admit(holder, _dealTag(), address(token), UNIT, address(0));
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT, IReputation.Close.Stalemate);
         (, uint32 penalty,) = reputation.stats(SUBJECT_H, address(token));
         assertEq(penalty, 5);
         assertEq(reputation.score(SUBJECT_H, address(token)), 0);
     }
 
     function test_notifyArb_winNoVolume_lossPenaltyFifteen() public {
-        reputation.admit(holder, address(token), UNIT / 2, address(0));
-        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT / 2, IReputation.Close.ArbWin);
+        reputation.admit(holder, _dealTag(), address(token), UNIT / 2, address(0));
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT / 2, IReputation.Close.ArbWin);
         (uint32 count, uint32 penalty, uint256 volume) = reputation.stats(SUBJECT_H, address(token));
         assertEq(count, 0);
         assertEq(penalty, 0);
         assertEq(volume, 0);
-        reputation.admit(holder, address(token), UNIT / 2, address(0));
-        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT / 2, IReputation.Close.ArbLoss);
+        reputation.admit(holder, _dealTag(), address(token), UNIT / 2, address(0));
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT / 2, IReputation.Close.ArbLoss);
         (, penalty,) = reputation.stats(SUBJECT_H, address(token));
         assertEq(penalty, 15);
     }
 
     function test_fivePeaceful_t2Cap() public {
         for (uint256 i; i < 5; i++) {
-            reputation.admit(holder, address(token), UNIT, address(0));
-            reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Peaceful);
+            reputation.admit(holder, _dealTag(), address(token), UNIT, address(0));
+            reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT, IReputation.Close.Peaceful);
         }
         assertEq(reputation.score(SUBJECT_H, address(token)), 10);
         uint256 t2 = 500 * 1e6;
-        reputation.admit(holder, address(token), t2, address(0));
+        reputation.admit(holder, _dealTag(), address(token), t2, address(0));
         assertEq(reputation.inFlight(SUBJECT_H, address(token)), t2);
         vm.expectRevert(Reputation.CapExceeded.selector);
-        reputation.admit(holder, address(token), 1, address(0));
+        reputation.admit(holder, _dealTag(), address(token), 1, address(0));
     }
 
     function test_trio_peacefulUnlocksBond() public {
@@ -198,9 +211,9 @@ contract ReputationTest is Test {
         token.mint(holder, UNIT / 10);
         vm.prank(holder);
         vault.deposit(SUBJECT_H, address(token), UNIT / 10);
-        reputation.admit(holder, address(token), UNIT, address(vault));
+        reputation.admit(holder, _dealTag(), address(token), UNIT, address(vault));
         vault.reserve(SUBJECT_H, address(token), dealId, UNIT);
-        reputation.notifyTerminal(SUBJECT_H, address(token), UNIT, IReputation.Close.Peaceful);
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT, IReputation.Close.Peaceful);
         vault.unlock(SUBJECT_H, address(token), dealId);
         vm.prank(holder);
         vault.withdraw(SUBJECT_H, address(token), UNIT / 10);
@@ -226,7 +239,8 @@ contract TerminalHarness {
 
     function releaseThenNotify(Reputation r, address wallet, address token, uint256 principal) external {
         status = Status.RELEASED;
-        try r.notifyTerminal(bytes32(uint256(uint160(wallet))), token, principal, IReputation.Close.Peaceful) {}
-            catch {}
+        try r.notifyTerminal(
+            bytes32(uint256(uint160(wallet))), keccak256("harness-counterparty"), token, principal, IReputation.Close.Peaceful
+        ) {} catch {}
     }
 }

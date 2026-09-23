@@ -17,6 +17,9 @@ interface IPrepareAdmitVerifier {
         uint256 principal,
         bytes32 lockCommit,
         bytes32 repRoot,
+        /// @dev The §3.14.7 pair tag: both sides of one activation prove it over the same two account
+        ///      commitments, and `admit` checks they match.
+        bytes32 pairTag,
         bytes calldata proof
     ) external view returns (bool);
 }

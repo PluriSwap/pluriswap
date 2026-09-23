@@ -19,6 +19,8 @@ export const TAG_HANDLE = 3n;
 export const TAG_LEAF = 4n;
 export const TAG_NOTE = 5n;
 export const TAG_LOCK = 6n;
+export const TAG_PAIR = 7n;
+export const TAG_CP = 8n;
 
 /** `S = Poseidon(sk_id)` — the account; never on-chain in the clear (lives inside leafRep). */
 export async function accountCommitment(skId: bigint): Promise<bigint> {
@@ -111,7 +113,47 @@ export async function lockCommit(skId: bigint, dealId: bigint, lockAmount: bigin
   return chain([skId, dealId, lockAmount, salt]);
 }
 
-/** `leafRep = Poseidon(S, count, volume, penalty, inFlight, token, salt, version)` — the account leaf. */
+/** Depth of an account's own counterparty tree (§3.14.7 anti-farming). */
+export const CP_DEPTH = 32;
+
+/**
+ * `pairId = Poseidon("pair", S_a + S_b, S_a · S_b)` — the name two accounts share, computed
+ * commutatively without ordering them (the unordered pair is determined by its sum and product).
+ *
+ * Each side proves it with its OWN `S` bound to its own leaf and the other's as a private witness,
+ * so for two proofs to agree the multisets must match — and since the two `S` differ, each must have
+ * used the other's true value. A farmer running both sides cannot mint a fresh pair name per round.
+ */
+export async function pairId(sA: bigint, sB: bigint): Promise<bigint> {
+  return chain([TAG_PAIR, sA + sB, sA * sB]);
+}
+
+/** `pairTag = Poseidon(pairId, dealId)` — what the two sides of ONE activation publish so the module
+ *  can check they named the same counterparty. Blinded by the deal: a bare `pairId` would be equal
+ *  across every deal of a pair, which publishes the trading graph. The cross-deal memory is private,
+ *  inside each account's counterparty tree. */
+export async function pairTag(sA: bigint, sB: bigint, dealId: bigint): Promise<bigint> {
+  return poseidon2(await pairId(sA, sB), dealId);
+}
+
+/** The slot a counterparty occupies in an account's counterparty tree: the low 32 bits of
+ *  `Poseidon("cp", S_other)`, little-endian, one bit per level. Derived, never chosen — otherwise a
+ *  claim could point its non-membership proof at whatever empty slot it liked. */
+export async function cpPath(sOther: bigint): Promise<number[]> {
+  const h = await poseidon2(TAG_CP, sOther);
+  let rest = h & 0xffffffffn;
+  const bits: number[] = [];
+  for (let i = 0; i < CP_DEPTH; i++) {
+    bits.push(Number(rest & 1n));
+    rest >>= 1n;
+  }
+  return bits;
+}
+
+/** `leafRep = Poseidon(S, count, volume, penalty, inFlight, token, salt, version, cpRoot, epoch,
+ *  epochCredits)` — the account leaf. The last three are the §3.14.7 anti-farming state, added
+ *  2026-09-23: who has already vouched for this account (privately, as a tree root), and how much of
+ *  the current rate window it has spent. */
 export async function leafRep(
   s: bigint,
   count: bigint,
@@ -121,6 +163,9 @@ export async function leafRep(
   token: bigint,
   salt: bigint,
   version: bigint,
+  cpRoot: bigint,
+  epoch: bigint,
+  epochCredits: bigint,
 ): Promise<bigint> {
-  return chain([s, count, volume, penalty, inFlight, token, salt, version]);
+  return chain([s, count, volume, penalty, inFlight, token, salt, version, cpRoot, epoch, epochCredits]);
 }

@@ -44,6 +44,32 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      token pub is that address, and its `decimals()` answers 6 for the admission
 ///      adapter's live read.
 contract VaultRealProofTest is Test {
+
+    /// @dev The §3.14.7 pair tag. With a mock verifier nothing checks its VALUE — what these tests
+    ///      exercise is that both sides of one activation carry the SAME one, which is what the module
+    ///      compares. The real value is pinned by the fixture tests and by the circuit itself.
+    /// @dev The REAL pair tag and epoch of the pinned sample: this suite runs against committed
+    ///      proofs, so both have to be the values the circuit committed to.
+    function pairTag() internal view returns (bytes32) {
+        return bytes32(vm.parseJsonUint(vectors, ".prepare.pair_tag"));
+    }
+
+    function claimEpoch() internal view returns (uint256) {
+        return vm.parseJsonUint(vectors, ".claim.claim_epoch");
+    }
+
+    /// @dev A fresh deal id / counterparty per call: these tests predate the 2026-09-23 rule that credit
+    ///      is once per counterparty, and they all mean "another deal with somebody new". The ones that
+    ///      mean "the same somebody again" say so by passing a fixed tag.
+    uint256 private _tagNonce;
+
+    function _dealTag() internal returns (bytes32) {
+        return keccak256(abi.encode("deal", ++_tagNonce));
+    }
+
+    function _cpTag() internal returns (bytes32) {
+        return keccak256(abi.encode("counterparty", ++_tagNonce));
+    }
     uint256 internal constant WALLET_KEY = 0xA11CE;
 
     string internal vectors;
@@ -342,6 +368,7 @@ contract VaultRealProofTest is Test {
             principal, // the deal's principal; the bond's §3.14.5 lock is exactly (principal+9)/10
             bytes32(0), // the base cap column: the lock is proven by the vault's own record
             repRoot,
+            pairTag(),
             deadline,
             proofAdmitBlob(),
             _walletSig(address(reputation))
@@ -350,12 +377,12 @@ contract VaultRealProofTest is Test {
 
         // The kernel's edges, against the real modules.
         vm.prank(operator);
-        bytes32 subject = reputation.admit(wallet, token, principal, address(vault));
+        bytes32 subject = reputation.admit(wallet, _dealTag(), token, principal, address(vault));
         assertEq(subject, dealSubject, "the admitted subject");
         vm.prank(operator);
         vault.reserve(dealSubject, token, dealId, principal);
         vm.prank(operator);
-        reputation.notifyTerminal(dealSubject, token, principal, IReputation.Close.Peaceful);
+        reputation.notifyTerminal(dealSubject, _cpTag(), token, principal, IReputation.Close.Peaceful);
 
         // The terminal delta, claimed with the real proof (§3.15.5).
         reputation.claim(dealId, dealSubject, claimNewLeaf, nullRep1, claimRoot, proofClaimBlob());
@@ -482,6 +509,7 @@ contract VaultRealProofTest is Test {
             100_000_000,
             bytes32(0),
             repRoot,
+            pairTag(),
             deadline,
             proofAdmitBlob(),
             _walletSig(address(reputation))
@@ -668,6 +696,8 @@ contract VaultRealProofTest is Test {
                 token,
                 principal,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 proofClaimBlob()
             )
         );
@@ -681,6 +711,8 @@ contract VaultRealProofTest is Test {
                 token,
                 principal,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 proofClaimBlob()
             )
         );
@@ -694,6 +726,8 @@ contract VaultRealProofTest is Test {
                 token,
                 principal,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 proofClaimBlob()
             )
         );
@@ -707,6 +741,8 @@ contract VaultRealProofTest is Test {
                 token,
                 principal,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 proofClaimBlob()
             )
         );
@@ -720,6 +756,8 @@ contract VaultRealProofTest is Test {
                 token,
                 principal,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 proofClaimBlob()
             )
         );
@@ -734,6 +772,8 @@ contract VaultRealProofTest is Test {
                 token,
                 100_000_000,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 proofClaimBlob()
             )
         );
@@ -747,6 +787,8 @@ contract VaultRealProofTest is Test {
                 wrongToken,
                 100_000_000,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 proofClaimBlob()
             )
         );
@@ -760,6 +802,8 @@ contract VaultRealProofTest is Test {
                 token,
                 wrongPrincipal,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 proofClaimBlob()
             )
         );
@@ -773,6 +817,8 @@ contract VaultRealProofTest is Test {
                 token,
                 100_000_000,
                 wrongRoot,
+                pairTag(),
+                claimEpoch(),
                 proofClaimBlob()
             )
         );
@@ -904,6 +950,8 @@ contract VaultRealProofTest is Test {
                 token,
                 100_000_000,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 blob
             )
         );
@@ -943,6 +991,8 @@ contract VaultRealProofTest is Test {
                 token,
                 100_000_000,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 hex"0011"
             )
         );
@@ -997,6 +1047,8 @@ contract VaultRealProofTest is Test {
                 token,
                 100_000_000,
                 claimRoot,
+                pairTag(),
+                claimEpoch(),
                 proofBondBlob()
             )
         );
@@ -1036,6 +1088,8 @@ contract VaultRealProofTest is Test {
             token,
             principal,
             claimRoot,
+            pairTag(),
+            claimEpoch(),
             proofClaimBlob()
         );
         emit log_named_uint("verifyClaim gas", before - gasleft());

@@ -16,6 +16,8 @@ contract ClaimVerifierMock is IClaimVerifier {
         address,
         uint256,
         bytes32,
+        bytes32,
+        uint256,
         bytes calldata proof
     ) external pure returns (bool) {
         return abi.decode(proof, (bool));

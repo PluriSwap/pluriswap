@@ -28,6 +28,19 @@ import {IReputation} from "../../src/packages/interfaces/IReputation.sol";
 /// @dev Property tests over the extension surface: KERNEL-04 (fees never block a terminal), fee arithmetic,
 ///      Reputation score/cap formulas, BondVault lock/slash/burn rules, and packageId binding.
 contract PackagesFuzzTest is Test {
+
+    /// @dev A fresh deal id / counterparty per call: these tests predate the 2026-09-23 rule that credit
+    ///      is once per counterparty, and they all mean "another deal with somebody new". The ones that
+    ///      mean "the same somebody again" say so by passing a fixed tag.
+    uint256 private _tagNonce;
+
+    function _dealTag() internal returns (bytes32) {
+        return keccak256(abi.encode("deal", ++_tagNonce));
+    }
+
+    function _cpTag() internal returns (bytes32) {
+        return keccak256(abi.encode("counterparty", ++_tagNonce));
+    }
     uint256 internal constant HOLDER_PK = 0xA11CE;
     uint256 internal constant PROVIDER_PK = 0xB0B;
     uint256 internal constant T1_CAP = 250e6; // 6-dec token, score 0, no bond
@@ -187,17 +200,17 @@ contract PackagesFuzzTest is Test {
         for (uint256 i; i < peaceful; i++) {
             uint256 cap = rep.cap(SUB_H, address(token), false);
             uint256 p = bound(uint256(keccak256(abi.encode(principal, i))), 1, cap < 5000e6 ? cap : 5000e6);
-            rep.admit(holder, address(token), p, address(0));
-            rep.notifyTerminal(SUB_H, address(token), p, IReputation.Close.Peaceful);
+            rep.admit(holder, _dealTag(), address(token), p, address(0));
+            rep.notifyTerminal(SUB_H, _cpTag(), address(token), p, IReputation.Close.Peaceful);
             volume += p;
         }
         for (uint256 i; i < stalemates; i++) {
-            rep.admit(holder, address(token), 1, address(0));
-            rep.notifyTerminal(SUB_H, address(token), 1, IReputation.Close.Stalemate);
+            rep.admit(holder, _dealTag(), address(token), 1, address(0));
+            rep.notifyTerminal(SUB_H, _cpTag(), address(token), 1, IReputation.Close.Stalemate);
         }
         for (uint256 i; i < losses; i++) {
-            rep.admit(holder, address(token), 1, address(0));
-            rep.notifyTerminal(SUB_H, address(token), 1, IReputation.Close.ArbLoss);
+            rep.admit(holder, _dealTag(), address(token), 1, address(0));
+            rep.notifyTerminal(SUB_H, _cpTag(), address(token), 1, IReputation.Close.ArbLoss);
         }
         uint256 raw = uint256(peaceful) + volume / unit;
         uint256 penalty = uint256(stalemates) * 5 + uint256(losses) * 15;
@@ -219,16 +232,16 @@ contract PackagesFuzzTest is Test {
         uint256 cap = rep.cap(SUB_H, address(token), false);
         first = bound(first, 1, cap);
         second = bound(second, 1, cap);
-        rep.admit(holder, address(token), first, address(0));
+        rep.admit(holder, _dealTag(), address(token), first, address(0));
         if (first + second > cap) {
             vm.expectRevert(Reputation.CapExceeded.selector);
-            rep.admit(holder, address(token), second, address(0));
+            rep.admit(holder, _dealTag(), address(token), second, address(0));
         } else {
-            rep.admit(holder, address(token), second, address(0));
+            rep.admit(holder, _dealTag(), address(token), second, address(0));
             assertEq(rep.inFlight(SUB_H, address(token)), first + second);
-            rep.notifyTerminal(SUB_H, address(token), second, IReputation.Close.Silent);
+            rep.notifyTerminal(SUB_H, _cpTag(), address(token), second, IReputation.Close.Silent);
         }
-        rep.notifyTerminal(SUB_H, address(token), first, IReputation.Close.Silent);
+        rep.notifyTerminal(SUB_H, _cpTag(), address(token), first, IReputation.Close.Silent);
         assertEq(rep.score(SUB_H, address(token)), 0, "silent close changed the score");
         assertEq(rep.inFlight(SUB_H, address(token)), 0);
     }

@@ -21,6 +21,12 @@ interface IClaimVerifier {
         address token,
         uint256 principal,
         bytes32 repRoot,
+        /// @dev The §3.14.7 anti-farming pair tag the two sides agreed on at activation, and the rate
+        ///      epoch. Both come from the contract, never from the prover: the tag from the deal's own
+        ///      record, the epoch from `block.timestamp` — a circuit has no clock and no memory of who
+        ///      you traded with, so this is how both get in.
+        bytes32 pairTag,
+        uint256 epoch,
         bytes calldata proof
     ) external view returns (bool);
 }

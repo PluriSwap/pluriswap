@@ -91,6 +91,10 @@ lee igual en cualquier token y a cualquier escala.
 | 4 | 80–399 | 20.000+ |
 | 5 | 400+ | 100.000+ |
 
+El cupo de T5 es **sin límite sólo con bond**: sin él la escalera topea en 5.000. La única exposición
+ilimitada del protocolo tiene siempre un lock vivo detrás — al 10% de §3.14.5, respaldada en un 10%
+por su propio dueño.
+
 **Castigo** — los cortes son *eventos*: un stalemate o una disputa abandonada suma 5, una derrota en
 tribunal suma 15 (§3.14.7).
 
@@ -105,10 +109,18 @@ Un band y no la cifra porque **un número crudo en una pantalla pública es una 
 "47 deals, 12.350 de volumen" identifica más de lo que informa. Quien quiera el número exacto pide
 el perfil, y ahí el dueño decide.
 
+**Qué mide este número.** Desde 2026-09-23 un deal completado suma **una vez por contraparte**: el
+primero con cada cuenta cuenta, los siguientes con la misma no. Los castigos no se deduplican nunca.
+Así que `count` no es "cuántos deals hizo" sino **cuánta gente distinta operó con él** — amplitud, no
+actividad. Un cliente habitual deja de sumar después del primer trato, y eso es deliberado: es lo que
+hace que una camarilla cerrada sature en su propio tamaño en vez de comprar la escalera con fees.
+
 El **tier** y su cupo salen de la misma tabla (§3.14.7):
 `score = satSub(count + volumen/UNIT, castigo)`, con umbrales 10 / 25 / 50 / 100 y cupos de
-250 / 500 / 1.000 / 2.000 tokens (400 / 700 / 1.500 / 5.000 con bond), T5 sin límite. El cupo acota
-`inFlight + principal`: es **exposición concurrente**, no tamaño máximo de un deal.
+250 / 500 / 1.000 / 2.000 / 5.000 tokens (400 / 700 / 1.500 / 5.000 / sin límite con bond). El cupo
+acota `inFlight + principal`: es **exposición concurrente**, no tamaño máximo de un deal. Y el que
+ata es **el más chico de los dos lados**, así que una posición grande necesita una contraparte que
+también se la haya ganado.
 
 ---
 

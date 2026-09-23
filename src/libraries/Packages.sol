@@ -118,8 +118,8 @@ library Packages {
         if ((pkgs & REP) != 0) {
             IReputation r = IReputation(mods.reputation);
             address v = (pkgs & BONDS) != 0 ? mods.bonds : address(0);
-            r.admit(t.holder, t.token, t.principal, v);
-            r.admit(t.provider, t.token, t.principal, v);
+            r.admit(t.holder, dealId, t.token, t.principal, v);
+            r.admit(t.provider, dealId, t.token, t.principal, v);
             // `admit` is not `view` and runs between `resolve`'s validation and this read, so a module can
             // answer one policy while it is being checked and another while it is being paid. Re-bind the
             // values actually charged to a signed id before pulling anything. `completionInvoice` and `zk`
@@ -336,12 +336,12 @@ library Packages {
         if ((left & (POST_NOTIFY_H | POST_NOTIFY_P)) != 0 && (d.pkgs & REP) != 0) {
             IReputation r = IReputation(d.mods.reputation);
             if ((left & POST_NOTIFY_H) != 0) {
-                try r.notifyTerminal(d.subjectH, t.token, t.principal, IReputation.Close(closeH)) {
+                try r.notifyTerminal(d.subjectH, d.subjectP, t.token, t.principal, IReputation.Close(closeH)) {
                     left &= ~POST_NOTIFY_H;
                 } catch {}
             }
             if ((left & POST_NOTIFY_P) != 0) {
-                try r.notifyTerminal(d.subjectP, t.token, t.principal, IReputation.Close(closeP)) {
+                try r.notifyTerminal(d.subjectP, d.subjectH, t.token, t.principal, IReputation.Close(closeP)) {
                     left &= ~POST_NOTIFY_P;
                 } catch {}
             }

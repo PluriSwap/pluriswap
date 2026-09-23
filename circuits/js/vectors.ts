@@ -21,6 +21,7 @@ import { poseidon1, poseidon2 } from "./lib/poseidon.ts";
 import * as c from "./lib/commitments.ts";
 import * as tiers from "./lib/tiers.ts";
 import { IncrementalPoseidonTree } from "./lib/merkle.ts";
+import { SparseTree, indexOf } from "./lib/sparse.ts";
 
 const REPO = join(import.meta.dir, "../..");
 const CIRCOM_T3_1_2 =
@@ -36,6 +37,18 @@ const NOTE_SALT = BigInt(keccak("pluri:note-salt:1"));
 const LEAF_SALT = BigInt(keccak("pluri:leaf-salt:1"));
 const LOCK_SALT = BigInt(keccak("pluri:lock-salt:1"));
 const HANDLE_SALT = BigInt(keccak("pluri:handle-salt:1"));
+// The anti-farming state of the leaf (§3.14.7, 2026-09-23). The builders row uses free sample values,
+// like every other builder input; the FLOW below uses the real derivations.
+const LEAF_CP_ROOT = BigInt(keccak("pluri:cp-root:1"));
+const LEAF_EPOCH = 19_800n;
+const LEAF_EPOCH_CREDITS = 3n;
+// The counterparty of the pinned deal: a second account, with its own secret. The whole point of the
+// pair construction is that neither side can name it alone.
+const CP_SK_ID = BigInt(keccak("pluri:counterparty-sk:1")) % P;
+// The rate window the pinned claim is proven in. The circuit has no clock: the module passes
+// `block.timestamp / 1 day`, so the fixture commits to the epoch the suites' own clock
+// (1_700_000_000, the V1 lesson about realistic timestamps) actually falls in.
+const CLAIM_EPOCH = 1_700_000_000n / 86_400n;
 const TOKEN_ID = 97433442488726861213578988847752201310395502865n;
 // 20 bytes of 0x11 — a synthetic token id for the vectors, not a real token contract.
 const AMOUNT = 1_500_000_000n;
@@ -124,7 +137,19 @@ async function main() {
   // ---------------------------------------------------------------- builder vectors
   const s = await c.accountCommitment(SK_ID);
   const note = await c.noteBond(SK_ID, TOKEN_ID, AMOUNT, NOTE_SALT);
-  const leaf = await c.leafRep(s, COUNT, VOLUME, PENALTY, IN_FLIGHT, TOKEN_ID, LEAF_SALT, VERSION);
+  const leaf = await c.leafRep(
+    s,
+    COUNT,
+    VOLUME,
+    PENALTY,
+    IN_FLIGHT,
+    TOKEN_ID,
+    LEAF_SALT,
+    VERSION,
+    LEAF_CP_ROOT,
+    LEAF_EPOCH,
+    LEAF_EPOCH_CREDITS,
+  );
   const builders = {
     s: { sk_id: dec(SK_ID), output: dec(s) },
     hn: { anchor: dec(ANCHOR), registry_id: dec(REGISTRY_ID), output: dec(await c.hn(ANCHOR, REGISTRY_ID)) },
@@ -142,6 +167,18 @@ async function main() {
     // circuits' own vectors below.
     note_salt: { sk_id: dec(SK_ID), seed: dec(NOTE_SALT), output: dec(await c.noteSalt(SK_ID, NOTE_SALT)) },
     lock_salt: { sk_id: dec(SK_ID), deal_id: dec(DEAL_ID), output: dec(await c.lockSalt(SK_ID, DEAL_ID)) },
+    // The anti-farming pair (§3.14.7): commutative by construction, so the row pins BOTH orders to the
+    // same output — the property the whole rule rests on.
+    pair_id: {
+      s_a: dec(await c.accountCommitment(SK_ID)),
+      s_b: dec(await c.accountCommitment(CP_SK_ID)),
+      output: dec(await c.pairId(await c.accountCommitment(SK_ID), await c.accountCommitment(CP_SK_ID))),
+      swapped: dec(await c.pairId(await c.accountCommitment(CP_SK_ID), await c.accountCommitment(SK_ID))),
+    },
+    pair_tag: {
+      deal_id: dec(DEAL_ID),
+      output: dec(await c.pairTag(await c.accountCommitment(SK_ID), await c.accountCommitment(CP_SK_ID), DEAL_ID)),
+    },
     handle_commit: {
       sk_id: dec(SK_ID),
       handle_salt: dec(HANDLE_SALT),
@@ -170,6 +207,9 @@ async function main() {
       token: dec(TOKEN_ID),
       salt: dec(LEAF_SALT),
       version: dec(VERSION),
+      cp_root: dec(LEAF_CP_ROOT),
+      epoch: dec(LEAF_EPOCH),
+      epoch_credits: dec(LEAF_EPOCH_CREDITS),
       output: dec(leaf),
     },
   };
@@ -215,7 +255,15 @@ async function main() {
   const regProof = regTree.proofOf(0);
   const sampleHn = await c.hn(REGISTRY_HSK, REGISTRY_ID);
   const sampleS = await c.accountCommitment(SK_ID);
-  const sampleLeaf0 = await c.leafRep(sampleS, 0n, 0n, 0n, 0n, 0n, await c.leafSalt(SK_ID, 0n), 0n);
+  // The genesis leaf carries an EMPTY counterparty tree and a cold rate window: a new account has
+  // met nobody, so its first deal with anyone is creditable.
+  // The counterparty of the pinned deal, hoisted here because the ACTIVATION already needs it: the
+  // pair is named when the two sides prepare, not when they claim.
+  const cpS = await c.accountCommitment(CP_SK_ID);
+  const cpEmpty = await SparseTree.create(c.CP_DEPTH);
+  const cpEmptyRoot = cpEmpty.emptyRoot();
+  const sampleLeaf0 =
+    await c.leafRep(sampleS, 0n, 0n, 0n, 0n, 0n, await c.leafSalt(SK_ID, 0n), 0n, cpEmptyRoot, 0n, 0n);
   const registryVectors = {
     depth: REGISTRY_DEPTH,
     registry_id: dec(REGISTRY_ID),
@@ -290,15 +338,34 @@ async function main() {
   const prepareDealId = BigInt(keccak("pluri:prepare-deal:1"));
   const prepareDealSubject = await c.dealSubject(SK_ID, prepareDealId);
   const prepareNullRep = await c.nullRep(SK_ID, 0n);
-  const prepareNewLeaf =
-    await c.leafRep(sampleS, 0n, 0n, 0n, PREPARE_PRINCIPAL, TOKEN_ID, await c.leafSalt(SK_ID, 1n), 1n);
+  // A prepare moves principal into flight and nothing else: the counterparty tree and the rate window
+  // ride through untouched, because credit is decided at the TERMINAL, not at admission.
+  const prepareNewLeaf = await c.leafRep(
+    sampleS,
+    0n,
+    0n,
+    0n,
+    PREPARE_PRINCIPAL,
+    TOKEN_ID,
+    await c.leafSalt(SK_ID, 1n),
+    1n,
+    cpEmptyRoot,
+    0n,
+    0n,
+  );
   const prepareScore = tiers.score(0n, 0n, 0n, PREPARE_DECIMALS);
   const prepareCap = tiers.capRaw(prepareScore, false, PREPARE_DECIMALS);
   if (prepareCap === null || PREPARE_PRINCIPAL > prepareCap) {
     throw new Error(`prepare sample over its own cap: principal ${PREPARE_PRINCIPAL} > cap ${prepareCap}`);
   }
+  const preparePairTag = await c.pairTag(sampleS, cpS, prepareDealId);
   const prepareVectors = {
     depth: ACCOUNT_DEPTH,
+    // The genesis counterparty tree: empty, and the prepare carries it through untouched.
+    cp_root: dec(cpEmptyRoot),
+    // The pair, named at activation by both sides (§3.14.7).
+    cp_s: dec(cpS),
+    pair_tag: dec(preparePairTag),
     decimals: dec(PREPARE_DECIMALS),
     principal: dec(PREPARE_PRINCIPAL),
     token: dec(TOKEN_ID),
@@ -388,8 +455,30 @@ async function main() {
     if (kind === 4n) return { count: 0n, volume: 0n, penalty: 15n, inFlight: 0n };
     return { count: 0n, volume: 0n, penalty: 0n, inFlight: 0n };
   };
-  const claimNewLeaf =
-    await c.leafRep(sampleS, 1n, PREPARE_PRINCIPAL, 0n, 0n, TOKEN_ID, await c.leafSalt(SK_ID, 2n), 2n);
+  // The terminal that CREDITS (§3.14.7, 2026-09-23). The counterparty is fresh — the account's tree is
+  // empty — so the Peaceful delta lands in full AND the counterparty is written into the slot its own
+  // `S` addresses, which is what makes the second deal with them worth nothing.
+  const cpBits = await c.cpPath(cpS);
+  const cpIndex = indexOf(cpBits);
+  const cpTreeBefore = await SparseTree.create(c.CP_DEPTH);
+  const cpPathBefore = await cpTreeBefore.pathFor(cpIndex);
+  const cpTreeAfter = await SparseTree.create(c.CP_DEPTH);
+  cpTreeAfter.set(cpIndex, cpS);
+  const cpRootAfter = await cpTreeAfter.root();
+  const claimPairTag = await c.pairTag(sampleS, cpS, prepareDealId);
+  const claimNewLeaf = await c.leafRep(
+    sampleS,
+    1n,
+    PREPARE_PRINCIPAL,
+    0n,
+    0n,
+    TOKEN_ID,
+    await c.leafSalt(SK_ID, 2n),
+    2n,
+    cpRootAfter,
+    CLAIM_EPOCH,
+    1n,
+  );
   const claimVectors = {
     depth: ACCOUNT_DEPTH,
     deal_id: dec(prepareDealId),
@@ -406,12 +495,121 @@ async function main() {
     leaf_token: dec(TOKEN_ID),
     salt: dec(await c.leafSalt(SK_ID, 1n)),
     version: "1",
+    // The anti-farming state the claim reads and moves (§3.14.7): an empty counterparty tree and a
+    // cold window going in, the counterparty written and one credit spent coming out.
+    cp_root: dec(cpEmptyRoot),
+    epoch: "0",
+    epoch_credits: "0",
+    cp_sk_id: dec(CP_SK_ID),
+    cp_s: dec(cpS),
+    cp_index: dec(cpIndex),
+    cp_siblings: cpPathBefore.siblings.map(dec),
+    cp_indices: cpPathBefore.indices,
+    cp_root_after: dec(cpRootAfter),
+    pair_tag: dec(claimPairTag),
+    claim_epoch: dec(CLAIM_EPOCH),
     new_salt: dec(await c.leafSalt(SK_ID, 2n)),
     new_leaf: dec(claimNewLeaf),
     null_rep: dec(claimNullRep),
     siblings: claimProof.siblings.map(dec),
     indices: claimProof.indices,
     root: dec(claimRoot),
+  };
+
+  // Two more scenarios for the 2026-09-23 rule, each one a real leaf in the same account tree so the
+  // circuit can be exercised end to end rather than by arithmetic alone:
+  //
+  //   repeat  the SAME counterparty a second time — its slot is taken, so a Peaceful terminal moves
+  //           the flight and nothing else;
+  //   full    a fresh counterparty but a window already spent — the credit is refused, and the slot
+  //           stays free for some later window.
+  //
+  // Both start from a leaf that looks like what a second admission would have written: the stats the
+  // first claim left, the principal back in flight, the version bumped.
+  const repeatLeaf = await c.leafRep(
+    sampleS,
+    1n,
+    PREPARE_PRINCIPAL,
+    0n,
+    PREPARE_PRINCIPAL,
+    TOKEN_ID,
+    await c.leafSalt(SK_ID, 3n),
+    3n,
+    cpRootAfter,
+    CLAIM_EPOCH,
+    1n,
+  );
+  const repeatRoot = await accountTree.insert(repeatLeaf);
+  const repeatProof = accountTree.proofOf(Number(accountTree.nextIndex) - 1);
+  const repeatNewLeaf = await c.leafRep(
+    sampleS,
+    1n,
+    PREPARE_PRINCIPAL,
+    0n,
+    0n,
+    TOKEN_ID,
+    await c.leafSalt(SK_ID, 4n),
+    4n,
+    cpRootAfter,
+    CLAIM_EPOCH,
+    1n,
+  );
+  const cpPathAfter = await cpTreeAfter.pathFor(cpIndex);
+
+  const fullLeaf = await c.leafRep(
+    sampleS,
+    1n,
+    PREPARE_PRINCIPAL,
+    0n,
+    PREPARE_PRINCIPAL,
+    TOKEN_ID,
+    await c.leafSalt(SK_ID, 3n),
+    3n,
+    cpEmptyRoot,
+    CLAIM_EPOCH,
+    16n,
+  );
+  const fullRoot = await accountTree.insert(fullLeaf);
+  const fullProof = accountTree.proofOf(Number(accountTree.nextIndex) - 1);
+  const fullNewLeaf = await c.leafRep(
+    sampleS,
+    1n,
+    PREPARE_PRINCIPAL,
+    0n,
+    0n,
+    TOKEN_ID,
+    await c.leafSalt(SK_ID, 4n),
+    4n,
+    cpEmptyRoot,
+    CLAIM_EPOCH,
+    16n,
+  );
+
+  const claimRepeatVectors = {
+    version: "3",
+    cp_root: dec(cpRootAfter),
+    epoch: dec(CLAIM_EPOCH),
+    epoch_credits: "1",
+    slot: dec(cpS),
+    cp_siblings: cpPathAfter.siblings.map(dec),
+    new_leaf: dec(repeatNewLeaf),
+    null_rep: dec(await c.nullRep(SK_ID, 3n)),
+    siblings: repeatProof.siblings.map(dec),
+    indices: repeatProof.indices,
+    root: dec(repeatRoot),
+  };
+  const claimFullVectors = {
+    version: "3",
+    cp_root: dec(cpEmptyRoot),
+    epoch: dec(CLAIM_EPOCH),
+    epoch_credits: "16",
+    slot: "0",
+    cp_siblings: cpPathBefore.siblings.map(dec),
+    new_leaf: dec(fullNewLeaf),
+    null_rep: dec(await c.nullRep(SK_ID, 3n)),
+    siblings: fullProof.siblings.map(dec),
+    indices: fullProof.indices,
+    root: dec(fullRoot),
   };
 
   // The §3.15.5 delta table as rows (the tiers pattern): one row per Close kind over the
@@ -487,6 +685,16 @@ async function main() {
   // claim (leaf0 at 0, the prepare's new leaf at 1), and each proof references its own
   // insert-time root. Both circuits share this one witness: the listing attestation and
   // the profile reveal are two views of one account state.
+  // The disclosure sample sits mid-history, so its counterparty tree is NOT empty: twelve completed
+  // deals means twelve accounts have vouched for it. The tree is built from twelve derived slots — the
+  // attestation circuits never look inside it, but the leaf they prove membership of has to be a leaf
+  // an honest history could actually produce.
+  const attestCpTree = await SparseTree.create(c.CP_DEPTH);
+  for (let i = 0n; i < ATTEST_COUNT; i++) {
+    const other = await c.accountCommitment(BigInt(keccak(`pluri:attest-counterparty:${i}`)) % P);
+    attestCpTree.set(indexOf(await c.cpPath(other)), other);
+  }
+  const attestCpRoot = await attestCpTree.root();
   const attestLeaf = await c.leafRep(
     sampleS,
     ATTEST_COUNT,
@@ -496,9 +704,12 @@ async function main() {
     TOKEN_ID,
     await c.leafSalt(SK_ID, ATTEST_VERSION),
     ATTEST_VERSION,
+    attestCpRoot,
+    LEAF_EPOCH,
+    LEAF_EPOCH_CREDITS,
   );
   const attestRoot = await accountTree.insert(attestLeaf);
-  const attestProof = accountTree.proofOf(2);
+  const attestProof = accountTree.proofOf(Number(accountTree.nextIndex) - 1);
   const attestHandle = await c.handleCommit(SK_ID, HANDLE_SALT);
   const attestScore = tiers.score(ATTEST_COUNT, ATTEST_VOLUME, ATTEST_PENALTY, ATTEST_DECIMALS);
   const attestTier = tiers.tierOf(attestScore);
@@ -518,6 +729,9 @@ async function main() {
     leaf_token: dec(TOKEN_ID),
     salt: dec(await c.leafSalt(SK_ID, ATTEST_VERSION)),
     version: dec(ATTEST_VERSION),
+    cp_root: dec(attestCpRoot),
+    epoch: dec(LEAF_EPOCH),
+    epoch_credits: dec(LEAF_EPOCH_CREDITS),
     // The statement: the token the stats are denominated in (with its decimals — the
     // tier is a function of both, so the consumer cross-checks them against the ERC20),
     // the claimed bounds, and the freshness promise.
@@ -557,6 +771,9 @@ async function main() {
     leaf_token: dec(TOKEN_ID),
     salt: dec(await c.leafSalt(SK_ID, ATTEST_VERSION)),
     version: dec(ATTEST_VERSION),
+    cp_root: dec(attestCpRoot),
+    epoch: dec(LEAF_EPOCH),
+    epoch_credits: dec(LEAF_EPOCH_CREDITS),
     siblings: attestProof.siblings.map(dec),
     indices: attestProof.indices,
     root: dec(attestRoot),
@@ -573,6 +790,8 @@ async function main() {
     builders,
     tree: treeVectors,
     registry: registryVectors,
+    claim_repeat: claimRepeatVectors,
+    claim_full: claimFullVectors,
     tiers: tierVectors,
     // The row count as a scalar: the foundry parity mirror cannot count an array of
     // objects (this forge has no working array-length cheatcode), so the fixture names it.
@@ -711,6 +930,20 @@ type PrepareVectors = {
   new_leaf: string;
   score: string;
   cap: string;
+};
+
+type ClaimScenario = {
+  version: string;
+  cp_root: string;
+  epoch: string;
+  epoch_credits: string;
+  slot: string;
+  cp_siblings: string[];
+  new_leaf: string;
+  null_rep: string;
+  siblings: string[];
+  indices: number[];
+  root: string;
 };
 
 type Sample = {
@@ -921,6 +1154,14 @@ function renderNoirVectors(
   nr.push(`pub global EXPECTED_LOCK_SALT: Field = ${b.lock_salt.output};`);
   nr.push(`pub global EXPECTED_NOTE_BOND: Field = ${b.note_bond.output};`);
   nr.push(`pub global EXPECTED_LOCK_COMMIT: Field = ${b.lock_commit.output};`);
+  nr.push(`pub global EXPECTED_PAIR_ID: Field = ${b.pair_id.output};`);
+  nr.push(`pub global EXPECTED_PAIR_ID_SWAPPED: Field = ${b.pair_id.swapped};`);
+  nr.push(`pub global PAIR_S_A: Field = ${b.pair_id.s_a};`);
+  nr.push(`pub global PAIR_S_B: Field = ${b.pair_id.s_b};`);
+  nr.push(`pub global EXPECTED_PAIR_TAG: Field = ${b.pair_tag.output};`);
+  nr.push(`pub global LEAF_CP_ROOT: Field = ${dec(field(b.leaf_rep.cp_root))};`);
+  nr.push(`pub global LEAF_EPOCH: Field = ${b.leaf_rep.epoch};`);
+  nr.push(`pub global LEAF_EPOCH_CREDITS: Field = ${b.leaf_rep.epoch_credits};`);
   nr.push(`pub global EXPECTED_LEAF_REP: Field = ${b.leaf_rep.output};`);
   nr.push("");
   nr.push(`pub global TREE_DEPTH: u32 = ${t.depth};`);
@@ -1008,6 +1249,9 @@ function renderNoirVectors(
   nr.push(`pub global PREPARE_DEAL_ID: Field = ${dec(field(p.deal_id))};`);
   nr.push(`pub global PREPARE_SALT: Field = ${dec(field(p.salt))};`);
   nr.push(`pub global PREPARE_NEW_SALT: Field = ${dec(field(p.new_salt))};`);
+  nr.push(`pub global PREPARE_CP_ROOT: Field = ${p.cp_root};`);
+  nr.push(`pub global PREPARE_CP_S: Field = ${p.cp_s};`);
+  nr.push(`pub global PREPARE_PAIR_TAG: Field = ${p.pair_tag};`);
   nr.push(`pub global PREPARE_S: Field = ${p.s};`);
   nr.push(`pub global PREPARE_LEAF0: Field = ${p.leaf0};`);
   nr.push(`pub global PREPARE_ROOT: Field = ${p.root};`);
@@ -1063,6 +1307,35 @@ function renderNoirVectors(
   nr.push(`pub global CLAIM_PENALTY: Field = ${cl.penalty};`);
   nr.push(`pub global CLAIM_IN_FLIGHT: Field = ${cl.in_flight};`);
   nr.push(`pub global CLAIM_LEAF_TOKEN: Field = ${cl.leaf_token};`);
+  nr.push(`pub global CLAIM_CP_ROOT: Field = ${cl.cp_root};`);
+  nr.push(`pub global CLAIM_EPOCH_IN: Field = ${cl.epoch};`);
+  nr.push(`pub global CLAIM_EPOCH_CREDITS: Field = ${cl.epoch_credits};`);
+  nr.push(`pub global CLAIM_CP_SK_ID: Field = ${cl.cp_sk_id};`);
+  nr.push(`pub global CLAIM_CP_S: Field = ${cl.cp_s};`);
+  nr.push(`pub global CLAIM_CP_ROOT_AFTER: Field = ${cl.cp_root_after};`);
+  nr.push(`pub global CLAIM_PAIR_TAG: Field = ${cl.pair_tag};`);
+  nr.push(`pub global CLAIM_EPOCH: Field = ${cl.claim_epoch};`);
+  nr.push(`pub global CLAIM_CP_SIBLINGS: [Field; ${cl.cp_siblings.length}] = [`);
+  nr.push(...cl.cp_siblings.map((x) => `    ${x},`));
+  nr.push("];");
+  // The two 2026-09-23 scenarios: the same counterparty again, and a spent window.
+  for (const [name, sc] of [["REPEAT", (v as { claim_repeat: ClaimScenario }).claim_repeat], ["FULL", (v as { claim_full: ClaimScenario }).claim_full]] as const) {
+    nr.push(`pub global CLAIM_${name}_VERSION: Field = ${sc.version};`);
+    nr.push(`pub global CLAIM_${name}_CP_ROOT: Field = ${sc.cp_root};`);
+    nr.push(`pub global CLAIM_${name}_EPOCH: Field = ${sc.epoch};`);
+    nr.push(`pub global CLAIM_${name}_CREDITS: Field = ${sc.epoch_credits};`);
+    nr.push(`pub global CLAIM_${name}_SLOT: Field = ${sc.slot};`);
+    nr.push(`pub global CLAIM_${name}_NEW_LEAF: Field = ${sc.new_leaf};`);
+    nr.push(`pub global CLAIM_${name}_NULL_REP: Field = ${sc.null_rep};`);
+    nr.push(`pub global CLAIM_${name}_ROOT: Field = ${sc.root};`);
+    nr.push(`pub global CLAIM_${name}_CP_SIBLINGS: [Field; ${sc.cp_siblings.length}] = [`);
+    nr.push(...sc.cp_siblings.map((x) => `    ${x},`));
+    nr.push("];");
+    nr.push(`pub global CLAIM_${name}_SIBLINGS: [Field; ${sc.siblings.length}] = [`);
+    nr.push(...sc.siblings.map((x) => `    ${x},`));
+    nr.push("];");
+    nr.push(`pub global CLAIM_${name}_INDICES: [u8; ${sc.indices.length}] = [${sc.indices.join(", ")}];`);
+  }
   nr.push(`pub global CLAIM_SALT: Field = ${dec(field(cl.salt))};`);
   nr.push(`pub global CLAIM_VERSION: Field = ${cl.version};`);
   nr.push(`pub global CLAIM_NEW_SALT: Field = ${dec(field(cl.new_salt))};`);
@@ -1136,6 +1409,9 @@ function renderNoirVectors(
   nr.push(`pub global ATTEST_PENALTY: Field = ${a.penalty};`);
   nr.push(`pub global ATTEST_IN_FLIGHT: Field = ${a.in_flight};`);
   nr.push(`pub global ATTEST_LEAF_TOKEN: Field = ${a.leaf_token};`);
+  nr.push(`pub global ATTEST_CP_ROOT: Field = ${a.cp_root};`);
+  nr.push(`pub global ATTEST_EPOCH: Field = ${a.epoch};`);
+  nr.push(`pub global ATTEST_EPOCH_CREDITS: Field = ${a.epoch_credits};`);
   nr.push(`pub global ATTEST_SALT: Field = ${dec(field(a.salt))};`);
   nr.push(`pub global ATTEST_VERSION: Field = ${a.version};`);
   nr.push(`pub global ATTEST_TOKEN: Field = ${a.token};`);
@@ -1170,6 +1446,9 @@ function renderNoirVectors(
   nr.push(`pub global REVEAL_PENALTY: Field = ${rv.penalty};`);
   nr.push(`pub global REVEAL_IN_FLIGHT: Field = ${rv.in_flight};`);
   nr.push(`pub global REVEAL_LEAF_TOKEN: Field = ${rv.leaf_token};`);
+  nr.push(`pub global REVEAL_CP_ROOT: Field = ${rv.cp_root};`);
+  nr.push(`pub global REVEAL_EPOCH: Field = ${rv.epoch};`);
+  nr.push(`pub global REVEAL_EPOCH_CREDITS: Field = ${rv.epoch_credits};`);
   nr.push(`pub global REVEAL_SALT: Field = ${dec(field(rv.salt))};`);
   nr.push(`pub global REVEAL_VERSION: Field = ${rv.version};`);
   nr.push(`pub global REVEAL_ROOT: Field = ${rv.root};`);

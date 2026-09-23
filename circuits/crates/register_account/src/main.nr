@@ -16,6 +16,7 @@
 // Initial leaf (§3.15.9): all counters zero (count, volume, penalty, inFlight), token zero
 // (nothing has happened in any token yet), version zero, salt derived from sk_id.
 use pluri_commitments::commitments::{account_commitment, hn, leaf_rep, leaf_salt};
+use pluri_commitments::merkle;
 use pluri_commitments::vectors as v;
 
 fn main(
@@ -34,7 +35,13 @@ fn main(
     // the registry secret and the account secret to rebuild version zero. The human-to-account
     // binding does not depend on it — the `hn` assert above already requires knowing `hsk` — so
     // deriving from `sk_id` loses nothing and makes `sk_id` alone enough to recover.
-    assert(leaf_rep(s, 0, 0, 0, 0, 0, leaf_salt(sk_id, 0), 0) == leaf0, "leaf0 mismatch");
+    // The genesis leaf: every counter zero, no token yet, the derived salt — and an EMPTY
+    // counterparty tree (§3.14.7): a new account has met nobody, so its first deal with anyone at
+    // all is creditable. The rate window starts at zero too.
+    assert(
+        leaf_rep(s, 0, 0, 0, 0, 0, leaf_salt(sk_id, 0), 0, merkle::empty_root::<32>(), 0, 0) == leaf0,
+        "leaf0 mismatch",
+    );
 }
 
 // ---------------------------------------------------------------- parity tests (vectors.nr)
@@ -49,7 +56,7 @@ fn leaf0_matches_vectors() {
     let s = account_commitment(v::REGISTRY_SAMPLE_SK_ID);
     assert(s == v::REGISTRY_SAMPLE_S, "sample S");
     assert(
-        leaf_rep(s, 0, 0, 0, 0, 0, leaf_salt(v::REGISTRY_SAMPLE_SK_ID, 0), 0) == v::REGISTRY_SAMPLE_LEAF0,
+        leaf_rep(s, 0, 0, 0, 0, 0, leaf_salt(v::REGISTRY_SAMPLE_SK_ID, 0), 0, merkle::empty_root::<32>(), 0, 0) == v::REGISTRY_SAMPLE_LEAF0,
         "sample leaf0",
     );
 }

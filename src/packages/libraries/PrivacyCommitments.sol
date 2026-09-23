@@ -25,6 +25,12 @@ library PrivacyCommitments {
     uint256 internal constant TAG_LEAF = 4;
     uint256 internal constant TAG_NOTE = 5;
     uint256 internal constant TAG_LOCK = 6;
+    uint256 internal constant TAG_PAIR = 7;
+    /// @dev The BN254 scalar field: `pairId` mixes its two inputs with field arithmetic, so the sum
+    ///      and the product have to reduce exactly as they do in the circuit.
+    uint256 internal constant BN254_P =
+        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    uint256 internal constant TAG_CP = 8;
 
     /// @dev PoseidonT2 — one input, capacity 0. The width of `S = Poseidon(sk_id)`.
     function poseidonT2(bytes32 x) internal view returns (bytes32) {
@@ -158,9 +164,16 @@ library PrivacyCommitments {
         uint256 inFlight,
         bytes32 token,
         bytes32 salt,
-        uint256 version
+        uint256 version,
+        /// @dev The §3.14.7 anti-farming state (2026-09-23): the root of this account's own
+        ///      counterparty tree — who has already been credited to it — and the rate window it is
+        ///      in. Added while nothing was deployed: a leaf field cannot be added afterwards without
+        ///      leaving every existing leaf unprovable.
+        bytes32 cpRoot,
+        uint256 epoch,
+        uint256 epochCredits
     ) internal view returns (bytes32) {
-        bytes32[] memory f = new bytes32[](8);
+        bytes32[] memory f = new bytes32[](11);
         f[0] = s;
         f[1] = bytes32(count);
         f[2] = bytes32(volume);
@@ -169,6 +182,28 @@ library PrivacyCommitments {
         f[5] = token;
         f[6] = salt;
         f[7] = bytes32(version);
+        f[8] = cpRoot;
+        f[9] = bytes32(epoch);
+        f[10] = bytes32(epochCredits);
         return chain(f);
+    }
+
+    /// @dev `pairId = Poseidon("pair", S_a + S_b, S_a · S_b)` — the name two accounts share, computed
+    ///      commutatively without ordering them. Each side proves it with its own `S` bound to its own
+    ///      leaf, so the two proofs agree only if each used the other's real value.
+    function pairId(bytes32 sA, bytes32 sB) internal view returns (bytes32) {
+        uint256 a = uint256(sA);
+        uint256 b = uint256(sB);
+        bytes32[] memory f = new bytes32[](3);
+        f[0] = bytes32(TAG_PAIR);
+        f[1] = bytes32(addmod(a, b, BN254_P));
+        f[2] = bytes32(mulmod(a, b, BN254_P));
+        return chain(f);
+    }
+
+    /// @dev `pairTag = Poseidon(pairId, dealId)` — blinded by the deal, so it proves agreement WITHIN
+    ///      an activation and says nothing across deals.
+    function pairTag(bytes32 sA, bytes32 sB, bytes32 dealId) internal view returns (bytes32) {
+        return poseidonT3(pairId(sA, sB), dealId);
     }
 }

@@ -23,7 +23,14 @@ interface IReputation {
     function invoiceActivation() external view returns (uint256 amount, address recipient);
     function invoiceCompletion() external view returns (uint256 amount, address recipient);
     function invoiceContest(uint256 principal) external view returns (uint256 amount, address recipient);
-    function admit(address wallet, address token, uint256 principal, address vault) external returns (bytes32 subject);
-    /// @dev `subject` is the Core snapshot (`IEscrow.subjects`), not a live `identify`.
-    function notifyTerminal(bytes32 subject, address token, uint256 principal, Close kind) external;
+    /// @dev `dealId` lets a module key its own state per deal — the private module uses it to check
+    ///      that the two sides of one activation agreed on the same counterparty (§3.14.7 anti-farming).
+    function admit(address wallet, bytes32 dealId, address token, uint256 principal, address vault)
+        external
+        returns (bytes32 subject);
+    /// @dev `subject` is the Core snapshot (`IEscrow.subjects`), not a live `identify`; `counterparty`
+    ///      is the other side's snapshot. Reputation that measures counterparties has to know who the
+    ///      counterparty WAS: credit is once per pair, penalties are every time (§3.14.7).
+    function notifyTerminal(bytes32 subject, bytes32 counterparty, address token, uint256 principal, Close kind)
+        external;
 }

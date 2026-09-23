@@ -44,6 +44,13 @@ contract ReputationLadder is Script {
 
     bytes32 internal SUB_H;
     bytes32 internal SUB_P;
+    /// @dev Since 2026-09-23 credit is once per counterparty, so a ladder walked against ONE provider
+    ///      stops climbing after the first deal — and the provider's own cap, which is the smaller of
+    ///      the two and therefore the binding one, stops making room. Every deal here gets a fresh
+    ///      provider subject, which is what a real climb looks like: you meet people. `_farmPartner`
+    ///      freezes it to walk the other case on purpose.
+    uint256 internal _cpNonce;
+    bytes32 internal _farmPartner;
     uint256 internal holderPk;
     uint256 internal providerPk;
     address internal holder;
@@ -70,6 +77,7 @@ contract ReputationLadder is Script {
         _refusalConcurrent();
         _bondColumn();
         _demotion();
+        _theFarmDoesNotPay();
         console.log("");
         console.log("ladder: done");
     }
@@ -96,11 +104,16 @@ contract ReputationLadder is Script {
 
     /// Five clean deals at the cap is the whole of T1: +1 for closing, +1 for the volume (one UNIT),
     /// so a deal at the T1 cap is worth 2 points and 10 points is T2.
+    ///
+    /// Each one against a DIFFERENT counterparty (2026-09-23): credit is once per pair, so the ladder
+    /// is climbed by meeting people, not by repeating one. The same wallet stands in for all five —
+    /// what the rule counts is the SUBJECT, and the mock re-points it before each deal, which is
+    /// exactly what five separate providers would look like to the module.
     function _climb() internal {
         console.log("");
-        console.log("closing deals at the cap");
+        console.log("closing deals at the cap, one new counterparty each");
         for (uint256 i = 0; i < 5; i++) {
-            uint256 cap = rep.cap(SUB_H, address(token), false);
+            uint256 cap = _dealCap();
             _release(_activate(cap));
             console.log("  deal", i + 1);
             _state();
@@ -144,7 +157,7 @@ contract ReputationLadder is Script {
         console.log("");
         console.log("one abandoned dispute, on a deal the Controller opens and walks away from");
         uint256 before = rep.score(SUB_H, address(token));
-        bytes32 id = _activate(rep.cap(SUB_H, address(token), false), 3600, 100, 0);
+        bytes32 id = _activate(_dealCap(), 3600, 100, 0);
         vm.startBroadcast(providerPk);
         escrow.markFiat(id);
         vm.stopBroadcast();
@@ -165,6 +178,29 @@ contract ReputationLadder is Script {
         console.log("    score  ", rep.score(SUB_H, address(token)));
         console.log("    cap    ", rep.cap(SUB_H, address(token), false) / 1e6);
         console.log("    inFlight", rep.inFlight(SUB_H, address(token)) / 1e6);
+    }
+
+    /// @dev The provider's subject for the next deal: a new one every time, unless the farm walk has
+    ///      frozen it. The provider WALLET never changes (one key signs everything); what the module
+    ///      counts is the subject, and re-pointing it is exactly what a different provider would look
+    ///      like from the inside — which is also why the counterparty rule can only ever be as strong
+    ///      as the registry that hands out subjects.
+    /// @dev What a deal can actually be worth. §3.14.7 has always taken the SMALLER of the two caps,
+    ///      but it used to be invisible here because holder and provider climbed together — which is
+    ///      precisely the farm. With a new counterparty every time, the counterparty is always a
+    ///      newcomer, so the newcomer's cap is the one that binds. This is the anti-fraud property
+    ///      read from the other end: a big position needs a counterparty who has also earned one.
+    function _dealCap() internal view returns (uint256) {
+        uint256 mine = rep.cap(SUB_H, address(token), false);
+        uint256 theirs = rep.cap(keccak256("a counterparty who has just arrived"), address(token), false);
+        return mine < theirs ? mine : theirs;
+    }
+
+    function _pointProvider() internal {
+        bytes32 next = _farmPartner != bytes32(0) ? _farmPartner : keccak256(abi.encodePacked(SUB_P, ++_cpNonce));
+        vm.startBroadcast(holderPk);
+        passport.setHuman(provider, next);
+        vm.stopBroadcast();
     }
 
     function _activate(uint256 principal) internal returns (bytes32) {
@@ -191,6 +227,7 @@ contract ReputationLadder is Script {
         internal
         returns (bytes32 id)
     {
+        _pointProvider();
         (HolderAuthorization memory ha, bytes memory hs, ProviderAgreement memory pa, bytes memory ps) =
             _envelope(principal, fiatD, releaseD, disputeD);
         ControllerAcceptance memory ca;
@@ -224,6 +261,31 @@ contract ReputationLadder is Script {
         pa = ProviderAgreement(t, n, block.timestamp + 1 days);
         hs = _sign(Consent.hashHolderAuthorization(ha), holderPk);
         ps = _sign(Consent.hashProviderAgreement(pa), providerPk);
+    }
+
+    /// The farm, walked on a real chain: the same two subjects trading with each other, over and over.
+    /// This is what a two-identity cluster looks like from the inside, and since 2026-09-23 it is what
+    /// it costs — the first deal credits, and every one after it moves nothing but the fees.
+    function _theFarmDoesNotPay() internal {
+        console.log("");
+        console.log("the same counterparty, five more times");
+        uint256 before = rep.score(SUB_H, address(token));
+        _farmPartner = keccak256(abi.encodePacked(SUB_P, "farm"));
+        for (uint256 i = 0; i < 5; i++) {
+            _release(_activate(_dealCap()));
+        }
+        _farmPartner = bytes32(0);
+        uint256 afterScore = rep.score(SUB_H, address(token));
+        console.log("  score before", before);
+        console.log("  score after ", afterScore);
+        _state();
+        require(afterScore > before, "the first deal with a new counterparty still credits");
+        // Five deals, one credit: the ladder is paid in people, not in repetitions.
+        require(
+            afterScore - before <= _dealCap() / (250 * 10 ** uint256(token.decimals())) + 1,
+            "a closed pair must saturate after its first deal"
+        );
+        console.log("  five deals, one credit: a closed pair saturates");
     }
 
     function _release(bytes32 id) internal {

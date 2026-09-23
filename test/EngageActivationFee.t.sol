@@ -69,13 +69,13 @@ contract FlipFeeReputation is IReputation {
     }
 
     /// The mutation lands between `resolve`'s validation and `engage`'s fee read.
-    function admit(address wallet, address, uint256, address) external returns (bytes32 subject) {
+    function admit(address wallet, bytes32, address, uint256, address) external returns (bytes32 subject) {
         if (msg.sender != operator) revert Unauthorized();
         flipped = true;
         subject = passport.identify(wallet);
     }
 
-    function notifyTerminal(bytes32, address, uint256, IReputation.Close) external {}
+    function notifyTerminal(bytes32, bytes32, address, uint256, IReputation.Close) external {}
 }
 
 contract EngageActivationFeeTest is BaseTest {

@@ -43,9 +43,9 @@ contract PrepareAdmitVerifier is IPrepareAdmitVerifier {
     /// @dev `decimals()` of the served ERC-20 — the tier scale is the token's own.
     bytes4 internal constant DECIMALS_SELECTOR = bytes4(keccak256("decimals()"));
 
-    /// @dev (subject, newLeaf, nullRep, token, principal, lockCommit, repRoot, decimals) —
+    /// @dev (subject, newLeaf, nullRep, token, principal, lockCommit, repRoot, decimals, pairTag) —
     ///      must mirror prepare_admit's pub signature order.
-    uint256 internal constant PUBLIC_INPUTS = 8;
+    uint256 internal constant PUBLIC_INPUTS = 9;
 
     /// @dev The generated Honk verifier, deployed from initcode in the constructor. Zero
     ///      (deploy failed) fails every verify.
@@ -68,6 +68,7 @@ contract PrepareAdmitVerifier is IPrepareAdmitVerifier {
         uint256 principal,
         bytes32 lockCommit,
         bytes32 repRoot,
+        bytes32 pairTag,
         bytes calldata proof
     ) external view returns (bool) {
         if (honkVerifier == address(0)) return false; // deploy failed — fail closed
@@ -90,6 +91,9 @@ contract PrepareAdmitVerifier is IPrepareAdmitVerifier {
         // The tier scale belongs to the served token (§3.14.7: caps in integer token units,
         // UNIT = 250 * 10^decimals): the proof must have used the token's own decimals.
         if (_decimalsOf(token) != uint256(pubs[7])) return false;
+        // The §3.14.7 pair tag: the module compares the two sides' tags, so what the adapter has to
+        // guarantee is only that the proof committed to the one the module is about to record.
+        if (pubs[8] != pairTag) return false;
         return _verify(honkProof, pubs);
     }
 

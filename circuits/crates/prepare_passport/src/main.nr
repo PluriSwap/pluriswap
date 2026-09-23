@@ -25,6 +25,10 @@ fn main(
     in_flight: Field,
     leaf_token: Field,
     version: Field,
+    // The anti-farming state rides through untouched: the passport proves registration, never stats.
+    cp_root: Field,
+    epoch: Field,
+    epoch_credits: Field,
     // Depth-32 account-tree membership witness (§3.15.3).
     siblings: [Field; 32],
     indices: [u8; 32],
@@ -36,7 +40,19 @@ fn main(
     // this was the last circuit still taking it as a free witness). Membership alone already
     // forced the honest value — nothing else is in the tree — but a rule applied in five of six
     // places is the worst kind of rule to have.
-    let leaf = leaf_rep(s, count, volume, penalty, in_flight, leaf_token, leaf_salt(sk_id, version), version);
+    let leaf = leaf_rep(
+        s,
+        count,
+        volume,
+        penalty,
+        in_flight,
+        leaf_token,
+        leaf_salt(sk_id, version),
+        version,
+        cp_root,
+        epoch,
+        epoch_credits,
+    );
     assert(is_member::<32>(leaf, siblings, indices, rep_root), "not a live account leaf");
 }
 
@@ -58,6 +74,9 @@ fn prepare_passport_sample_verifies() {
         0,
         0, // leaf0's token is zero: nothing has happened in any token yet
         0, // version zero — and the salt is derived from it, no longer passed
+        v::PREPARE_CP_ROOT, // the genesis counterparty tree: empty
+        0,
+        0,
 
         v::PREPARE_SIBLINGS,
         v::PREPARE_INDICES,

@@ -51,7 +51,10 @@ contract RelayerMock {
         PackageMods calldata mods,
         bytes32 dealId,
         Side calldata h,
-        Side calldata p
+        Side calldata p,
+        /// @dev The §3.14.7 pair tag: one value for the deal, proven by both sides' admit proofs and
+        ///      matched by the module when it admits the second of them.
+        bytes32 pairTag
     ) external returns (bytes32 id) {
         uint256 deadline = ha.deadline;
         address token = ha.terms.token;
@@ -108,6 +111,7 @@ contract RelayerMock {
             principal,
             bonded ? h.lockCommit : bytes32(0), // the bond column of the cap proof, if any
             reputation.accountTree().root(),
+            pairTag,
             deadline,
             h.admitProof,
             h.admitSig
@@ -122,6 +126,7 @@ contract RelayerMock {
             principal,
             bonded ? p.lockCommit : bytes32(0),
             reputation.accountTree().root(),
+            pairTag,
             deadline,
             p.admitProof,
             p.admitSig

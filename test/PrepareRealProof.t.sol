@@ -28,6 +28,28 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      whose mock is gone. The claim side (IClaimVerifier) and the vault side remain mocks
 ///      until V3, and are marked as such.
 contract PrepareRealProofTest is Test {
+
+    /// @dev The §3.14.7 pair tag. With a mock verifier nothing checks its VALUE — what these tests
+    ///      exercise is that both sides of one activation carry the SAME one, which is what the module
+    ///      compares. The real value is pinned by the fixture tests and by the circuit itself.
+    /// @dev The REAL pair tag of the pinned sample: this suite runs against committed proofs, so the
+    ///      value has to be the one the circuit committed to.
+    function pairTag() internal view returns (bytes32) {
+        return bytes32(vm.parseJsonUint(vectors, ".prepare.pair_tag"));
+    }
+
+    /// @dev A fresh deal id / counterparty per call: these tests predate the 2026-09-23 rule that credit
+    ///      is once per counterparty, and they all mean "another deal with somebody new". The ones that
+    ///      mean "the same somebody again" say so by passing a fixed tag.
+    uint256 private _tagNonce;
+
+    function _dealTag() internal returns (bytes32) {
+        return keccak256(abi.encode("deal", ++_tagNonce));
+    }
+
+    function _cpTag() internal returns (bytes32) {
+        return keccak256(abi.encode("counterparty", ++_tagNonce));
+    }
     address internal constant FEE_TO = address(0xFEE);
     uint256 internal constant WALLET_KEY = 0xA11CE;
 
@@ -209,6 +231,7 @@ contract PrepareRealProofTest is Test {
             principal,
             bytes32(0),
             repRoot,
+            pairTag(),
             deadline,
             proofAdmitBlob(),
             _walletSig(address(reputation))
@@ -238,6 +261,7 @@ contract PrepareRealProofTest is Test {
             principal,
             bytes32(0),
             repRoot,
+            pairTag(),
             deadline,
             proofAdmitBlob(),
             _walletSig(address(reputation))
@@ -252,12 +276,12 @@ contract PrepareRealProofTest is Test {
 
         vm.expectEmit(true, true, true, true, address(reputation));
         emit PrivateReputation.Admitted(wallet, dealSubject, token, principal);
-        bytes32 subject = reputation.admit(wallet, token, principal, address(0));
+        bytes32 subject = reputation.admit(wallet, _dealTag(), token, principal, address(0));
         assertEq(subject, dealSubject);
 
         // The admit deleted the buffer: a second admit has nothing to match (NoPrepare).
         vm.expectRevert(PrivateReputation.NoPrepare.selector);
-        reputation.admit(wallet, token, principal, address(0));
+        reputation.admit(wallet, _dealTag(), token, principal, address(0));
     }
 
     function test_prepare_admit_replayDiesOnTheNullifier() public {
@@ -275,6 +299,7 @@ contract PrepareRealProofTest is Test {
             principal,
             bytes32(0),
             repRoot,
+            pairTag(),
             deadline,
             proofAdmitBlob(),
             _walletSig(address(reputation))
@@ -301,37 +326,37 @@ contract PrepareRealProofTest is Test {
 
         assertTrue(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, proofAdmitBlob()
+                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
             )
         );
         assertFalse(
             admitVerifier.verifyAdmit(
-                wrongSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, proofAdmitBlob()
+                wrongSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
             )
         );
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, wrongLeaf, nullRep, token, principal, bytes32(0), repRoot, proofAdmitBlob()
+                dealSubject, wrongLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
             )
         );
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, wrongNull, token, principal, bytes32(0), repRoot, proofAdmitBlob()
+                dealSubject, newLeaf, wrongNull, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
             )
         );
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, wrongToken, principal, bytes32(0), repRoot, proofAdmitBlob()
+                dealSubject, newLeaf, nullRep, wrongToken, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
             )
         );
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, wrongPrincipal, bytes32(0), repRoot, proofAdmitBlob()
+                dealSubject, newLeaf, nullRep, token, wrongPrincipal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
             )
         );
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), wrongRoot, proofAdmitBlob()
+                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), wrongRoot, pairTag(), proofAdmitBlob()
             )
         );
     }
@@ -343,7 +368,7 @@ contract PrepareRealProofTest is Test {
         bytes32 lockCommit = bytes32(uint256(keccak256("phantom-lock")));
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, lockCommit, repRoot, proofAdmitBlob()
+                dealSubject, newLeaf, nullRep, token, principal, lockCommit, repRoot, pairTag(), proofAdmitBlob()
             )
         );
 
@@ -358,6 +383,7 @@ contract PrepareRealProofTest is Test {
             principal,
             lockCommit,
             repRoot,
+            pairTag(),
             deadline,
             proofAdmitBlob(),
             _walletSig(address(reputation))
@@ -371,7 +397,7 @@ contract PrepareRealProofTest is Test {
         vm.etch(token, hex"601260005260206000f3"); // mstore(0, 18); return(0, 32)
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, proofAdmitBlob()
+                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
             )
         );
     }
@@ -382,7 +408,7 @@ contract PrepareRealProofTest is Test {
         vm.etch(token, hex"60006000fd"); // revert(0, 0)
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, proofAdmitBlob()
+                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
             )
         );
     }
@@ -391,7 +417,7 @@ contract PrepareRealProofTest is Test {
         bytes memory blob = proofAdmitBlob();
         blob[42] = blob[42] ^ 0xff; // one byte inside the proof body
         assertFalse(
-            admitVerifier.verifyAdmit(dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, blob)
+            admitVerifier.verifyAdmit(dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), blob)
         );
 
         blob = proofPassportBlob();
@@ -403,30 +429,30 @@ contract PrepareRealProofTest is Test {
         // Short blobs and truncated public-input sections read as false, never revert-shaped.
         assertFalse(passportVerifier.verifyPassport(dealSubject, repRoot, hex"0011"));
         assertFalse(
-            admitVerifier.verifyAdmit(dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, hex"0011")
+            admitVerifier.verifyAdmit(dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), hex"0011")
         );
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, _truncate(proofAdmitBlob(), 64)
+                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), _truncate(proofAdmitBlob(), 64)
             )
         );
     }
 
     function test_verify_rejectsCrossCircuitProofs() public view {
-        // The passport blob carries 2 pubs, the admit blob 8: into the passport verifier the
+        // The passport blob carries 2 pubs, the admit blob 9: into the passport verifier the
         // admit blob's tail splits as (repRoot, decimals) — neither arg matches; into the
-        // admit verifier the passport blob is too short to carry 8 pubs at all.
+        // admit verifier the passport blob is too short to carry 9 pubs at all.
         assertFalse(passportVerifier.verifyPassport(dealSubject, repRoot, proofAdmitBlob()));
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, proofPassportBlob()
+                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofPassportBlob()
             )
         );
         // The register blobs are equally foreign here (3 pubs, register statements).
         assertFalse(passportVerifier.verifyPassport(dealSubject, repRoot, proofHumanityBlob()));
         assertFalse(
             admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, proofAccountBlob()
+                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAccountBlob()
             )
         );
     }
@@ -450,6 +476,7 @@ contract PrepareRealProofTest is Test {
             principal,
             bytes32(0),
             foreign,
+            pairTag(),
             deadline,
             proofAdmitBlob(),
             _walletSig(address(reputation))
@@ -475,6 +502,7 @@ contract PrepareRealProofTest is Test {
             principal,
             bytes32(0),
             repRoot,
+            pairTag(),
             deadline,
             proofAdmitBlob(),
             sig
@@ -490,7 +518,7 @@ contract PrepareRealProofTest is Test {
 
         before = gasleft();
         admitVerifier.verifyAdmit(
-            dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, proofAdmitBlob()
+            dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
         );
         uint256 admitCost = before - gasleft();
 

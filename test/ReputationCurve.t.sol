@@ -18,6 +18,19 @@ import {TestToken} from "../mocks/TestToken.sol";
 ///      exactly the score's unit of volume (+1 for closing, +1 for the volume). So the climb
 ///      accelerates on its own — a higher cap means more volume per deal.
 contract ReputationCurveTest is Test {
+
+    /// @dev A fresh deal id / counterparty per call: these tests predate the 2026-09-23 rule that credit
+    ///      is once per counterparty, and they all mean "another deal with somebody new". The ones that
+    ///      mean "the same somebody again" say so by passing a fixed tag.
+    uint256 private _tagNonce;
+
+    function _dealTag() internal returns (bytes32) {
+        return keccak256(abi.encode("deal", ++_tagNonce));
+    }
+
+    function _cpTag() internal returns (bytes32) {
+        return keccak256(abi.encode("counterparty", ++_tagNonce));
+    }
     Reputation internal rep;
     TestToken internal token;
     PassportMock internal passport;
@@ -32,11 +45,25 @@ contract ReputationCurveTest is Test {
         rep = new Reputation(passport, address(0xFEE), 0, 0, 0, 0, operator);
     }
 
+    /// A deal at the cap with somebody NEW, a day after the last one. Both halves matter since
+    /// 2026-09-23: credit is once per counterparty, and at most sixteen credited deals per epoch.
+    /// Twenty-one deals at the top of the ladder were never a weekend's work; now the code says so.
     function _closeAtCap(IReputation.Close kind) internal returns (uint256 principal) {
         principal = rep.cap(SUBJECT, address(token), false);
+        vm.warp(block.timestamp + 1 days);
         vm.startPrank(operator);
-        rep.admit(wallet, address(token), principal, address(0));
-        rep.notifyTerminal(SUBJECT, address(token), principal, kind);
+        rep.admit(wallet, _dealTag(), address(token), principal, address(0));
+        rep.notifyTerminal(SUBJECT, _cpTag(), address(token), principal, kind);
+        vm.stopPrank();
+    }
+
+    /// The same counterparty, again: this is the farm, and it is what stopped paying.
+    function _closeAtCapWith(bytes32 counterparty, IReputation.Close kind) internal returns (uint256 principal) {
+        principal = rep.cap(SUBJECT, address(token), false);
+        vm.warp(block.timestamp + 1 days);
+        vm.startPrank(operator);
+        rep.admit(wallet, _dealTag(), address(token), principal, address(0));
+        rep.notifyTerminal(SUBJECT, counterparty, address(token), principal, kind);
         vm.stopPrank();
     }
 
@@ -90,9 +117,9 @@ contract ReputationCurveTest is Test {
     /// The cap is the most that can be OPEN at once, which is the thing people misread.
     function test_theCapIsConcurrentNotPerDeal() public {
         vm.startPrank(operator);
-        rep.admit(wallet, address(token), 150e6, address(0));
+        rep.admit(wallet, _dealTag(), address(token), 150e6, address(0));
         vm.expectRevert(Reputation.CapExceeded.selector);
-        rep.admit(wallet, address(token), 150e6, address(0));
+        rep.admit(wallet, _dealTag(), address(token), 150e6, address(0));
         vm.stopPrank();
         assertEq(rep.inFlight(SUBJECT, address(token)), 150e6, "the first one is still holding it");
     }
@@ -115,10 +142,10 @@ contract ReputationCurveTest is Test {
         address otherWallet = address(0xB0B);
         passport.setHuman(otherWallet, other);
         vm.startPrank(operator);
-        rep.admit(wallet, address(token), 250e6, address(0));
-        rep.admit(otherWallet, address(token), 250e6, address(0));
-        rep.notifyTerminal(SUBJECT, address(token), 250e6, IReputation.Close.Stalemate);
-        rep.notifyTerminal(other, address(token), 250e6, IReputation.Close.Peaceful);
+        rep.admit(wallet, _dealTag(), address(token), 250e6, address(0));
+        rep.admit(otherWallet, _dealTag(), address(token), 250e6, address(0));
+        rep.notifyTerminal(SUBJECT, _cpTag(), address(token), 250e6, IReputation.Close.Stalemate);
+        rep.notifyTerminal(other, _cpTag(), address(token), 250e6, IReputation.Close.Peaceful);
         vm.stopPrank();
         assertEq(_score(), 0, "the opener lost five, floored at zero");
         assertEq(rep.score(other, address(token)), 2, "the counterparty gained a clean trade");
@@ -137,4 +164,49 @@ contract ReputationCurveTest is Test {
         _closeAtCap(IReputation.Close.ArbWin);
         assertEq(_score(), mid, "a win moves nothing: the volume is not credited either");
     }
+    /// The farm, priced. Twenty-one deals with ONE counterparty — the two-identity cluster that used
+    /// to buy the whole ladder for the cost of fees — now buys exactly one deal's worth of credit.
+    function test_aClosedPairSaturatesAtOneDeal() public {
+        bytes32 partner = keccak256("the other half of the cluster");
+        for (uint256 i = 0; i < 21; i++) {
+            _closeAtCapWith(partner, IReputation.Close.Peaceful);
+        }
+        assertEq(_score(), 2, "one credited deal, and no more");
+        assertEq(_cap(), 250e6, "still T1");
+    }
+
+    /// And the asymmetry that makes it safe to do: what goes WRONG counts every time, however often
+    /// you deal with the same person. Credit is once per counterparty; penalties have no such mercy.
+    function test_penaltiesAreNotDeduplicated() public {
+        bytes32 partner = keccak256("the same somebody");
+        _closeAtCapWith(partner, IReputation.Close.Peaceful);
+        assertEq(_score(), 2, "the first deal credits");
+        _closeAtCapWith(partner, IReputation.Close.Stalemate);
+        assertEq(_score(), 0, "a stalemate with the same partner still costs 5");
+        _closeAtCapWith(partner, IReputation.Close.ArbLoss);
+        (, uint32 pen,) = rep.stats(SUBJECT, address(token));
+        assertEq(pen, 20, "and an arbitration loss still costs 15");
+    }
+
+    /// The rate window: sixteen credited deals in an epoch, and the seventeenth earns nothing — not
+    /// even later. A limit that let the credit come back tomorrow would only be a delay.
+    function test_theSeventeenthDealOfADayEarnsNothing() public {
+        vm.startPrank(operator);
+        for (uint256 i = 0; i < 17; i++) {
+            rep.admit(wallet, _dealTag(), address(token), 1, address(0));
+            rep.notifyTerminal(SUBJECT, _cpTag(), address(token), 1, IReputation.Close.Peaceful);
+        }
+        vm.stopPrank();
+        (uint32 credited,,) = rep.stats(SUBJECT, address(token));
+        assertEq(credited, 16, "sixteen credited, one refused");
+        // A day later the window reopens for NEW counterparties.
+        vm.warp(block.timestamp + 1 days);
+        vm.startPrank(operator);
+        rep.admit(wallet, _dealTag(), address(token), 1, address(0));
+        rep.notifyTerminal(SUBJECT, _cpTag(), address(token), 1, IReputation.Close.Peaceful);
+        vm.stopPrank();
+        (uint32 after_,,) = rep.stats(SUBJECT, address(token));
+        assertEq(after_, 17, "the window reopened");
+    }
+
 }

@@ -73,6 +73,9 @@ type RegistryVectors = {
 };
 
 type PrepareVectors = {
+  cp_root: string;
+  cp_s: string;
+  pair_tag: string;
   depth: number;
   decimals: string;
   principal: string;
@@ -128,6 +131,13 @@ type ClaimVectors = {
   salt: string;
   version: string;
   new_salt: string;
+  cp_root: string;
+  epoch: string;
+  epoch_credits: string;
+  cp_s: string;
+  cp_siblings: string[];
+  pair_tag: string;
+  claim_epoch: string;
   new_leaf: string;
   null_rep: string;
   siblings: string[];
@@ -178,6 +188,9 @@ type AttestVectors = {
   decimals: string;
   tier: string;
   count_claimed: string;
+  cp_root: string;
+  epoch: string;
+  epoch_credits: string;
   volume_band: string;
   penalty_band: string;
   expiry: string;
@@ -190,6 +203,9 @@ type RevealVectors = {
   handle_commit: string;
   fields_mask: string;
   out_count: string;
+  cp_root: string;
+  epoch: string;
+  epoch_credits: string;
   out_volume: string;
   out_penalty: string;
   requester: string;
@@ -266,6 +282,9 @@ const CIRCUIT_LIST: Circuit[] = [
         `in_flight = "0"`,
         `leaf_token = "0"`,
         `version = "0"`,
+        `cp_root = ${str(v.prepare.cp_root)}`,
+        `epoch = "0"`,
+        `epoch_credits = "0"`,
         `siblings = [${v.prepare.siblings.map(str).join(", ")}]`,
         `indices = [${v.prepare.indices.join(", ")}]`,
       ]),
@@ -273,7 +292,7 @@ const CIRCUIT_LIST: Circuit[] = [
   {
     name: "prepare_admit",
     contract: "PrepareAdmitVerifier",
-    pubs: 8,
+    pubs: 9,
     proverToml: (v) =>
       toml([
         `subject = ${str(v.prepare.deal_subject)}`,
@@ -285,14 +304,19 @@ const CIRCUIT_LIST: Circuit[] = [
         `lock_commit = "0"`,
         `rep_root = ${str(v.prepare.root)}`,
         `decimals = ${str(v.prepare.decimals)}`,
+        `pair_tag = ${str(v.prepare.pair_tag)}`,
         `sk_id = ${str(v.prepare.sk_id)}`,
         `deal_id = ${str(modP(BigInt(v.prepare.deal_id)))}`,
+        `s_other = ${str(v.prepare.cp_s)}`,
         `count = "0"`,
         `volume = "0"`,
         `penalty = "0"`,
         `in_flight = "0"`,
         `leaf_token = "0"`,
         `version = "0"`,
+        `cp_root = ${str(v.prepare.cp_root)}`,
+        `epoch = "0"`,
+        `epoch_credits = "0"`,
         `siblings = [${v.prepare.siblings.map(str).join(", ")}]`,
         `indices = [${v.prepare.indices.join(", ")}]`,
       ]),
@@ -335,7 +359,7 @@ const CIRCUIT_LIST: Circuit[] = [
   {
     name: "claim",
     contract: "ClaimVerifier",
-    pubs: 8,
+    pubs: 10,
     proverToml: (v) =>
       toml([
         `deal_id = ${str(modP(BigInt(v.claim.deal_id)))}`,
@@ -346,6 +370,8 @@ const CIRCUIT_LIST: Circuit[] = [
         `token = ${str(v.claim.token)}`,
         `principal = ${str(v.claim.principal)}`,
         `rep_root = ${str(v.claim.root)}`,
+        `pair_tag = ${str(v.claim.pair_tag)}`,
+        `epoch = ${str(v.claim.claim_epoch)}`,
         `sk_id = ${str(v.claim.sk_id)}`,
         `count = ${str(v.claim.count)}`,
         `volume = ${str(v.claim.volume)}`,
@@ -353,6 +379,13 @@ const CIRCUIT_LIST: Circuit[] = [
         `in_flight = ${str(v.claim.in_flight)}`,
         `leaf_token = ${str(v.claim.leaf_token)}`,
         `version = ${str(v.claim.version)}`,
+        `cp_root = ${str(v.claim.cp_root)}`,
+        `leaf_epoch = ${str(v.claim.epoch)}`,
+        `leaf_credits = ${str(v.claim.epoch_credits)}`,
+        // The pinned sample credits: a fresh counterparty, so its slot reads zero.
+        `s_other = ${str(v.claim.cp_s)}`,
+        `slot = "0"`,
+        `cp_siblings = [${v.claim.cp_siblings.map(str).join(", ")}]`,
         `siblings = [${v.claim.siblings.map(str).join(", ")}]`,
         `indices = [${v.claim.indices.join(", ")}]`,
       ]),
@@ -416,6 +449,9 @@ const CIRCUIT_LIST: Circuit[] = [
         `in_flight = ${str(v.attest.in_flight)}`,
         `leaf_token = ${str(v.attest.leaf_token)}`,
         `version = ${str(v.attest.version)}`,
+        `cp_root = ${str(v.attest.cp_root)}`,
+        `epoch = ${str(v.attest.epoch)}`,
+        `epoch_credits = ${str(v.attest.epoch_credits)}`,
         `siblings = [${v.attest.siblings.map(str).join(", ")}]`,
         `indices = [${v.attest.indices.join(", ")}]`,
       ]),
@@ -442,6 +478,9 @@ const CIRCUIT_LIST: Circuit[] = [
         `in_flight = ${str(v.reveal.in_flight)}`,
         `leaf_token = ${str(v.reveal.leaf_token)}`,
         `version = ${str(v.reveal.version)}`,
+        `cp_root = ${str(v.reveal.cp_root)}`,
+        `epoch = ${str(v.reveal.epoch)}`,
+        `epoch_credits = ${str(v.reveal.epoch_credits)}`,
         `siblings = [${v.reveal.siblings.map(str).join(", ")}]`,
         `indices = [${v.reveal.indices.join(", ")}]`,
       ]),

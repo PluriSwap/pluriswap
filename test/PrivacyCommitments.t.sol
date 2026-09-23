@@ -113,7 +113,19 @@ contract PrivacyCommitmentsTest is Test {
         bytes32 s = PrivacyCommitments.accountCommitment(skId);
         // The genesis leaf the registry sample registered: all counters zero, version zero.
         assertEq(
-            PrivacyCommitments.leafRep(s, 0, 0, 0, 0, bytes32(0), PrivacyCommitments.leafSalt(skId, 0), 0),
+            PrivacyCommitments.leafRep(
+                s,
+                0,
+                0,
+                0,
+                0,
+                bytes32(0),
+                PrivacyCommitments.leafSalt(skId, 0),
+                0,
+                _out(".prepare.cp_root"), // an empty counterparty tree: a new account has met nobody
+                0,
+                0
+            ),
             _out(".registry.sample_leaf0")
         );
         // And the leaf the admission transition writes: the principal in flight, version one.
@@ -126,7 +138,10 @@ contract PrivacyCommitmentsTest is Test {
                 _in(".prepare.principal"),
                 bytes32(_in(".prepare.token")),
                 PrivacyCommitments.leafSalt(skId, 1),
-                1
+                1,
+                _out(".prepare.cp_root"), // carried through: an admission decides no credit
+                0,
+                0
             ),
             _out(".prepare.new_leaf")
         );
@@ -247,7 +262,7 @@ contract PrivacyCommitmentsTest is Test {
     }
 
     function test_leafRep() public view {
-        // leaf salt is a raw keccak256 output (>= p); 8 fields chained in spec order.
+        // leaf salt is a raw keccak256 output (>= p); 11 fields chained in spec order.
         assertGt(_in(".builders.leaf_rep.salt"), BN254_P);
         assertEq(
             PrivacyCommitments.leafRep(
@@ -258,10 +273,33 @@ contract PrivacyCommitmentsTest is Test {
                 _in(".builders.leaf_rep.in_flight"),
                 bytes32(_in(".builders.leaf_rep.token")),
                 bytes32(_in(".builders.leaf_rep.salt")),
-                _in(".builders.leaf_rep.version")
+                _in(".builders.leaf_rep.version"),
+                bytes32(_in(".builders.leaf_rep.cp_root")),
+                _in(".builders.leaf_rep.epoch"),
+                _in(".builders.leaf_rep.epoch_credits")
             ),
             _out(".builders.leaf_rep.output")
         );
+    }
+
+    /// The commutative pair of §3.14.7: the two sides of a deal reach the same name without agreeing
+    /// on an order, which is what lets each of them prove it with only its own secret.
+    function test_pairId_isUnordered() public view {
+        bytes32 a = bytes32(_in(".builders.pair_id.s_a"));
+        bytes32 b = bytes32(_in(".builders.pair_id.s_b"));
+        assertEq(PrivacyCommitments.pairId(a, b), _out(".builders.pair_id.output"));
+        assertEq(PrivacyCommitments.pairId(b, a), _out(".builders.pair_id.swapped"));
+        assertEq(PrivacyCommitments.pairId(a, b), PrivacyCommitments.pairId(b, a));
+    }
+
+    function test_pairTag_bindsTheDeal() public view {
+        bytes32 a = bytes32(_in(".builders.pair_id.s_a"));
+        bytes32 b = bytes32(_in(".builders.pair_id.s_b"));
+        bytes32 dealId = bytes32(_in(".builders.pair_tag.deal_id"));
+        assertEq(PrivacyCommitments.pairTag(a, b, dealId), _out(".builders.pair_tag.output"));
+        // Blinded per deal: the same pair in another deal is another tag, so the tag published on
+        // chain never links two of their deals together.
+        assertTrue(PrivacyCommitments.pairTag(a, b, dealId) != PrivacyCommitments.pairTag(a, b, bytes32(uint256(1))));
     }
 
     function test_tags_areDistinct() public pure {

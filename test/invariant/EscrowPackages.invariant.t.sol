@@ -65,12 +65,12 @@ contract DriftingReputation is IReputation {
         return (0, feeRecipient);
     }
 
-    function admit(address wallet, address, uint256, address) external view returns (bytes32) {
+    function admit(address wallet, bytes32, address, uint256, address) external view returns (bytes32) {
         if (msg.sender != operator) revert Unauthorized();
         return passport.identify(wallet);
     }
 
-    function notifyTerminal(bytes32, address, uint256, IReputation.Close) external view {
+    function notifyTerminal(bytes32, bytes32, address, uint256, IReputation.Close) external view {
         if (msg.sender != operator) revert Unauthorized();
     }
 }

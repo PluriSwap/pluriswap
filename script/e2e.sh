@@ -124,7 +124,7 @@ if command -v bun >/dev/null 2>&1; then
   ESCROW_PRIV=$(python3 -c "import json;print(json.load(open('deployments/${CHAIN/421614/sepolia}-private.json'))['escrow'])" 2>/dev/null \
     || python3 -c "import json;print(json.load(open('deployments/$CHAIN-private.json'))['escrow'])")
   PLURI_RPC="$RPC" PLURI_TREE="$TREE" PLURI_ESCROW="$ESCROW_PRIV" \
-    bun test circuits/js/lib/indexer.test.ts circuits/js/lib/account.test.ts 2>&1 | tail -4
+    bun test circuits/js/lib/indexer.test.ts circuits/js/lib/account.test.ts 2>&1 | tail -6
 fi
 
 # Finally, ask the doctor whether the records just written still describe the chain. On a chain built

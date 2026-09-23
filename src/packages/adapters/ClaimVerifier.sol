@@ -32,9 +32,9 @@ contract ClaimVerifier is IClaimVerifier {
     /// @dev `verify(bytes,bytes32[])` — the generated ultra_honk verifier's only entrypoint.
     bytes4 internal constant VERIFY_SELECTOR = bytes4(keccak256("verify(bytes,bytes32[])"));
 
-    /// @dev (dealId, dealSubject, newLeaf, nullRep, kind, token, principal, repRoot) —
+    /// @dev (dealId, dealSubject, newLeaf, nullRep, kind, token, principal, repRoot, pairTag, epoch) —
     ///      must mirror claim's pub signature order.
-    uint256 internal constant PUBLIC_INPUTS = 8;
+    uint256 internal constant PUBLIC_INPUTS = 10;
 
     /// @dev The BN254 scalar field — the domain of every public input the circuits prove over.
     uint256 internal constant BN254_P = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
@@ -61,6 +61,8 @@ contract ClaimVerifier is IClaimVerifier {
         address token,
         uint256 principal,
         bytes32 repRoot,
+        bytes32 pairTag,
+        uint256 epoch,
         bytes calldata proof
     ) external view returns (bool) {
         if (honkVerifier == address(0)) return false; // deploy failed — fail closed
@@ -80,6 +82,11 @@ contract ClaimVerifier is IClaimVerifier {
         if (pubs[5] != bytes32(uint256(uint160(token)))) return false; // raw address < p always
         if (pubs[6] != bytes32(principal)) return false; // raw amount; >= p can never match
         if (pubs[7] != repRoot) return false; // the live root the module gated
+        // The two §3.14.7 inputs the prover does not choose: the pair tag the module stored when both
+        // sides admitted, and the epoch the module read off the chain's own clock. A claim that wants
+        // credit for a counterparty it invented, or in a window it picked, cannot name either.
+        if (pubs[8] != pairTag) return false;
+        if (pubs[9] != bytes32(epoch)) return false;
         return _verify(honkProof, pubs);
     }
 

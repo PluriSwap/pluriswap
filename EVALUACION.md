@@ -347,6 +347,17 @@ de stamps disjuntos genera `+1/+1` a **ambos** sujetos y el principal vuelve a c
 más `activationFee`. Cinco vueltas de 250 → score 10 → T2. La raíz anti-sybil limita cuántas
 identidades, no cuántas veces te tradeás a vos mismo. El keying por token ayuda pero no cierra.
 
+**Estado: CERRADA (2026-09-23).** No detectando al farmer —eso es indetectable por construcción, y
+es la propiedad, no la falla— sino cobrándole el precio correcto: el crédito es **una vez por
+contraparte**. Una camarilla cerrada satura en su propio tamaño, así que la escalera se paga en
+identidades y no en fees. En la capa pública es un mapping; en la privada es un árbol disperso de
+contrapartes dentro de la hoja, con el par nombrado por las dos partes a la vez
+(`pairId` conmutativo) y publicado cegado por deal, así que la regla **no cuesta linkability**.
+
+Lo que sigue sin cerrar de esta discusión: el piso sigue siendo el Passport. Si conseguir N juegos de
+stamps disjuntos es barato, N contrapartes distintas también lo son — sólo que ahora el ataque cuesta
+N identidades en vez de 2, que es exactamente donde queríamos empujarlo.
+
 ### H. Neutralidad del kernel vs. plataforma de facto
 
 El argumento legal del kernel muerto es sólido. Pero el conjunto real que un usuario toca es:
