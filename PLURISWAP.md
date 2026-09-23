@@ -784,6 +784,8 @@ El dueño claima después: `claim(dealId, π)` — `π` prueba el binding `dealS
 
 La reputación se ve donde las partes eligen contraparte: el listado. Sin historiales públicos que indexar.
 
+> Guía para quien **consume** esta reputación (frontend, integrador, otra dapp): [`REPUTACION.md`](./REPUTACION.md). Acá está lo normativo; allá, lo que hace falta para usarla — incluidas las cuatro trampas al mostrarla y los cuatro chequeos que quedan del lado del consumidor.
+
 - **Handle.** `handleCommit` — seudónimo de mercado, opt-in, rotable (otro salt = otro handle; el viejo muere sin linkage).
 - **Stats base (listado).** `attest_base`: prueba off-chain verificable `{handleCommit, tier, count, volumeBand, penaltyBand, expiry, repRoot}`. El listado muestra attestations frescas, no historiales. **Lo público son agregados**: los dos bands informan sin identificar, donde el número crudo sería una huella digital. El *volumeBand* mide en **lotes** (`UNIT = 250·10^decimals`, la misma unidad con la que el score compra tier), así que se lee igual en cualquier token y escala — pisos de 250 / 1.000 / 5.000 / 20.000 / 100.000 en tokens enteros; el *penaltyBand* corta por eventos (0 limpio / 1..5 / 6..15 / 16+).
 - **Stats avanzadas (perfil).** `reveal_advanced`: prueba `{handleCommit, campos elegidos (count, volume), penalty en crudo, repRoot}`, entregada sólo al requester (bind opcional a su pubkey efímera) o publicada bajo el handle. **Sin handle no hay consulta**: el handle es la capability; el backend no enumera perfiles avanzados. El perfil es EXACTO donde el listado es cota: `out = mask·campo`, el valor propio de la hoja, no un piso.

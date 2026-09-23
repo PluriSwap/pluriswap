@@ -7,8 +7,10 @@ Escrow P2P de principal cripto contra fiat offchain. Kernel neutral (sin dueño,
 Estado de verificación: [`INFORME.md`](./INFORME.md) — qué camino se ejercita, cómo, y qué no.
 Hallazgos abiertos de la revisión: [`EVALUACION.md`](./EVALUACION.md).
 
-Artefacto operativo (fuera del monolito por necesidad, no por fragmentación):
+Artefactos operativos (fuera del monolito por necesidad, no por fragmentación — su lector no es
+quien diseña el protocolo):
 
+- [`REPUTACION.md`](./REPUTACION.md) — qué muestra el perfil de una cuenta, qué de eso no se puede falsificar, y qué tiene que chequear quien la consume. Para frontends e integradores
 - [`KLEROS_POLICY.md`](./KLEROS_POLICY.md) — policy que leen los jurados; se pinea a IPFS como `KLEROS_POLICY_URI` (PLURISWAP.md §5.8)
 
 ## Cómo termina un deal
