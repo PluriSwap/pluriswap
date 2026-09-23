@@ -509,6 +509,40 @@ contract PrepareRealProofTest is Test {
         );
     }
 
+    /// LEVER 3: where a prepare's gas actually goes. The published ~7.6M for a one-sided bundle came
+    /// from forge's per-test figure, which counts the cheatcodes that read fixtures off disk — the
+    /// same thing that inflated the per-verify numbers by 2.6x. Measured with every input hoisted out
+    /// of the window, a prepare is its verify plus its tree work plus very little else.
+    function test_lever_bundleDecomposition() public {
+        bytes memory passportBlob = proofPassportBlob();
+        bytes memory admitBlob = proofAdmitBlob();
+        bytes memory passportSig = _walletSig(address(passport));
+        bytes memory admitSig = _walletSig(address(reputation));
+        bytes32 tag = pairTag();
+
+        uint256 before = gasleft();
+        passport.prepare(wallet, dealId, dealSubject, repRoot, deadline, passportBlob, passportSig);
+        uint256 passportPrepare = before - gasleft();
+
+        before = gasleft();
+        reputation.prepare(
+            wallet, dealId, dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, tag, deadline,
+            admitBlob, admitSig
+        );
+        uint256 repPrepare = before - gasleft();
+
+        before = gasleft();
+        reputation.admit(wallet, _dealTag(), token, principal, address(0));
+        uint256 admit = before - gasleft();
+
+        emit log_named_uint("passport.prepare (verify 717k + sig + storage)", passportPrepare);
+        emit log_named_uint("reputation.prepare (verify 730k + spend + insert + storage)", repPrepare);
+        emit log_named_uint("reputation.admit (no proof: buffer + identify)", admit);
+        emit log_named_uint("one side, passport+rep, total", passportPrepare + repPrepare + admit);
+        // A bonded deal adds the vault's own prepare; a two-sided deal doubles all of it. The number
+        // that matters for §3.15.4 is this one times two, plus the kernel's activation.
+    }
+
     // ---------------------------------------------------------------- gas of the real verify
 
     function test_verify_gas() public {

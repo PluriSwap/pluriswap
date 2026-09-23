@@ -169,10 +169,34 @@ El calldata sí era correcto y es el otro eje: **53.824 bytes** medidos para el 
 (`test_privateDeal_costModel` en VaultRealProof). En un rollup eso es lo que llega a L1, y un proof es
 alta entropía, así que la compresión casi no lo toca.
 
-**Sigue abierto**: descomponer los ~5,5M no-verificación del bundle de un lado (inserts vs kernel vs
-storage), decidir si la profundidad 32 del árbol de cuentas es necesaria —cada nivel son ~29k de gas
-por insert— y si los inserts de un mismo bundle pueden compartir camino. Y la traducción a dólares,
-que depende del precio del blob y es volátil.
+**Las palancas, medidas (2026-09-23, `test/PrivateGas.t.sol` + `test_lever_bundleDecomposition`).**
+El 7,64M del bundle tenía el mismo defecto que los verifies: era la cifra por test de forge, que
+cuenta los cheatcodes que leen fixtures del disco. Medido con todo hoisteado:
+
+| pieza | gas |
+| --- | ---: |
+| `passport.prepare` (verify 717k + firma + storage) | 779k |
+| `reputation.prepare` (verify 730k + spend 24k + insert 673k + storage) | 1.811k |
+| `reputation.admit` (sin proof) | 29k |
+| **un lado, PASSPORT+REP** | **2.619k** |
+
+Así que una activación privada de dos lados con PASSPORT+REP es **~5,2M más el `activate` del kernel**,
+no ~15M. Con BONDS suma el prepare del vault (~732k de verify + 438k de insert + storage).
+
+Y las tres palancas, con su precio:
+
+| palanca | medido | ahorro en un deal de dos lados |
+| --- | --- | ---: |
+| Profundidad del árbol de cuentas | **19.539 gas por nivel** (steady); insert depth 32 = 673k, depth 26 = 555k | 32→26: **234k** (2 inserts), y 26 direcciona 67M de cuentas |
+| Inserts que comparten camino | 4 inserts sueltos = 2,73M; los mismos 4 hoja-a-hoja son 128 hashes contra **37** batcheados | ~**600k** (dos hojas adyacentes por árbol) |
+| Agregación de proofs (recursión) | 4 verifies de 0,72M = 2,9M, el 51% del total | hasta **~2,2M** si el bundle lleva un proof recursivo en vez de cuatro |
+
+Orden de rendimiento: la recursión es la palanca grande y la más cara de construir; el batch de
+inserts es la mejor relación esfuerzo/ahorro; la profundidad es casi gratis pero decide cuántas
+cuentas direcciona el protocolo para siempre. El nullifier (24k) y el `admit` (29k) son ruido.
+
+**Sigue abierto**: el `activate` del kernel no está descompuesto, y la traducción a dólares depende del
+precio del blob, que es volátil — eso se mide contra una chain real, no acá.
 
 ### LHF-6 — Kleros: whitelist y pineado son camino crítico y son externos
 
