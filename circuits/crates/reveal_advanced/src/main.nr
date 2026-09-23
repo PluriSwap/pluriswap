@@ -24,6 +24,7 @@ use pluri_commitments::vectors as v;
 fn main(
     handle_commit: pub Field,
     fields_mask: pub Field,
+    out_count: pub Field,
     out_volume: pub Field,
     out_penalty: pub Field,
     requester: pub Field,
@@ -43,13 +44,15 @@ fn main(
     siblings: [Field; 32],
     indices: [u8; 32],
 ) {
-    // The mask: bit0 volume, bit1 penalty — anything else names a field this profile
-    // does not know how to reveal.
+    // The mask: bit0 count, bit1 volume. The PENALTY is not in it — §3.15.7 makes it
+    // mandatory, because a reveal can be published under a handle without a base
+    // attestation, and leaving the penalty optional here would keep the escape hatch the
+    // base attestation was changed to close.
     let m: u8 = fields_mask as u8;
     assert(m as Field == fields_mask, "mask too big");
     assert(m < 4, "unknown fields");
-    let mv: Field = (m & 1) as Field;
-    let mp: Field = ((m >> 1) & 1) as Field;
+    let mc: Field = (m & 1) as Field;
+    let mv: Field = ((m >> 1) & 1) as Field;
 
     // The pseudonym + the live leaf, exactly as attest_base: same account, same tree,
     // same token binding — the profile is the listing's account, seen closer.
@@ -61,6 +64,8 @@ fn main(
     assert(is_member::<32>(leaf, siblings, indices, rep_root), "not a live account leaf");
 
     // Bounds for the masked arithmetic.
+    let cnt: u128 = count as u128;
+    assert(cnt as Field == count, "count too big");
     let vol: u128 = volume as u128;
     assert(vol as Field == volume, "volume too big");
     let pen: u128 = penalty as u128;
@@ -68,8 +73,10 @@ fn main(
 
     // The exact reveal: the selector computes the output — the field when chosen, zero
     // when hidden. No branch: the shape stays inside what the pinned bb pipeline accepts.
+    assert(out_count == mc * count, "count mask mismatch");
     assert(out_volume == mv * volume, "volume mask mismatch");
-    assert(out_penalty == mp * penalty, "penalty mask mismatch");
+    // Raw and unconditional: the profile always states what went wrong.
+    assert(out_penalty == penalty, "penalty must be revealed in full");
 }
 
 // ---------------------------------------------------------------- parity tests (vectors.nr)
@@ -84,6 +91,7 @@ fn reveal_sample_verifies() {
     main(
         v::REVEAL_HANDLE_COMMIT,
         v::REVEAL_FIELDS_MASK,
+        v::REVEAL_OUT_COUNT,
         v::REVEAL_OUT_VOLUME,
         v::REVEAL_OUT_PENALTY,
         v::REVEAL_REQUESTER,
@@ -103,19 +111,19 @@ fn reveal_sample_verifies() {
 }
 
 #[test]
-fn hidden_fields_mask_to_zero() {
-    // The other branches of "campos elegidos": each field hidden alone and both hidden
-    // at once (mask 0 — a reveal that reveals nothing is a true, if empty, statement;
-    // the requester prices it, §3.15.7's model). The mask's own arithmetic computes the
-    // outputs the circuit would pin.
+fn the_mask_covers_count_and_volume_only() {
+    // "Campos elegidos" is now count and volume. The penalty is outside the mask: a profile
+    // always states what went wrong, whatever else it chooses to withhold.
+    let cnt: u128 = v::REVEAL_COUNT as u128;
     let vol: u128 = v::REVEAL_VOLUME as u128;
-    let pen: u128 = v::REVEAL_PENALTY as u128;
-    // mask 0b01: volume shown, penalty hidden.
+    let pen: Field = v::REVEAL_PENALTY;
+    // mask 0b01: count shown, volume hidden -- and the penalty shown regardless.
     main(
         v::REVEAL_HANDLE_COMMIT,
         1,
-        vol as Field,
+        cnt as Field,
         0,
+        pen,
         v::REVEAL_REQUESTER,
         v::REVEAL_TOKEN,
         v::REVEAL_ROOT,
@@ -130,12 +138,14 @@ fn hidden_fields_mask_to_zero() {
         v::REVEAL_SIBLINGS,
         v::REVEAL_INDICES,
     );
-    // mask 0b10: penalty shown, volume hidden.
+    // mask 0b00: neither chosen field shown, and STILL the penalty. A profile that reveals
+    // nothing else is a true if empty statement; one that hides its penalty is not available.
     main(
         v::REVEAL_HANDLE_COMMIT,
-        2,
         0,
-        pen as Field,
+        0,
+        0,
+        pen,
         v::REVEAL_REQUESTER,
         v::REVEAL_TOKEN,
         v::REVEAL_ROOT,
@@ -150,9 +160,16 @@ fn hidden_fields_mask_to_zero() {
         v::REVEAL_SIBLINGS,
         v::REVEAL_INDICES,
     );
-    // mask 0b00: nothing shown — every output zero.
+}
+
+#[test(should_fail_with = "penalty must be revealed in full")]
+fn a_profile_cannot_hide_its_penalty() {
+    // The point of the change (§3.15.7). A reveal can be published under a handle with no base
+    // attestation behind it, so if the penalty were optional here the listing's mandatory band
+    // would have an open back door. Claiming zero against a penalised account has no proof.
     main(
         v::REVEAL_HANDLE_COMMIT,
+        0,
         0,
         0,
         0,

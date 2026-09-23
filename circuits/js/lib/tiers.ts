@@ -44,3 +44,21 @@ export function tierOf(sc: bigint): bigint {
   if (sc >= 10n) return 2n;
   return 1n;
 }
+
+/**
+ * The penalty BAND of §3.15.7 — the aggregate a public listing carries, where the raw counter
+ * belongs to the advanced reveal. A listing is read by everyone, and a raw counter is a
+ * fingerprint; a band informs without identifying.
+ *
+ * The cuts are events, not round numbers: a stalemate or an abandoned dispute is +5, an arbitration
+ * loss is +15. So 0 is clean, 1 is one bad clock, 2 is several or one proven loss, 3 is more.
+ *
+ * It is what makes the tier readable. The tier nets penalty into the score, so a punished T2 falls
+ * to T1 and looks exactly like an honest newcomer — the one distinction a counterparty needs most.
+ */
+export function penaltyBand(penalty: bigint): number {
+  if (penalty >= 16n) return 3;
+  if (penalty >= 6n) return 2;
+  if (penalty >= 1n) return 1;
+  return 0;
+}

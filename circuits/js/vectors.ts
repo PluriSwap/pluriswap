@@ -238,6 +238,15 @@ async function main() {
     [100n, 0n, 0n, 6n], // score 100 -> T5, unbounded
     [5n, 0n, 7n, 6n], // penalty 7 > base 5 -> satSub to 0 -> T1
     [250n, 250_000_001n, 0n, 6n], // count + one lot with remainder -> 251 -> T5
+    // The §3.15.7 penalty bands, boundary-anchored on both sides of every cut. The cuts are
+    // events (+5 a stalemate or an abandoned dispute, +15 an arbitration loss), so these rows
+    // are the histories they name — and they double as score rows, since the band never
+    // touches the score.
+    [40n, 0n, 1n, 6n], // one point -> band 1 (the first thing that ever went wrong)
+    [40n, 0n, 5n, 6n], // one stalemate -> still band 1
+    [40n, 0n, 6n, 6n], // more than one -> band 2
+    [40n, 0n, 15n, 6n], // one arbitration loss -> still band 2
+    [40n, 0n, 16n, 6n], // a loss plus a stalemate -> band 3
   ];
   const tierVectors = tierRows.map(([count, volume, penalty, decimals]) => {
     const sc = tiers.score(count, volume, penalty, decimals);
@@ -250,6 +259,9 @@ async function main() {
       cap_base: dec(tiers.capRaw(sc, false, decimals) ?? 0n),
       cap_bond: dec(tiers.capRaw(sc, true, decimals) ?? 0n),
       unbounded: sc >= 100n,
+      // The §3.15.7 aggregate: off-chain only (no Solidity twin — the band is a disclosure
+      // reading of the same counter), pinned JS<->Noir through these rows.
+      band: dec(BigInt(tiers.penaltyBand(penalty))),
     };
   });
 
@@ -493,6 +505,9 @@ async function main() {
     decimals: dec(ATTEST_DECIMALS),
     tier: dec(attestTier),
     count_claimed: dec(ATTEST_COUNT),
+    // The aggregate a listing carries about what went wrong: the sample absorbed one +5,
+    // so band 1 -- visible as "something happened" without publishing the counter.
+    penalty_band: String(tiers.penaltyBand(ATTEST_PENALTY)),
     expiry: dec(ATTEST_EXPIRY),
     score: dec(attestScore),
     siblings: attestProof.siblings.map(dec),
@@ -500,12 +515,14 @@ async function main() {
     root: dec(attestRoot),
   };
 
-  // reveal_advanced (§3.15.7 "campos elegidos"): the exact profile under the same handle,
-  // both fields revealed (mask 0b11), minted for the pinned requester. A hidden field's
-  // output is zero — the mask semantics are the circuit's own tests.
+  // reveal_advanced (§3.15.7): the raw profile under the same handle, minted for the pinned
+  // requester. The mask covers count (bit0) and volume (bit1); the PENALTY is outside it and
+  // always revealed in full, because a reveal can be published without a base attestation and an
+  // optional penalty there would reopen the hole the base attestation was changed to close.
   const revealVectors = {
     handle_commit: dec(attestHandle),
     fields_mask: "3",
+    out_count: dec(ATTEST_COUNT),
     out_volume: dec(ATTEST_VOLUME),
     out_penalty: dec(ATTEST_PENALTY),
     requester: dec(field(dec(REVEAL_REQUESTER))),
@@ -647,6 +664,7 @@ type TierVectors = {
   score: string;
   cap_base: string;
   cap_bond: string;
+  band: string;
   unbounded: boolean;
 }[];
 
@@ -936,6 +954,9 @@ function renderNoirVectors(
   nr.push(`pub global TIER_CAPS_BOND: [Field; ${ti.length}] = [`);
   nr.push(...ti.map((x) => `    ${x.cap_bond},`));
   nr.push("];");
+  nr.push(`pub global TIER_BANDS: [Field; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.band},`));
+  nr.push("];");
   nr.push(`pub global TIER_UNBOUNDED: [bool; ${ti.length}] = [`);
   nr.push(...ti.map((x) => `    ${x.unbounded},`));
   nr.push("];");
@@ -1085,6 +1106,7 @@ function renderNoirVectors(
   nr.push(`pub global ATTEST_DECIMALS: Field = ${a.decimals};`);
   nr.push(`pub global ATTEST_TIER: Field = ${a.tier};`);
   nr.push(`pub global ATTEST_COUNT_CLAIMED: Field = ${a.count_claimed};`);
+  nr.push(`pub global ATTEST_PENALTY_BAND: Field = ${a.penalty_band};`);
   nr.push(`pub global ATTEST_EXPIRY: Field = ${a.expiry};`);
   nr.push(`pub global ATTEST_SCORE: Field = ${a.score};`);
   nr.push(`pub global ATTEST_ROOT: Field = ${a.root};`);
@@ -1099,6 +1121,7 @@ function renderNoirVectors(
   const rv = (v as { reveal: RevealVectors }).reveal;
   nr.push(`pub global REVEAL_HANDLE_COMMIT: Field = ${rv.handle_commit};`);
   nr.push(`pub global REVEAL_FIELDS_MASK: Field = ${rv.fields_mask};`);
+  nr.push(`pub global REVEAL_OUT_COUNT: Field = ${rv.out_count};`);
   nr.push(`pub global REVEAL_OUT_VOLUME: Field = ${rv.out_volume};`);
   nr.push(`pub global REVEAL_OUT_PENALTY: Field = ${rv.out_penalty};`);
   nr.push(`pub global REVEAL_REQUESTER: Field = ${rv.requester};`);

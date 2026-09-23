@@ -118,8 +118,8 @@ pub global REGISTRY_SIBLINGS: [Field; 20] = [
 ];
 pub global REGISTRY_INDICES: [u8; 20] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-pub global TIER_COUNT: u32 = 8;
-pub global TIER_COUNTS: [Field; 8] = [
+pub global TIER_COUNT: u32 = 13;
+pub global TIER_COUNTS: [Field; 13] = [
     0,
     0,
     0,
@@ -128,8 +128,13 @@ pub global TIER_COUNTS: [Field; 8] = [
     100,
     5,
     250,
+    40,
+    40,
+    40,
+    40,
+    40,
 ];
-pub global TIER_VOLUMES: [Field; 8] = [
+pub global TIER_VOLUMES: [Field; 13] = [
     0,
     2499999999,
     2500000000,
@@ -138,8 +143,13 @@ pub global TIER_VOLUMES: [Field; 8] = [
     0,
     0,
     250000001,
+    0,
+    0,
+    0,
+    0,
+    0,
 ];
-pub global TIER_PENALTIES: [Field; 8] = [
+pub global TIER_PENALTIES: [Field; 13] = [
     0,
     0,
     0,
@@ -148,8 +158,13 @@ pub global TIER_PENALTIES: [Field; 8] = [
     0,
     7,
     0,
+    1,
+    5,
+    6,
+    15,
+    16,
 ];
-pub global TIER_DECIMALS: [Field; 8] = [
+pub global TIER_DECIMALS: [Field; 13] = [
     6,
     6,
     6,
@@ -158,8 +173,13 @@ pub global TIER_DECIMALS: [Field; 8] = [
     6,
     6,
     6,
+    6,
+    6,
+    6,
+    6,
+    6,
 ];
-pub global TIER_SCORES: [Field; 8] = [
+pub global TIER_SCORES: [Field; 13] = [
     0,
     9,
     10,
@@ -168,8 +188,13 @@ pub global TIER_SCORES: [Field; 8] = [
     100,
     0,
     251,
+    39,
+    35,
+    34,
+    25,
+    24,
 ];
-pub global TIER_CAPS_BASE: [Field; 8] = [
+pub global TIER_CAPS_BASE: [Field; 13] = [
     250000000,
     250000000,
     500000000,
@@ -178,8 +203,13 @@ pub global TIER_CAPS_BASE: [Field; 8] = [
     0,
     250000000,
     0,
+    1000000000,
+    1000000000,
+    1000000000,
+    1000000000,
+    500000000,
 ];
-pub global TIER_CAPS_BOND: [Field; 8] = [
+pub global TIER_CAPS_BOND: [Field; 13] = [
     400000000,
     400000000,
     700000000,
@@ -188,8 +218,28 @@ pub global TIER_CAPS_BOND: [Field; 8] = [
     0,
     400000000,
     0,
+    1500000000,
+    1500000000,
+    1500000000,
+    1500000000,
+    700000000,
 ];
-pub global TIER_UNBOUNDED: [bool; 8] = [
+pub global TIER_BANDS: [Field; 13] = [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    2,
+    0,
+    1,
+    1,
+    2,
+    2,
+    3,
+];
+pub global TIER_UNBOUNDED: [bool; 13] = [
     false,
     false,
     false,
@@ -198,6 +248,11 @@ pub global TIER_UNBOUNDED: [bool; 8] = [
     true,
     false,
     true,
+    false,
+    false,
+    false,
+    false,
+    false,
 ];
 
 pub global PREPARE_DEPTH: u32 = 32;
@@ -446,6 +501,7 @@ pub global ATTEST_TOKEN: Field = 97433442488726861213578988847752201310395502865
 pub global ATTEST_DECIMALS: Field = 6;
 pub global ATTEST_TIER: Field = 2;
 pub global ATTEST_COUNT_CLAIMED: Field = 12;
+pub global ATTEST_PENALTY_BAND: Field = 1;
 pub global ATTEST_EXPIRY: Field = 1800000000;
 pub global ATTEST_SCORE: Field = 10;
 pub global ATTEST_ROOT: Field = 591612009031926902457652251743444653339100086043722765937392603360243230701;
@@ -487,6 +543,7 @@ pub global ATTEST_INDICES: [u8; 32] = [0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 
 pub global REVEAL_HANDLE_COMMIT: Field = 17230628714759946567542559822464525589014746689418636972800558380339728585673;
 pub global REVEAL_FIELDS_MASK: Field = 3;
+pub global REVEAL_OUT_COUNT: Field = 12;
 pub global REVEAL_OUT_VOLUME: Field = 750000000;
 pub global REVEAL_OUT_PENALTY: Field = 5;
 pub global REVEAL_REQUESTER: Field = 19587745847522850735365801659054128335840235380190350986367795109468823285345;

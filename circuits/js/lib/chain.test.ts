@@ -17,6 +17,7 @@ function base(pubs: Partial<AttestBasePubs>): ChainElement {
       handle_commit: "777",
       tier: "2",
       count: "12",
+      penalty_band: "1",
       expiry: "1800000000",
       token: "1",
       decimals: "6",
@@ -34,6 +35,7 @@ function reveal(pubs: Partial<RevealAdvancedPubs>): ChainElement {
     pubs: {
       handle_commit: "777",
       fields_mask: "3",
+      out_count: "12",
       out_volume: "750000000",
       out_penalty: "5",
       requester: "42",
@@ -94,12 +96,56 @@ describe("verifyAttestationChain", () => {
     expect(r.errors.join(" ")).toContain("penalty 5 decreased from 10");
   });
 
-  test("a hidden field does not participate in the track (mask 0b10 hides volume)", async () => {
+  test("a hidden field does not participate in the track (mask 0b10 hides the count)", async () => {
     const r = await verifyAttestationChain(
       [
-        reveal({ fields_mask: "3", out_volume: "900000000", out_penalty: "5" }),
-        reveal({ fields_mask: "2", out_volume: "0", out_penalty: "5" }), // volume hidden
+        reveal({ fields_mask: "3", out_count: "20", out_volume: "900000000", out_penalty: "5" }),
+        reveal({ fields_mask: "2", out_count: "0", out_volume: "900000000", out_penalty: "5" }), // count hidden
       ],
+      clock,
+    );
+    expect(r.ok).toBeTrue();
+  });
+
+  test("the reveal's count is the SAME counter the listing claims", async () => {
+    // §3.15.7's two views of one account: `out_count` and `count` read the same leaf field, so
+    // a reveal that walks it back after a listing already claimed it is a fabricated series.
+    const r = await verifyAttestationChain(
+      [base({ count: "12" }), reveal({ out_count: "9" })],
+      clock,
+    );
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("count 9 decreased from 12");
+  });
+
+  test("the penalty tracks even when the chosen fields are all withheld", async () => {
+    // The mask no longer covers the penalty, so hiding everything else does not hide it —
+    // and the monotonicity check keeps working on a series of otherwise empty profiles.
+    const r = await verifyAttestationChain(
+      [
+        reveal({ fields_mask: "0", out_count: "0", out_volume: "0", out_penalty: "10" }),
+        reveal({ fields_mask: "0", out_count: "0", out_volume: "0", out_penalty: "5" }),
+      ],
+      clock,
+    );
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("penalty 5 decreased from 10");
+  });
+
+  test("a listing cannot claim a band under a penalty the same series already revealed", async () => {
+    // The cross-check that makes the aggregate honest: the reveal states 20 raw (band 3), so a
+    // later listing claiming band 1 contradicts evidence its own author handed over.
+    const r = await verifyAttestationChain(
+      [reveal({ out_penalty: "20" }), base({ penalty_band: "1" })],
+      clock,
+    );
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("penalty band 1 under band 3");
+  });
+
+  test("a band OVER the revealed penalty is allowed — overstating only costs its author", async () => {
+    const r = await verifyAttestationChain(
+      [reveal({ out_penalty: "5" }), base({ penalty_band: "3" })],
       clock,
     );
     expect(r.ok).toBeTrue();

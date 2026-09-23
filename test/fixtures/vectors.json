@@ -265,7 +265,8 @@
       "score": "0",
       "cap_base": "250000000",
       "cap_bond": "400000000",
-      "unbounded": false
+      "unbounded": false,
+      "band": "0"
     },
     {
       "count": "0",
@@ -275,7 +276,8 @@
       "score": "9",
       "cap_base": "250000000",
       "cap_bond": "400000000",
-      "unbounded": false
+      "unbounded": false,
+      "band": "0"
     },
     {
       "count": "0",
@@ -285,7 +287,8 @@
       "score": "10",
       "cap_base": "500000000",
       "cap_bond": "700000000",
-      "unbounded": false
+      "unbounded": false,
+      "band": "0"
     },
     {
       "count": "25",
@@ -295,7 +298,8 @@
       "score": "25",
       "cap_base": "1000000000",
       "cap_bond": "1500000000",
-      "unbounded": false
+      "unbounded": false,
+      "band": "0"
     },
     {
       "count": "50",
@@ -305,7 +309,8 @@
       "score": "50",
       "cap_base": "2000000000000000000000",
       "cap_bond": "5000000000000000000000",
-      "unbounded": false
+      "unbounded": false,
+      "band": "0"
     },
     {
       "count": "100",
@@ -315,7 +320,8 @@
       "score": "100",
       "cap_base": "0",
       "cap_bond": "0",
-      "unbounded": true
+      "unbounded": true,
+      "band": "0"
     },
     {
       "count": "5",
@@ -325,7 +331,8 @@
       "score": "0",
       "cap_base": "250000000",
       "cap_bond": "400000000",
-      "unbounded": false
+      "unbounded": false,
+      "band": "2"
     },
     {
       "count": "250",
@@ -335,10 +342,66 @@
       "score": "251",
       "cap_base": "0",
       "cap_bond": "0",
-      "unbounded": true
+      "unbounded": true,
+      "band": "0"
+    },
+    {
+      "count": "40",
+      "volume": "0",
+      "penalty": "1",
+      "decimals": "6",
+      "score": "39",
+      "cap_base": "1000000000",
+      "cap_bond": "1500000000",
+      "unbounded": false,
+      "band": "1"
+    },
+    {
+      "count": "40",
+      "volume": "0",
+      "penalty": "5",
+      "decimals": "6",
+      "score": "35",
+      "cap_base": "1000000000",
+      "cap_bond": "1500000000",
+      "unbounded": false,
+      "band": "1"
+    },
+    {
+      "count": "40",
+      "volume": "0",
+      "penalty": "6",
+      "decimals": "6",
+      "score": "34",
+      "cap_base": "1000000000",
+      "cap_bond": "1500000000",
+      "unbounded": false,
+      "band": "2"
+    },
+    {
+      "count": "40",
+      "volume": "0",
+      "penalty": "15",
+      "decimals": "6",
+      "score": "25",
+      "cap_base": "1000000000",
+      "cap_bond": "1500000000",
+      "unbounded": false,
+      "band": "2"
+    },
+    {
+      "count": "40",
+      "volume": "0",
+      "penalty": "16",
+      "decimals": "6",
+      "score": "24",
+      "cap_base": "500000000",
+      "cap_bond": "700000000",
+      "unbounded": false,
+      "band": "3"
     }
   ],
-  "tiers_rows": "8",
+  "tiers_rows": "13",
   "deltas": [
     {
       "kind": "0",
@@ -733,6 +796,7 @@
     "decimals": "6",
     "tier": "2",
     "count_claimed": "12",
+    "penalty_band": "1",
     "expiry": "1800000000",
     "score": "10",
     "siblings": [
@@ -808,6 +872,7 @@
   "reveal": {
     "handle_commit": "17230628714759946567542559822464525589014746689418636972800558380339728585673",
     "fields_mask": "3",
+    "out_count": "12",
     "out_volume": "750000000",
     "out_penalty": "5",
     "requester": "19587745847522850735365801659054128335840235380190350986367795109468823285345",

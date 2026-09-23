@@ -9,9 +9,15 @@
 //     splice of several (the handle is the only continuity the chain has: the §3.15.7
 //     model is states, not events, so nothing else binds the series together);
 //   * the RAW counters are component-wise monotone NON-DECREASING in the order given:
-//     count (attest_base elements) and volume/penalty where revealed (reveal_advanced
-//     elements with the mask bit set). §3.15.5's deltas only ever ADD — a decreasing
-//     element is a fabricated sequence, and this is the check that catches it.
+//     count (attest_base's claim and reveal_advanced's `out_count` are the SAME counter),
+//     volume where revealed, and the penalty — which every reveal states raw (§3.15.7 keeps
+//     it outside the mask). §3.15.5's deltas only ever ADD — a decreasing element is a
+//     fabricated sequence, and this is the check that catches it;
+//   * the PENALTY BAND of a listing is checked against the exact penalties already revealed
+//     earlier in the series: a reveal is exact and a band claim must COVER the account's real
+//     one, so a listing claiming a band under evidence the same series already handed over is
+//     inconsistent with itself. (The other direction is allowed and not flagged — an
+//     overstated band is a true if unflattering statement, and it only ever costs its author.)
 //
 // What this lib deliberately does NOT do:
 //   * the TIER is not monotone — a Stalemate (+5) can drop a T2 account to T1 mid-chain,
@@ -24,6 +30,7 @@
 //
 // Pure logic over verify.ts — no bb, no chain reads the consumer did not inject.
 
+import { penaltyBand } from "./tiers.ts";
 import {
   AttestBasePubs,
   AttestationEnvelope,
@@ -72,10 +79,13 @@ export async function verifyAttestationChain(
     checks.push(`element ${i}: ${r.checks.join("; ")}`);
   }
 
-  // Raw monotonicity, in the order delivered (the consumer orders by its receipts).
+  // Raw monotonicity, in the order delivered (the consumer orders by its receipts), plus
+  // the band/penalty cross-check. `floorBand` is the band the exact penalties revealed so far
+  // already prove — the evidence a later listing cannot claim under.
   let lastCount: bigint | undefined;
   let lastVolume: bigint | undefined;
   let lastPenalty: bigint | undefined;
+  let floorBand = 0;
   chain.forEach((el, i) => {
     if (el.kind === "base") {
       const count = BigInt(el.pubs.count);
@@ -83,22 +93,36 @@ export async function verifyAttestationChain(
         errors.push(`element ${i}: count ${count} decreased from ${lastCount} — count never decreases (§3.15.5)`);
       }
       lastCount = count;
+      const band = Number(BigInt(el.pubs.penalty_band));
+      if (band < floorBand) {
+        errors.push(
+          `element ${i}: penalty band ${band} under band ${floorBand}, already revealed exactly earlier in this series`,
+        );
+      }
     } else {
       const mask = Number(BigInt(el.pubs.fields_mask));
       if (mask & 1) {
+        const count = BigInt(el.pubs.out_count);
+        if (lastCount !== undefined && count < lastCount) {
+          errors.push(`element ${i}: count ${count} decreased from ${lastCount} — count never decreases (§3.15.5)`);
+        }
+        lastCount = count;
+      }
+      if (mask & 2) {
         const volume = BigInt(el.pubs.out_volume);
         if (lastVolume !== undefined && volume < lastVolume) {
           errors.push(`element ${i}: volume ${volume} decreased from ${lastVolume} — volume never decreases (§3.15.5)`);
         }
         lastVolume = volume;
       }
-      if (mask & 2) {
-        const penalty = BigInt(el.pubs.out_penalty);
-        if (lastPenalty !== undefined && penalty < lastPenalty) {
-          errors.push(`element ${i}: penalty ${penalty} decreased from ${lastPenalty} — penalty never decreases (§3.15.5)`);
-        }
-        lastPenalty = penalty;
+      // The penalty rides outside the mask: every reveal states it exactly, so it tracks
+      // unconditionally — and it is the evidence the later listings are held to.
+      const penalty = BigInt(el.pubs.out_penalty);
+      if (lastPenalty !== undefined && penalty < lastPenalty) {
+        errors.push(`element ${i}: penalty ${penalty} decreased from ${lastPenalty} — penalty never decreases (§3.15.5)`);
       }
+      lastPenalty = penalty;
+      floorBand = Math.max(floorBand, penaltyBand(penalty));
     }
   });
 

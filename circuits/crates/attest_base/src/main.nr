@@ -32,6 +32,7 @@ fn main(
     handle_commit: pub Field,
     tier: pub Field,
     count: pub Field,
+    penalty_band: pub Field,
     expiry: pub Field,
     token: pub Field,
     decimals: pub Field,
@@ -43,7 +44,7 @@ fn main(
     // The leaf's private fields (§3.15.3 leafRep order).
     count_actual: Field,
     volume: Field,
-    penalty: Field,
+    penalty_actual: Field,
     in_flight: Field,
     leaf_token: Field,
     version: Field,
@@ -61,12 +62,13 @@ fn main(
     assert(token != 0, "zero token");
     assert(leaf_token == token, "leaf token mismatch");
     let s = account_commitment(sk_id);
-    let leaf = leaf_rep(s, count_actual, volume, penalty, in_flight, leaf_token, leaf_salt(sk_id, version), version);
+    let leaf =
+        leaf_rep(s, count_actual, volume, penalty_actual, in_flight, leaf_token, leaf_salt(sk_id, version), version);
     assert(is_member::<32>(leaf, siblings, indices, rep_root), "not a live account leaf");
 
     // The tier bound, IN-CIRCUIT: `score` range-checks count/penalty (u64) and volume
     // (u128) itself; the claimed tier must be an ordinal the account's real tier covers.
-    let sc = tiers::score(count_actual, volume, penalty, decimals);
+    let sc = tiers::score(count_actual, volume, penalty_actual, decimals);
     let t_actual: u8 = tiers::tier_of(sc);
     let t_claimed: u8 = tier as u8;
     assert(t_claimed as Field == tier, "tier not an ordinal");
@@ -79,6 +81,17 @@ fn main(
     assert(c_claimed as Field == count, "count claim too big");
     let c_actual: u64 = count_actual as u64; // score() already bound it under 2^64
     assert((c_actual as u128) >= c_claimed, "claimed count over the account's");
+
+    // The penalty band, and the ONE claim here whose honest direction is upward. Tier and count
+    // are lower bounds — understating is a weaker true statement, so it is allowed. Understating a
+    // penalty is not weaker, it is a lie, so the assert runs the other way: a claimed band must
+    // cover the account's real one. Overstating stays possible and nobody does it, because it only
+    // ever costs the claimant.
+    let b_actual: u8 = tiers::penalty_band(penalty_actual);
+    let b_claimed: u8 = penalty_band as u8;
+    assert(b_claimed as Field == penalty_band, "band not an ordinal");
+    assert(b_claimed <= 3, "band too big");
+    assert(b_claimed >= b_actual, "claimed band under the account's");
 
     // The promise's shape: a u64 the consumer can read against its clock. Nothing else —
     // the freshness model of §3.15.7 is the consumer's, not the circuit's.
@@ -99,6 +112,7 @@ fn attest_base_sample_verifies() {
         v::ATTEST_HANDLE_COMMIT,
         v::ATTEST_TIER,
         v::ATTEST_COUNT_CLAIMED,
+        v::ATTEST_PENALTY_BAND,
         v::ATTEST_EXPIRY,
         v::ATTEST_TOKEN,
         v::ATTEST_DECIMALS,
@@ -125,6 +139,7 @@ fn understating_verifies() {
         v::ATTEST_HANDLE_COMMIT,
         1, // tier T1 — under the account's T2
         0, // count 0 — under the account's 12
+        3, // band 3 — OVER the account's 1, the one claim whose honest direction is up
         v::ATTEST_EXPIRY,
         v::ATTEST_TOKEN,
         v::ATTEST_DECIMALS,
@@ -174,4 +189,32 @@ fn the_tier_prices_the_penalty_in() {
     assert(tiers::tier_of(as_is) == 2, "T2 with the penalty priced in");
     assert(tiers::tier_of(penalty_free) == 2, "T2 with headroom without it");
     assert(tiers::tier_of(one_more_stalemate) == 1, "one more stalemate past the floor drops to T1");
+}
+
+#[test(should_fail_with = "claimed band under the account's")]
+fn understating_the_penalty_has_no_proof() {
+    // The asymmetry that makes the listing worth reading. Tier and count may be understated,
+    // because a weaker true statement is still true. A penalty band may not: understating what
+    // went wrong is not a weaker claim, it is a false one. The sample absorbed a +5, so band 1 —
+    // claiming 0 is the lie the circuit refuses.
+    main(
+        v::ATTEST_HANDLE_COMMIT,
+        v::ATTEST_TIER,
+        v::ATTEST_COUNT_CLAIMED,
+        0, // clean — against an account that is not
+        v::ATTEST_EXPIRY,
+        v::ATTEST_TOKEN,
+        v::ATTEST_DECIMALS,
+        v::ATTEST_ROOT,
+        v::ATTEST_SK_ID,
+        v::ATTEST_HANDLE_SALT,
+        v::ATTEST_COUNT,
+        v::ATTEST_VOLUME,
+        v::ATTEST_PENALTY,
+        v::ATTEST_IN_FLIGHT,
+        v::ATTEST_LEAF_TOKEN,
+        v::ATTEST_VERSION,
+        v::ATTEST_SIBLINGS,
+        v::ATTEST_INDICES,
+    );
 }

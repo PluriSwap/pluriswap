@@ -307,6 +307,20 @@ Los competidores directos son 90% marketplace y 10% escrow. La decisión de que 
 es legalmente coherente, pero deja un agujero que alguien va a llenar — y quien lo llene se convierte
 en la plataforma de facto que el protocolo dice no tener. Conviene decidir a propósito quién es ese.
 
+**Avance parcial (2026-09-23): qué muestra un listado.** No resuelve el mercado, pero fija lo que un
+listado *puede* mostrar, que es la precondición de cualquiera que lo construya: lo público son
+**agregados** (tier, count como cota, `penaltyBand`) y lo avanzado es **crudo** (count y volume
+exactos bajo máscara, penalty siempre). El penalty pasó a ser no ocultable en las dos vistas —
+con la cota invertida en el listado (`band_claimed >= band_real`) y fuera de la máscara en el perfil.
+La razón es que el tier ya netea el penalty: sin el band, un T2 castigado y un novato honesto se leen
+igual. Si esta reputación termina consumiéndose fuera del protocolo (préstamos, otra dapp), esa
+distinción es lo primero que van a querer, y es lo único que el circuito no dejaba afirmar honestamente.
+
+**Lo que sigue abierto del lado del consumidor externo:** un attestation ata `repRoot` pero **no ata
+deployment**. Quien lea esta reputación desde otra dapp tiene que chequear el root contra el árbol
+canónico; contra un clon del contrato, un proof perfectamente válido afirma sobre otro árbol. No hay
+hoy un identificador de deployment en los public inputs.
+
 ### F. Pérdida de `sk_id` = pérdida total, sin recuperación
 
 Listado como riesgo abierto ("recuperación = trabajo futuro"). Para "toda la humanidad" no es un

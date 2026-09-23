@@ -117,6 +117,37 @@ pub fn tier_of(sc: Field) -> u8 {
     }
 }
 
+/// The penalty BAND of §3.15.7: the aggregate a public listing carries, where the raw number
+/// belongs to the advanced reveal.
+///
+/// A listing is read by everyone, so a raw counter is a fingerprint — "47 deals, 12,350 of volume"
+/// identifies a person more than it informs a counterparty. A band informs and does not identify.
+///
+/// The cuts are events, not round numbers. A stalemate or an abandoned dispute is +5 and an
+/// arbitration loss is +15 (§3.14.7), so:
+///
+///   0  clean          nothing has ever gone wrong
+///   1  1..5           one stalemate or one abandoned dispute
+///   2  6..15          several of those, or one proven loss at a tribunal
+///   3  16+            more than one proven loss
+///
+/// The band is what makes the tier readable. A tier nets the penalty into the score, so a punished
+/// T2 falls to T1 and becomes indistinguishable from an honest newcomer — which is exactly the
+/// distinction a counterparty most needs. The band restores it without publishing the counter.
+pub fn penalty_band(penalty: Field) -> u8 {
+    let p: u128 = penalty as u128;
+    assert(p as Field == penalty, "penalty too big");
+    if p >= 16 {
+        3
+    } else if p >= 6 {
+        2
+    } else if p >= 1 {
+        1
+    } else {
+        0
+    }
+}
+
 // ---------------------------------------------------------------- parity tests (vectors.nr)
 
 #[test]
@@ -157,5 +188,29 @@ fn tiers_match_vectors() {
         let bond_expected = if vectors::TIER_UNBOUNDED[i] { T5_SENTINEL } else { vectors::TIER_CAPS_BOND[i] };
         assert(cap_raw(sc, false, vectors::TIER_DECIMALS[i]) == base_expected, "base cap mismatch");
         assert(cap_raw(sc, true, vectors::TIER_DECIMALS[i]) == bond_expected, "bond cap mismatch");
+    }
+}
+
+#[test]
+fn penalty_bands_match_the_cuts() {
+    // §3.15.7's aggregate, boundary-anchored on both sides of every cut. The bands are events:
+    // 0 clean, 1 one stalemate or abandoned dispute (+5), 2 several of those or one proven loss
+    // (+15), 3 more than one loss.
+    assert(penalty_band(0) == 0, "clean");
+    assert(penalty_band(1) == 1, "the first point");
+    assert(penalty_band(5) == 1, "one stalemate");
+    assert(penalty_band(6) == 2, "more than one");
+    assert(penalty_band(15) == 2, "one arbitration loss");
+    assert(penalty_band(16) == 3, "a loss plus a stalemate");
+}
+
+#[test]
+fn penalty_bands_match_vectors() {
+    // The JS twin's own rows (`tiers.penaltyBand`), so the listing a consumer reads and the
+    // profile a generator mints cannot drift apart. A band is not in the score, so these rows
+    // pin it independently of the ladder above.
+    for i in 0..vectors::TIER_COUNT {
+        let b = penalty_band(vectors::TIER_PENALTIES[i]);
+        assert(b as Field == vectors::TIER_BANDS[i], "band mismatch");
     }
 }

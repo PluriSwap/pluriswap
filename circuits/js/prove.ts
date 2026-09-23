@@ -178,6 +178,7 @@ type AttestVectors = {
   decimals: string;
   tier: string;
   count_claimed: string;
+  penalty_band: string;
   expiry: string;
   root: string;
   siblings: string[];
@@ -187,6 +188,7 @@ type AttestVectors = {
 type RevealVectors = {
   handle_commit: string;
   fields_mask: string;
+  out_count: string;
   out_volume: string;
   out_penalty: string;
   requester: string;
@@ -290,9 +292,7 @@ const CIRCUIT_LIST: Circuit[] = [
         `penalty = "0"`,
         `in_flight = "0"`,
         `leaf_token = "0"`,
-        `salt = ${str(modP(BigInt(v.prepare.salt)))}`,
         `version = "0"`,
-        `new_salt = ${str(modP(BigInt(v.prepare.new_salt)))}`,
         `siblings = [${v.prepare.siblings.map(str).join(", ")}]`,
         `indices = [${v.prepare.indices.join(", ")}]`,
       ]),
@@ -354,9 +354,7 @@ const CIRCUIT_LIST: Circuit[] = [
         `penalty = ${str(v.claim.penalty)}`,
         `in_flight = ${str(v.claim.in_flight)}`,
         `leaf_token = ${str(v.claim.leaf_token)}`,
-        `salt = ${str(modP(BigInt(v.claim.salt)))}`,
         `version = ${str(v.claim.version)}`,
-        `new_salt = ${str(modP(BigInt(v.claim.new_salt)))}`,
         `siblings = [${v.claim.siblings.map(str).join(", ")}]`,
         `indices = [${v.claim.indices.join(", ")}]`,
       ]),
@@ -403,12 +401,13 @@ const CIRCUIT_LIST: Circuit[] = [
   {
     name: "attest_base",
     offchain: true,
-    pubs: 7,
+    pubs: 8,
     proverToml: (v) =>
       toml([
         `handle_commit = ${str(v.attest.handle_commit)}`,
         `tier = ${str(v.attest.tier)}`,
         `count = ${str(v.attest.count_claimed)}`,
+        `penalty_band = ${str(v.attest.penalty_band)}`,
         `expiry = ${str(v.attest.expiry)}`,
         `token = ${str(v.attest.token)}`,
         `decimals = ${str(v.attest.decimals)}`,
@@ -417,10 +416,9 @@ const CIRCUIT_LIST: Circuit[] = [
         `handle_salt = ${str(modP(BigInt(v.attest.handle_salt)))}`,
         `count_actual = ${str(v.attest.count)}`,
         `volume = ${str(v.attest.volume)}`,
-        `penalty = ${str(v.attest.penalty)}`,
+        `penalty_actual = ${str(v.attest.penalty)}`,
         `in_flight = ${str(v.attest.in_flight)}`,
         `leaf_token = ${str(v.attest.leaf_token)}`,
-        `salt = ${str(modP(BigInt(v.attest.salt)))}`,
         `version = ${str(v.attest.version)}`,
         `siblings = [${v.attest.siblings.map(str).join(", ")}]`,
         `indices = [${v.attest.indices.join(", ")}]`,
@@ -429,11 +427,12 @@ const CIRCUIT_LIST: Circuit[] = [
   {
     name: "reveal_advanced",
     offchain: true,
-    pubs: 7,
+    pubs: 8,
     proverToml: (v) =>
       toml([
         `handle_commit = ${str(v.reveal.handle_commit)}`,
         `fields_mask = ${str(v.reveal.fields_mask)}`,
+        `out_count = ${str(v.reveal.out_count)}`,
         `out_volume = ${str(v.reveal.out_volume)}`,
         `out_penalty = ${str(v.reveal.out_penalty)}`,
         `requester = ${str(v.reveal.requester)}`,
@@ -446,7 +445,6 @@ const CIRCUIT_LIST: Circuit[] = [
         `penalty = ${str(v.reveal.penalty)}`,
         `in_flight = ${str(v.reveal.in_flight)}`,
         `leaf_token = ${str(v.reveal.leaf_token)}`,
-        `salt = ${str(modP(BigInt(v.reveal.salt)))}`,
         `version = ${str(v.reveal.version)}`,
         `siblings = [${v.reveal.siblings.map(str).join(", ")}]`,
         `indices = [${v.reveal.indices.join(", ")}]`,

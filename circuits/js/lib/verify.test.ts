@@ -42,6 +42,7 @@ function baseEnv(over: Partial<AttestBasePubs> = {}): AttestationEnvelope<Attest
       handle_commit: "123456789",
       tier: "2",
       count: "12",
+      penalty_band: "1",
       expiry: "1800000000",
       token: "97433442488726861213578988847752201310395502865",
       decimals: "6",
@@ -58,6 +59,7 @@ function revealEnv(over: Partial<RevealAdvancedPubs> = {}): AttestationEnvelope<
     pubs: {
       handle_commit: "123456789",
       fields_mask: "3",
+      out_count: "12",
       out_volume: "750000000",
       out_penalty: "5",
       requester: "987654321",
@@ -144,6 +146,26 @@ describe("verifyAttestationBase (semantic checks)", () => {
     expect(r.errors.join(" ")).toContain("ladder");
   });
 
+  test("the band is read out, labelled by the events behind it", async () => {
+    const r = await verifyAttestationBase(baseEnv(), { ...clock, verifyProof: stubOk });
+    expect(r.checks.join(" ")).toContain("penalty band 1 (one stalemate or abandoned dispute)");
+  });
+
+  test("a band outside the four cuts fails", async () => {
+    const r = await verifyAttestationBase(baseEnv({ penalty_band: "4" }), { ...clock, verifyProof: stubOk });
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("penalty_band out of range");
+  });
+
+  test("a clean band is a claim like any other — the circuit, not the lib, proves it", async () => {
+    // §3.15.7's asymmetry lives in-circuit (`claimed band under the account's`): a zero band
+    // over a punished account has no witness. The lib range-checks and reports; it cannot
+    // re-derive the direction without the leaf, and does not pretend to.
+    const r = await verifyAttestationBase(baseEnv({ penalty_band: "0" }), { ...clock, verifyProof: stubOk });
+    expect(r.ok).toBeTrue();
+    expect(r.checks.join(" ")).toContain("penalty band 0 (clean)");
+  });
+
   test("a decimals mismatch against the served ERC-20 fails", async () => {
     const r = await verifyAttestationBase(baseEnv(), { ...clock, verifyProof: stubOk, decimalsOf: () => 18n });
     expect(r.ok).toBeFalse();
@@ -171,14 +193,40 @@ describe("verifyAttestationReveal (semantic checks)", () => {
   });
 
   test("a hidden field must read zero", async () => {
-    const r = await verifyAttestationReveal(revealEnv({ fields_mask: "1", out_penalty: "5" }), { verifyProof: stubOk });
+    // mask 0b01: count shown, volume hidden — a non-zero volume contradicts its own bit.
+    const r = await verifyAttestationReveal(revealEnv({ fields_mask: "1" }), { verifyProof: stubOk });
     expect(r.ok).toBeFalse();
-    expect(r.errors.join(" ")).toContain("penalty hidden but out_penalty non-zero");
+    expect(r.errors.join(" ")).toContain("volume hidden but out_volume non-zero");
+  });
+
+  test("the count has its own bit", async () => {
+    // mask 0b10: volume shown, count hidden.
+    const r = await verifyAttestationReveal(revealEnv({ fields_mask: "2" }), { verifyProof: stubOk });
+    expect(r.ok).toBeFalse();
+    expect(r.errors.join(" ")).toContain("count hidden but out_count non-zero");
   });
 
   test("a shown field may legitimately be a true zero", async () => {
     const r = await verifyAttestationReveal(revealEnv({ fields_mask: "3", out_volume: "0" }), { verifyProof: stubOk });
     expect(r.ok).toBeTrue();
+  });
+
+  test("the penalty is outside the mask: a profile that hides everything else still states it", async () => {
+    // §3.15.7: the mask covers count and volume only. A reveal can be published under a handle
+    // with no base attestation behind it, so an optional penalty here would reopen the door the
+    // mandatory band closed — the circuit asserts `out_penalty == penalty` unconditionally.
+    const r = await verifyAttestationReveal(revealEnv({ fields_mask: "0", out_count: "0", out_volume: "0" }), {
+      verifyProof: stubOk,
+    });
+    expect(r.ok).toBeTrue();
+    expect(r.checks.join(" ")).toContain("penalty=always");
+    expect(r.checks.join(" ")).toContain("penalty 5 raw (band 1)");
+  });
+
+  test("a zero penalty reads as proven clean, not as a hidden field", async () => {
+    const r = await verifyAttestationReveal(revealEnv({ out_penalty: "0" }), { verifyProof: stubOk });
+    expect(r.ok).toBeTrue();
+    expect(r.checks.join(" ")).toContain("proven clean");
   });
 
   test("an unknown mask bit fails", async () => {
@@ -224,10 +272,21 @@ describe("verify against the committed fixtures (pinned bb)", () => {
     };
     expect(env.pubs.tier).toBe("2");
     const tampered = { ...env.pubs, tier: "3" };
-    expect(await bbVerifier(env.vk)(env.proof, [
-      tampered.handle_commit, tampered.tier, tampered.count, tampered.expiry,
-      tampered.token, tampered.decimals, tampered.rep_root,
-    ])).toBeFalse();
+    expect(await bbVerifier(env.vk)(env.proof, ATTEST_BASE_PUBS.map((n) => tampered[n]))).toBeFalse();
+  });
+
+  test.skipIf(!hasBb)("attest_base: an understated penalty band breaks bb verify", async () => {
+    // The consumer-side half of the circuit's `claimed band under the account's`. The fixture
+    // account absorbed a +5, so its honest band is 1; editing the pub down to a clean 0 is the
+    // exact lie the listing must not carry, and the public-input binding refuses it.
+    const env = fixtureEnvelope(attestProof, attestVk, ATTEST_BASE_PUBS.length, ATTEST_BASE_PUBS) as {
+      proof: string;
+      pubs: AttestBasePubs;
+      vk: string;
+    };
+    expect(env.pubs.penalty_band).toBe("1");
+    const tampered = { ...env.pubs, penalty_band: "0" };
+    expect(await bbVerifier(env.vk)(env.proof, ATTEST_BASE_PUBS.map((n) => tampered[n]))).toBeFalse();
   });
 
   test.skipIf(!hasBb)("reveal_advanced: the fixture verifies end to end", async () => {
@@ -251,9 +310,20 @@ describe("verify against the committed fixtures (pinned bb)", () => {
     };
     expect(env.pubs.requester).not.toBe("999");
     const tampered = { ...env.pubs, requester: "999" };
-    expect(await bbVerifier(env.vk)(env.proof, [
-      tampered.handle_commit, tampered.fields_mask, tampered.out_volume, tampered.out_penalty,
-      tampered.requester, tampered.token, tampered.rep_root,
-    ])).toBeFalse();
+    expect(await bbVerifier(env.vk)(env.proof, REVEAL_ADVANCED_PUBS.map((n) => tampered[n]))).toBeFalse();
+  });
+
+  test.skipIf(!hasBb)("reveal_advanced: a zeroed penalty breaks bb verify", async () => {
+    // The profile's own non-hideable field: `out_penalty` is not masked, so a reveal claiming a
+    // clean history against the punished fixture account has no proof — the same statement the
+    // band makes on the listing, made exactly instead of as an aggregate.
+    const env = fixtureEnvelope(revealProof, revealVk, REVEAL_ADVANCED_PUBS.length, REVEAL_ADVANCED_PUBS) as {
+      proof: string;
+      pubs: RevealAdvancedPubs;
+      vk: string;
+    };
+    expect(env.pubs.out_penalty).not.toBe("0");
+    const tampered = { ...env.pubs, out_penalty: "0" };
+    expect(await bbVerifier(env.vk)(env.proof, REVEAL_ADVANCED_PUBS.map((n) => tampered[n]))).toBeFalse();
   });
 });

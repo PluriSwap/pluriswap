@@ -22,12 +22,14 @@ import { execSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { penaltyBand } from "./tiers.ts";
 
 /** The pub orders, exactly as the circuits declare them (the fixture blob's tail). */
 export const ATTEST_BASE_PUBS = [
   "handle_commit",
   "tier",
   "count",
+  "penalty_band",
   "expiry",
   "token",
   "decimals",
@@ -36,6 +38,7 @@ export const ATTEST_BASE_PUBS = [
 export const REVEAL_ADVANCED_PUBS = [
   "handle_commit",
   "fields_mask",
+  "out_count",
   "out_volume",
   "out_penalty",
   "requester",
@@ -47,6 +50,8 @@ export type AttestBasePubs = {
   handle_commit: string;
   tier: string;
   count: string;
+  /** The §3.15.7 aggregate: 0 clean, 1 (1..5), 2 (6..15), 3 (16+). Cannot be understated. */
+  penalty_band: string;
   expiry: string;
   token: string;
   decimals: string;
@@ -55,7 +60,9 @@ export type AttestBasePubs = {
 export type RevealAdvancedPubs = {
   handle_commit: string;
   fields_mask: string;
+  out_count: string;
   out_volume: string;
+  /** Raw and unconditional -- outside the mask by construction. */
   out_penalty: string;
   requester: string;
   token: string;
@@ -143,6 +150,15 @@ export function bbVerifier(vkHex: string): ProofVerifier {
 
 // ---------------------------------------------------------------- semantic checks
 
+/** The §3.15.7 bands, as a consumer reads them: the cuts are events (+5 a stalemate or an
+ *  abandoned dispute, +15 an arbitration loss), so the label is the history, not a grade. */
+export const PENALTY_BAND_LABELS = [
+  "clean",
+  "one stalemate or abandoned dispute",
+  "several, or one loss at a tribunal",
+  "more than one loss",
+] as const;
+
 function result(errors: string[], checks: string[]): VerifyResult {
   return { ok: errors.length === 0, errors, checks };
 }
@@ -188,6 +204,16 @@ export async function verifyAttestationBase(
   const tier = BigInt(att.pubs.tier);
   if (tier < 1n || tier > 5n) {
     errors.push(`tier out of the ladder: ${att.pubs.tier}`);
+  }
+
+  // The band (§3.15.7): mandatory and never understated — the circuit asserts the claimed
+  // band COVERS the account's, the opposite direction from tier/count. Here the lib only
+  // range-checks it and names it, because the direction is already proven.
+  const band = BigInt(att.pubs.penalty_band);
+  if (band < 0n || band > 3n) {
+    errors.push(`penalty_band out of range: ${att.pubs.penalty_band}`);
+  } else {
+    checks.push(`penalty band ${band} (${PENALTY_BAND_LABELS[Number(band)]})`);
   }
 
   if (opts.decimalsOf) {
@@ -238,13 +264,20 @@ export async function verifyAttestationReveal(
   } else {
     // The lib mirrors the circuit's own mask semantics where it can: a HIDDEN field
     // (bit clear) must read zero. A shown field may legitimately be zero (a true zero).
-    if (!(mask & 1) && BigInt(att.pubs.out_volume) !== 0n) {
+    if (!(mask & 1) && BigInt(att.pubs.out_count) !== 0n) {
+      errors.push("count hidden but out_count non-zero");
+    }
+    if (!(mask & 2) && BigInt(att.pubs.out_volume) !== 0n) {
       errors.push("volume hidden but out_volume non-zero");
     }
-    if (!(mask & 2) && BigInt(att.pubs.out_penalty) !== 0n) {
-      errors.push("penalty hidden but out_penalty non-zero");
-    }
-    checks.push(`fields revealed: volume=${!!(mask & 1)} penalty=${!!(mask & 2)}`);
+    // The penalty is OUTSIDE the mask (§3.15.7): the advanced reveal states the raw counter
+    // whatever else it withholds, so there is no bit to check — only the reading below.
+    checks.push(`fields revealed: count=${!!(mask & 1)} volume=${!!(mask & 2)} penalty=always`);
+    checks.push(
+      BigInt(att.pubs.out_penalty) === 0n
+        ? "penalty 0 — proven clean (the circuit forbids hiding it behind a zero)"
+        : `penalty ${att.pubs.out_penalty} raw (band ${penaltyBand(BigInt(att.pubs.out_penalty))})`,
+    );
   }
 
   checks.push(
