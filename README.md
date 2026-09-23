@@ -24,6 +24,7 @@ Desplegar la cadena entera a una chain real:
 
 ```shell
 RPC_URL=$ARBITRUM_SEPOLIA_RPC_URL DEPLOY_KEY=0x... script/e2e.sh
+# ETHERSCAN_API_KEY=... para verificar el source en el explorer
 ```
 
 ```shell

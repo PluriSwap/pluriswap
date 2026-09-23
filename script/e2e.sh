@@ -12,6 +12,9 @@
 #   RPC_URL=... DEPLOY_KEY=0x... script/e2e.sh
 #                                     an existing chain. On Arbitrum Sepolia this also runs the
 #                                     Stargate ramp, which cannot exist on anvil.
+#                                     Add ETHERSCAN_API_KEY to verify the source on the explorer:
+#                                     a testnet people are meant to poke at should not be a wall of
+#                                     unverified bytecode.
 #
 # Pointing it at a real chain BROADCASTS. It is the same ordered run either way, which is the point:
 # a testnet deploy should not be eight hand-typed commands in the right order.
@@ -37,6 +40,12 @@ fi
 
 CHAIN=$(cast chain-id --rpc-url "$RPC")
 
+VERIFY=()
+if [ -n "${ETHERSCAN_API_KEY:-}" ]; then
+  VERIFY=(--verify --etherscan-api-key "$ETHERSCAN_API_KEY")
+  echo "verification: on"
+fi
+
 # Order matters: each step reads the deployment record the previous one wrote.
 STEPS=(
   "script/Deploy.s.sol:Deploy"
@@ -58,7 +67,8 @@ failed=0
 for step in "${STEPS[@]}"; do
   name="${step##*:}"
   if HOLDER_PRIVATE_KEY="$KEY" forge script "$step" \
-      --rpc-url "$RPC" --broadcast --skip-simulation --private-key "$KEY" >"/tmp/e2e-$name.log" 2>&1; then
+      --rpc-url "$RPC" --broadcast --skip-simulation --private-key "$KEY" \
+      "${VERIFY[@]+"${VERIFY[@]}"}" >"/tmp/e2e-$name.log" 2>&1; then
     echo "[OK]   $name"
   else
     echo "[FAIL] $name"
