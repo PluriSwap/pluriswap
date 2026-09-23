@@ -17,7 +17,7 @@
 //
 // The bounds below are bounds FOR THE MASK (the leaf_rep hashes any Field, but the
 // mask multiplies — the outputs must stay canonical u128s the consumer reads).
-use pluri_commitments::commitments::{account_commitment, handle_commit as handle_commit_of, leaf_rep};
+use pluri_commitments::commitments::{account_commitment, handle_commit as handle_commit_of, leaf_rep, leaf_salt};
 use pluri_commitments::merkle::is_member;
 use pluri_commitments::vectors as v;
 
@@ -38,7 +38,6 @@ fn main(
     penalty: Field,
     in_flight: Field,
     leaf_token: Field,
-    salt: Field,
     version: Field,
     // Depth-32 account-tree membership witness for the CURRENT leaf.
     siblings: [Field; 32],
@@ -58,7 +57,7 @@ fn main(
     assert(token != 0, "zero token");
     assert(leaf_token == token, "leaf token mismatch");
     let s = account_commitment(sk_id);
-    let leaf = leaf_rep(s, count, volume, penalty, in_flight, leaf_token, salt, version);
+    let leaf = leaf_rep(s, count, volume, penalty, in_flight, leaf_token, leaf_salt(sk_id, version), version);
     assert(is_member::<32>(leaf, siblings, indices, rep_root), "not a live account leaf");
 
     // Bounds for the masked arithmetic.
@@ -97,7 +96,6 @@ fn reveal_sample_verifies() {
         v::REVEAL_PENALTY,
         v::REVEAL_IN_FLIGHT,
         v::REVEAL_LEAF_TOKEN,
-        v::REVEAL_SALT,
         v::REVEAL_VERSION,
         v::REVEAL_SIBLINGS,
         v::REVEAL_INDICES,
@@ -128,7 +126,6 @@ fn hidden_fields_mask_to_zero() {
         v::REVEAL_PENALTY,
         v::REVEAL_IN_FLIGHT,
         v::REVEAL_LEAF_TOKEN,
-        v::REVEAL_SALT,
         v::REVEAL_VERSION,
         v::REVEAL_SIBLINGS,
         v::REVEAL_INDICES,
@@ -149,7 +146,6 @@ fn hidden_fields_mask_to_zero() {
         v::REVEAL_PENALTY,
         v::REVEAL_IN_FLIGHT,
         v::REVEAL_LEAF_TOKEN,
-        v::REVEAL_SALT,
         v::REVEAL_VERSION,
         v::REVEAL_SIBLINGS,
         v::REVEAL_INDICES,
@@ -170,7 +166,6 @@ fn hidden_fields_mask_to_zero() {
         v::REVEAL_PENALTY,
         v::REVEAL_IN_FLIGHT,
         v::REVEAL_LEAF_TOKEN,
-        v::REVEAL_SALT,
         v::REVEAL_VERSION,
         v::REVEAL_SIBLINGS,
         v::REVEAL_INDICES,

@@ -23,7 +23,7 @@
 // ones), so the field is bound into the statement (a public input rides the Honk public
 // input binding, exactly like withdraw's `dest`) and the consumer checks it against its
 // own clock.
-use pluri_commitments::commitments::{account_commitment, handle_commit as handle_commit_of, leaf_rep};
+use pluri_commitments::commitments::{account_commitment, handle_commit as handle_commit_of, leaf_rep, leaf_salt};
 use pluri_commitments::merkle::is_member;
 use pluri_commitments::tiers;
 use pluri_commitments::vectors as v;
@@ -46,7 +46,6 @@ fn main(
     penalty: Field,
     in_flight: Field,
     leaf_token: Field,
-    salt: Field,
     version: Field,
     // Depth-32 account-tree membership witness for the CURRENT leaf.
     siblings: [Field; 32],
@@ -62,7 +61,7 @@ fn main(
     assert(token != 0, "zero token");
     assert(leaf_token == token, "leaf token mismatch");
     let s = account_commitment(sk_id);
-    let leaf = leaf_rep(s, count_actual, volume, penalty, in_flight, leaf_token, salt, version);
+    let leaf = leaf_rep(s, count_actual, volume, penalty, in_flight, leaf_token, leaf_salt(sk_id, version), version);
     assert(is_member::<32>(leaf, siblings, indices, rep_root), "not a live account leaf");
 
     // The tier bound, IN-CIRCUIT: `score` range-checks count/penalty (u64) and volume
@@ -111,7 +110,6 @@ fn attest_base_sample_verifies() {
         v::ATTEST_PENALTY,
         v::ATTEST_IN_FLIGHT,
         v::ATTEST_LEAF_TOKEN,
-        v::ATTEST_SALT,
         v::ATTEST_VERSION,
         v::ATTEST_SIBLINGS,
         v::ATTEST_INDICES,
@@ -138,7 +136,6 @@ fn understating_verifies() {
         v::ATTEST_PENALTY,
         v::ATTEST_IN_FLIGHT,
         v::ATTEST_LEAF_TOKEN,
-        v::ATTEST_SALT,
         v::ATTEST_VERSION,
         v::ATTEST_SIBLINGS,
         v::ATTEST_INDICES,

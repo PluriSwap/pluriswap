@@ -89,7 +89,6 @@ const WITHDRAW_CHANGE_SALT = BigInt(keccak("pluri:withdraw-change-salt:1"));
 // engine's ("how much can it take now"). Version 3, the salt rotated past V3's claim.
 // The attestation claims the HONEST exact bounds (tier 2, count 12); understating is
 // the circuit's own tests. `expiry` is a pinned promise the consumer's clock checks.
-const ATTEST_SALT = BigInt(keccak("pluri:attest-salt:1"));
 const ATTEST_COUNT = 12n;
 const ATTEST_VOLUME = 750_000_000n; // 3 lots at 6 decimals
 const ATTEST_PENALTY = 5n;
@@ -457,7 +456,14 @@ async function main() {
   // insert-time root. Both circuits share this one witness: the listing attestation and
   // the profile reveal are two views of one account state.
   const attestLeaf = await c.leafRep(
-    sampleS, ATTEST_COUNT, ATTEST_VOLUME, ATTEST_PENALTY, 0n, TOKEN_ID, ATTEST_SALT, ATTEST_VERSION,
+    sampleS,
+    ATTEST_COUNT,
+    ATTEST_VOLUME,
+    ATTEST_PENALTY,
+    0n,
+    TOKEN_ID,
+    await c.leafSalt(SK_ID, ATTEST_VERSION),
+    ATTEST_VERSION,
   );
   const attestRoot = await accountTree.insert(attestLeaf);
   const attestProof = accountTree.proofOf(2);
@@ -478,7 +484,7 @@ async function main() {
     penalty: dec(ATTEST_PENALTY),
     in_flight: "0",
     leaf_token: dec(TOKEN_ID),
-    salt: dec(ATTEST_SALT),
+    salt: dec(await c.leafSalt(SK_ID, ATTEST_VERSION)),
     version: dec(ATTEST_VERSION),
     // The statement: the token the stats are denominated in (with its decimals — the
     // tier is a function of both, so the consumer cross-checks them against the ERC20),
@@ -511,7 +517,7 @@ async function main() {
     penalty: dec(ATTEST_PENALTY),
     in_flight: "0",
     leaf_token: dec(TOKEN_ID),
-    salt: dec(ATTEST_SALT),
+    salt: dec(await c.leafSalt(SK_ID, ATTEST_VERSION)),
     version: dec(ATTEST_VERSION),
     siblings: attestProof.siblings.map(dec),
     indices: attestProof.indices,
