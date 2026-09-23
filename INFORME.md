@@ -106,9 +106,10 @@ Dicho explícitamente, porque un informe que sólo lista lo verde es propaganda.
   correr es un *deal* privado: el `dealId` del kernel se deriva de los terms y las nonces, así que los
   proofs comprometidos no sirven para un deal arbitrario — hace falta el prover, que está a medias
   (`lib/tree.ts` + `lib/indexer.ts` leen el estado; faltan los witness builders y correr `bb`).
-- **El `salt` de `leafRep` no se deriva de nada**, así que una cuenta no se recupera desde `sk_id`
-  sino desde una base de datos local. Hay que arreglarlo antes de que exista un deployment con
-  usuarios (§3.15.11).
+- **Los salts de las *notes* siguen libres.** El de la hoja de cuenta se deriva y el circuito lo
+  exige desde el 2026-09-23, así que una cuenta se recupera desde `sk_id` solo — está demostrado
+  contra una chain, no afirmado. Los notes del vault no: un bond todavía se recupera desde el
+  estado local del cliente. Mismo arreglo, circuitos distintos.
 - **El slot ZK del kernel usa `VerifierMock`.** Acepta cualquier `abi.encode(dealId, nullifier)`. No
   hay circuito de payment proof todavía; es el próximo trabajo grande.
 - **Kleros en Arbitrum One** necesita que la gobernanza liste el adapter (`openCourt` revierte hasta

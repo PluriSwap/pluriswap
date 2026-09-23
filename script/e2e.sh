@@ -115,12 +115,16 @@ assert got == EXPECTED, f"terminal histogram {got} != {EXPECTED}"
 print(f"[OK]   {len(rows)} Core terminals on chain, principal conserved in every one")
 '
 
-# The prover's chain reader, against the tree the run just put a leaf in. Skips itself if bun is
-# absent; the point is that reconstruction is checked against a REAL tree, not a fixture.
+# The prover's chain reader and the recovery property, against the tree the run just put a leaf in.
+# Skips itself if bun is absent; the point is that both are checked against a REAL tree rather than
+# a fixture -- a fixture cannot show that a secret finds its own leaf in a tree a contract owns.
 if command -v bun >/dev/null 2>&1; then
   TREE=$(python3 -c "import json;print(json.load(open('deployments/${CHAIN/421614/sepolia}-private.json'))['accountTree'])" 2>/dev/null \
     || python3 -c "import json;print(json.load(open('deployments/$CHAIN-private.json'))['accountTree'])")
-  PLURI_RPC="$RPC" PLURI_TREE="$TREE" bun test circuits/js/lib/indexer.test.ts 2>&1 | tail -4
+  ESCROW_PRIV=$(python3 -c "import json;print(json.load(open('deployments/${CHAIN/421614/sepolia}-private.json'))['escrow'])" 2>/dev/null \
+    || python3 -c "import json;print(json.load(open('deployments/$CHAIN-private.json'))['escrow'])")
+  PLURI_RPC="$RPC" PLURI_TREE="$TREE" PLURI_ESCROW="$ESCROW_PRIV" \
+    bun test circuits/js/lib/indexer.test.ts circuits/js/lib/account.test.ts 2>&1 | tail -4
 fi
 
 # Finally, ask the doctor whether the records just written still describe the chain. On a chain built
