@@ -63,6 +63,21 @@ contract KlerosAdapterTest is Test {
         vm.deal(provider, 1 ether);
     }
 
+    /// A court that prices a contest must name somewhere to send it. Otherwise `_pullFee` would
+    /// `safeTransfer` to address(0), the ERC-20 reverts, and `openDisputed` -- a Core verb -- is
+    /// bricked for every deal that signed this package. KERNEL-04 says a package may lose its fee,
+    /// never hold a Core exit hostage, so this fails at deploy instead of at the fight. A free court
+    /// (`contestFee == 0`) needs no recipient, and `Reputation` has always guarded the same way.
+    function test_constructor_rejectsAPricedContestWithNoRecipient() public {
+        vm.expectRevert(KlerosAdapter.ZeroAddress.selector);
+        new KlerosAdapter(address(arbitrator), extraData, 0, "", address(this), address(0), "", 1, address(0));
+
+        // Free is fine without one.
+        KlerosAdapter free =
+            new KlerosAdapter(address(arbitrator), extraData, 0, "", address(this), address(0), "", 0, address(0));
+        assertEq(free.contestFee(), 0);
+    }
+
     function test_packageId_klerosStable() public view {
         assertEq(
             adapter.packageId(), PackageId.kleros(address(adapter), address(arbitrator), extraData, 0, address(0xFEE))

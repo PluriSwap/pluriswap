@@ -11,6 +11,7 @@ contract ArbitrationMock is ICourt {
     using SafeERC20 for IERC20;
 
     error Unauthorized();
+    error ZeroAddress();
     error AlreadyOpen();
     error NotOpen();
     error InvalidRuling();
@@ -45,6 +46,8 @@ contract ArbitrationMock is ICourt {
         uint256 contestFee_,
         address feeRecipient_
     ) {
+        // Same guard as the real adapter: a priced contest with no recipient bricks `openDisputed`.
+        if (contestFee_ != 0 && feeRecipient_ == address(0)) revert ZeroAddress();
         tribunal = tribunal_;
         feeToken = feeToken_;
         courtFee = courtFee_;

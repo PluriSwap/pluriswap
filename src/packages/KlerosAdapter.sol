@@ -77,6 +77,11 @@ contract KlerosAdapter is ICourt {
         address feeRecipient_
     ) {
         if (arbitrator_ == address(0) || kernel_ == address(0)) revert ZeroAddress();
+        // A priced contest must name a recipient: `_pullFee` would otherwise `safeTransfer` to
+        // address(0), the ERC-20 would revert, and `openDisputed` -- a Core verb -- would be bricked
+        // for every deal that signed this package. KERNEL-04: a package may lose its fee, never hold
+        // a Core exit hostage. Free courts need no recipient.
+        if (contestFee_ != 0 && feeRecipient_ == address(0)) revert ZeroAddress();
         arbitrator = IArbitratorV2(arbitrator_);
         extraData = extraData_;
         kernel = kernel_;
