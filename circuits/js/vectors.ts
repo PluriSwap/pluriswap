@@ -76,7 +76,6 @@ const BOND_CHANGE_AMOUNT = AMOUNT - BOND_LOCK_AMOUNT; // the split's conservatio
 const BOND_LOCK_SALT = BigInt(keccak("pluri:bond-lock-salt:1"));
 const BOND_CHANGE_SALT = BigInt(keccak("pluri:bond-change-salt:1"));
 const REABSORB_NEW_SALT = BigInt(keccak("pluri:reabsorb-new-salt:1"));
-const CLAIM_NEW_SALT = BigInt(keccak("pluri:claim-new-salt:1"));
 const WITHDRAW_DEST = 0x2222222222222222222222222222222222222222n; // synthetic 20-byte dest
 const WITHDRAW_AMOUNT = 400_000_000n;
 const WITHDRAW_CHANGE_AMOUNT = BOND_CHANGE_AMOUNT - WITHDRAW_AMOUNT;
@@ -136,6 +135,7 @@ async function main() {
     },
     null_rep: { sk_id: dec(SK_ID), version: dec(VERSION), output: dec(await c.nullRep(SK_ID, VERSION)) },
     null_bond: { sk_id: dec(SK_ID), note_salt: dec(NOTE_SALT), output: dec(await c.nullBond(SK_ID, NOTE_SALT)) },
+    leaf_salt: { sk_id: dec(SK_ID), version: dec(VERSION), output: dec(await c.leafSalt(SK_ID, VERSION)) },
     handle_commit: {
       sk_id: dec(SK_ID),
       handle_salt: dec(HANDLE_SALT),
@@ -200,7 +200,8 @@ async function main() {
   // commitment in this depth-20 tree, and derive `hn = PoseidonT3(hsk, registryId)` from it —
   // the registry model's reading of the pinned formula (the anchor is revealed at enroll, so
   // deriving hn from the anchor would be enumerable; hsk stays secret, so hn does not leak it).
-  // The account link: the initial leaf's salt IS the hsk (§3.15.9 register_account as-built),
+  // The account link: the humanity nullifier binds the human, and the leaf is salted by DERIVATION
+  // from the account secret, so `sk_id` alone recovers it (§3.15.3),
   // binding the burned hn to the account leaf through the shared secret.
   const regTree = await IncrementalPoseidonTree.create(REGISTRY_DEPTH);
   const identityCommitment = await c.accountCommitment(REGISTRY_HSK);
@@ -208,7 +209,7 @@ async function main() {
   const regProof = regTree.proofOf(0);
   const sampleHn = await c.hn(REGISTRY_HSK, REGISTRY_ID);
   const sampleS = await c.accountCommitment(SK_ID);
-  const sampleLeaf0 = await c.leafRep(sampleS, 0n, 0n, 0n, 0n, 0n, REGISTRY_HSK, 0n);
+  const sampleLeaf0 = await c.leafRep(sampleS, 0n, 0n, 0n, 0n, 0n, await c.leafSalt(SK_ID, 0n), 0n);
   const registryVectors = {
     depth: REGISTRY_DEPTH,
     registry_id: dec(REGISTRY_ID),
@@ -255,22 +256,21 @@ async function main() {
 
   // ---------------------------------------------------------------- prepare vectors (V2)
   // The prepare circuits' pinned sample (§3.15.4): the registered genesis leaf of the
-  // registry sample account (leaf0: all counters zero, token zero, salt = hsk, version 0)
+  // registry sample account (leaf0: all counters zero, token zero, derived salt, version 0)
   // goes into the depth-32 account tree; both prepares prove against that root —
   // passport.prepare and reputation.prepare run in one bundle, and reputation's own
   // insert happens inside, so both proofs see the same post-register tree.
   // The admission transition is the genesis branch of prepare_admit: leaf0 (token 0,
   // all-zero stats) admits a deal of the pinned token, taking PREPARE_PRINCIPAL in
-  // flight under the T1 base cap, rotating the salt and bumping the version.
+  // flight under the T1 base cap, re-deriving the salt and bumping the version.
   const accountTree = await IncrementalPoseidonTree.create(ACCOUNT_DEPTH);
   const prepareRoot = await accountTree.insert(sampleLeaf0);
   const prepareProof = accountTree.proofOf(0);
   const prepareDealId = BigInt(keccak("pluri:prepare-deal:1"));
-  const prepareNewSalt = BigInt(keccak("pluri:prepare-new-salt:1"));
   const prepareDealSubject = await c.dealSubject(SK_ID, prepareDealId);
   const prepareNullRep = await c.nullRep(SK_ID, 0n);
   const prepareNewLeaf =
-    await c.leafRep(sampleS, 0n, 0n, 0n, PREPARE_PRINCIPAL, TOKEN_ID, prepareNewSalt, 1n);
+    await c.leafRep(sampleS, 0n, 0n, 0n, PREPARE_PRINCIPAL, TOKEN_ID, await c.leafSalt(SK_ID, 1n), 1n);
   const prepareScore = tiers.score(0n, 0n, 0n, PREPARE_DECIMALS);
   const prepareCap = tiers.capRaw(prepareScore, false, PREPARE_DECIMALS);
   if (prepareCap === null || PREPARE_PRINCIPAL > prepareCap) {
@@ -283,8 +283,8 @@ async function main() {
     token: dec(TOKEN_ID),
     sk_id: dec(SK_ID),
     deal_id: dec(prepareDealId),
-    salt: dec(REGISTRY_HSK),
-    new_salt: dec(prepareNewSalt),
+    salt: dec(await c.leafSalt(SK_ID, 0n)),
+    new_salt: dec(await c.leafSalt(SK_ID, 1n)),
     s: dec(sampleS),
     leaf0: dec(sampleLeaf0),
     siblings: prepareProof.siblings.map(dec),
@@ -359,7 +359,8 @@ async function main() {
     if (kind === 4n) return { count: 0n, volume: 0n, penalty: 15n, inFlight: 0n };
     return { count: 0n, volume: 0n, penalty: 0n, inFlight: 0n };
   };
-  const claimNewLeaf = await c.leafRep(sampleS, 1n, PREPARE_PRINCIPAL, 0n, 0n, TOKEN_ID, CLAIM_NEW_SALT, 2n);
+  const claimNewLeaf =
+    await c.leafRep(sampleS, 1n, PREPARE_PRINCIPAL, 0n, 0n, TOKEN_ID, await c.leafSalt(SK_ID, 2n), 2n);
   const claimVectors = {
     depth: ACCOUNT_DEPTH,
     deal_id: dec(prepareDealId),
@@ -374,9 +375,9 @@ async function main() {
     penalty: "0",
     in_flight: dec(PREPARE_PRINCIPAL),
     leaf_token: dec(TOKEN_ID),
-    salt: dec(prepareNewSalt),
+    salt: dec(await c.leafSalt(SK_ID, 1n)),
     version: "1",
-    new_salt: dec(CLAIM_NEW_SALT),
+    new_salt: dec(await c.leafSalt(SK_ID, 2n)),
     new_leaf: dec(claimNewLeaf),
     null_rep: dec(claimNullRep),
     siblings: claimProof.siblings.map(dec),

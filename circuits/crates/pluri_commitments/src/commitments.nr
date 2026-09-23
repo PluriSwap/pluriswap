@@ -13,6 +13,7 @@ use crate::vectors;
 pub global TAG_REP: Field = 1;
 pub global TAG_BOND: Field = 2;
 pub global TAG_HANDLE: Field = 3;
+pub global TAG_LEAF: Field = 4;
 
 /// PoseidonT2 (one input, capacity 0): `S = Poseidon(sk_id)` — the account.
 pub fn poseidon_t2(x: Field) -> Field {
@@ -51,6 +52,21 @@ pub fn deal_subject(sk_id: Field, deal_id: Field) -> Field {
 /// `nullRep = Poseidon(sk_id, "rep", version)` — one use per account version.
 pub fn null_rep(sk_id: Field, version: Field) -> Field {
     chain([sk_id, TAG_REP, version])
+}
+
+/// `leafSalt = Poseidon(sk_id, "leaf", version)` — the account leaf's salt, DERIVED.
+///
+/// It used to be whatever the prover picked, which made an account unrecoverable from its secret:
+/// rebuilding your leaf means reproducing its salt, and without a derivation the salt only lived in
+/// the client's local state. Deriving it costs nothing in privacy — the leaf already hides behind
+/// `S = Poseidon(sk_id)`, and whoever can recompute this salt already holds `sk_id` — and it buys
+/// the property that `sk_id` alone is enough to recover an account.
+///
+/// The circuits ENFORCE it rather than trusting the prover to follow a convention: a user of a
+/// non-conforming client would not discover the problem until the day they needed to recover, and
+/// that is the one day it cannot be fixed.
+pub fn leaf_salt(sk_id: Field, version: Field) -> Field {
+    chain([sk_id, TAG_LEAF, version])
 }
 
 /// `nullBond = Poseidon(sk_id, "bond", noteSalt)` — one use per spent note.
@@ -121,4 +137,5 @@ fn builders_match_vectors() {
 #[test]
 fn tags_are_distinct() {
     assert((TAG_REP != TAG_BOND) & (TAG_BOND != TAG_HANDLE) & (TAG_REP != TAG_HANDLE));
+    assert((TAG_LEAF != TAG_REP) & (TAG_LEAF != TAG_BOND) & (TAG_LEAF != TAG_HANDLE));
 }

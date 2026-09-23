@@ -96,6 +96,42 @@ contract PrivacyCommitmentsTest is Test {
         );
     }
 
+    /// The account leaf's salt is DERIVED, which is what makes an account recoverable from `sk_id`
+    /// alone (§3.15.3). Pinned in the fourth language like every other builder.
+    function test_leafSalt() public view {
+        assertEq(
+            PrivacyCommitments.leafSalt(bytes32(_in(".builders.leaf_salt.sk_id")), _in(".builders.leaf_salt.version")),
+            _out(".builders.leaf_salt.output")
+        );
+    }
+
+    /// The property the derivation exists for: with the secret and the stats, the leaf comes back.
+    /// Nothing else is needed -- no stored salt, no local database. Losing that database used to
+    /// cost the whole account: reputation, tiers, and the bonds gated behind `claimed`.
+    function test_aLeafIsRebuiltFromTheSecretAlone() public view {
+        bytes32 skId = bytes32(_in(".prepare.sk_id"));
+        bytes32 s = PrivacyCommitments.accountCommitment(skId);
+        // The genesis leaf the registry sample registered: all counters zero, version zero.
+        assertEq(
+            PrivacyCommitments.leafRep(s, 0, 0, 0, 0, bytes32(0), PrivacyCommitments.leafSalt(skId, 0), 0),
+            _out(".registry.sample_leaf0")
+        );
+        // And the leaf the admission transition writes: the principal in flight, version one.
+        assertEq(
+            PrivacyCommitments.leafRep(
+                s,
+                0,
+                0,
+                0,
+                _in(".prepare.principal"),
+                bytes32(_in(".prepare.token")),
+                PrivacyCommitments.leafSalt(skId, 1),
+                1
+            ),
+            _out(".prepare.new_leaf")
+        );
+    }
+
     function test_handleCommit() public view {
         // handle_salt is a raw keccak256 output (>= p).
         uint256 rawHandleSalt = _in(".builders.handle_commit.handle_salt");

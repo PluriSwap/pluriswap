@@ -80,9 +80,8 @@ contract PrivateRegister is Script {
     }
 
     function _proof(string memory circuit) internal view returns (bytes memory) {
-        return vm.readFile(string.concat("test/fixtures/proofs/", circuit, ".json")).readBytes(
-            ".proof_with_public_inputs"
-        );
+        return
+            vm.readFile(string.concat("test/fixtures/proofs/", circuit, ".json")).readBytes(".proof_with_public_inputs");
     }
 
     function _path() internal view returns (string memory) {

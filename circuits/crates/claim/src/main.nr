@@ -2,7 +2,7 @@
 // the account behind `dealSubject = Poseidon(sk_id, dealId)`; its CURRENT leaf sits in a
 // live tree under `repRoot`; `newLeaf` is that leaf with the pending record's terminal
 // delta applied — count/volume/penalty/inFlight moved together or not at all, the version
-// bumped, the salt rotated — and `nullRep(v)` is the CURRENT version's nullifier".
+// bumped, the salt re-derived — and `nullRep(v)` is the CURRENT version's nullifier".
 //
 // The delta values (`kind`, `token`, `principal`) are public inputs the contract reads
 // from `pending`: the adapter binds the proof to exactly the record the kernel wrote.
@@ -18,7 +18,7 @@
 //     ArbWin     —
 //     ArbLoss    penalty+15
 //     every kind inFlight−principal
-use pluri_commitments::commitments::{account_commitment, deal_subject, leaf_rep, null_rep};
+use pluri_commitments::commitments::{account_commitment, deal_subject, leaf_rep, leaf_salt, null_rep};
 use pluri_commitments::merkle::is_member;
 use pluri_commitments::vectors as v;
 
@@ -38,10 +38,7 @@ fn main(
     penalty: Field,
     in_flight: Field,
     leaf_token: Field,
-    salt: Field,
     version: Field,
-    // The delta leaf's fresh salt (rotation).
-    new_salt: Field,
     // Depth-32 account-tree membership witness for the CURRENT leaf.
     siblings: [Field; 32],
     indices: [u8; 32],
@@ -60,7 +57,7 @@ fn main(
     // The current leaf: a live member. Its token IS the delta's token — the principal and
     // the inFlight it moves are denominated in it (the prepare put them there together).
     assert(leaf_token == token, "leaf token mismatch");
-    let leaf = leaf_rep(s, count, volume, penalty, in_flight, leaf_token, salt, version);
+    let leaf = leaf_rep(s, count, volume, penalty, in_flight, leaf_token, leaf_salt(sk_id, version), version);
     assert(is_member::<32>(leaf, siblings, indices, rep_root), "not a live account leaf");
     // The current version's nullifier (§3.15.3): the claim burns it — one delta per version.
     assert(null_rep(sk_id, version) == nullifier, "version nullifier mismatch");
@@ -97,9 +94,9 @@ fn main(
     let np: u128 = new_penalty as u128;
     assert(np as Field == new_penalty, "penalty overflow");
 
-    // The delta leaf (§3.15.5): stats moved together, version bumped, salt rotated.
+    // The delta leaf (§3.15.5): stats moved together, version bumped, salt re-derived.
     assert(
-        leaf_rep(s, new_count, new_volume, new_penalty, new_in_flight, token, new_salt, version + 1)
+        leaf_rep(s, new_count, new_volume, new_penalty, new_in_flight, token, leaf_salt(sk_id, version + 1), version + 1)
             == new_leaf,
         "delta leaf mismatch",
     );
@@ -129,9 +126,7 @@ fn claim_sample_verifies() {
         v::CLAIM_PENALTY,
         v::CLAIM_IN_FLIGHT,
         v::CLAIM_LEAF_TOKEN,
-        v::CLAIM_SALT,
         v::CLAIM_VERSION,
-        v::CLAIM_NEW_SALT,
         v::CLAIM_SIBLINGS,
         v::CLAIM_INDICES,
     );
@@ -153,7 +148,7 @@ fn every_close_kind_matches_the_table() {
             v::DELTA_NEW_PENALTIES[i],
             v::DELTA_NEW_IN_FLIGHTS[i],
             v::CLAIM_TOKEN,
-            v::CLAIM_NEW_SALT,
+            leaf_salt(v::CLAIM_SK_ID, v::CLAIM_VERSION + 1),
             v::CLAIM_VERSION + 1,
         );
         // The proof's own arithmetic: selectors against the row's expected stats.
@@ -184,9 +179,7 @@ fn every_close_kind_matches_the_table() {
             v::CLAIM_PENALTY,
             v::CLAIM_IN_FLIGHT,
             v::CLAIM_LEAF_TOKEN,
-            v::CLAIM_SALT,
             v::CLAIM_VERSION,
-            v::CLAIM_NEW_SALT,
             v::CLAIM_SIBLINGS,
             v::CLAIM_INDICES,
         );

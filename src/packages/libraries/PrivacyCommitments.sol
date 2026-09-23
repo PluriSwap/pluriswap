@@ -22,6 +22,7 @@ library PrivacyCommitments {
     uint256 internal constant TAG_REP = 1;
     uint256 internal constant TAG_BOND = 2;
     uint256 internal constant TAG_HANDLE = 3;
+    uint256 internal constant TAG_LEAF = 4;
 
     /// @dev PoseidonT2 — one input, capacity 0. The width of `S = Poseidon(sk_id)`.
     function poseidonT2(bytes32 x) internal view returns (bytes32) {
@@ -62,6 +63,19 @@ library PrivacyCommitments {
         bytes32[] memory f = new bytes32[](3);
         f[0] = skId;
         f[1] = bytes32(TAG_REP);
+        f[2] = bytes32(version);
+        return chain(f);
+    }
+
+    /// @dev `leafSalt = Poseidon(sk_id, "leaf", version)` — the account leaf's salt, DERIVED.
+    ///      It used to be whatever the client picked, which made an account unrecoverable from its
+    ///      secret: rebuilding your leaf means reproducing its salt, and the salt only lived in the
+    ///      client's local state. The circuits enforce this derivation now, so `sk_id` alone is
+    ///      enough to recover an account. The handle salt stays free: rotating it is the feature.
+    function leafSalt(bytes32 skId, uint256 version) internal view returns (bytes32) {
+        bytes32[] memory f = new bytes32[](3);
+        f[0] = skId;
+        f[1] = bytes32(TAG_LEAF);
         f[2] = bytes32(version);
         return chain(f);
     }

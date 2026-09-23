@@ -16,6 +16,7 @@ import { chain, poseidon1, poseidon2 } from "./poseidon.ts";
 export const TAG_REP = 1n;
 export const TAG_BOND = 2n;
 export const TAG_HANDLE = 3n;
+export const TAG_LEAF = 4n;
 
 /** `S = Poseidon(sk_id)` — the account; never on-chain in the clear (lives inside leafRep). */
 export async function accountCommitment(skId: bigint): Promise<bigint> {
@@ -35,6 +36,27 @@ export async function dealSubject(skId: bigint, dealId: bigint): Promise<bigint>
 /** `nullRep = Poseidon(sk_id, "rep", version)` — one use per account version. */
 export async function nullRep(skId: bigint, version: bigint): Promise<bigint> {
   return chain([skId, TAG_REP, version]);
+}
+
+/**
+ * `leafSalt = Poseidon(sk_id, "leaf", version)` — the account leaf's salt, DERIVED.
+ *
+ * It used to be whatever the client picked: `hsk` at version zero, a free "rotation" after that.
+ * That made an account unrecoverable from its secret. To rebuild your leaf you must reproduce its
+ * salt, and without a derivation the only place it lived was the client's local state — which is
+ * far easier to lose than a seed phrase, and losing it costs the whole account: reputation, tiers
+ * and the bonds gated behind `claimed`.
+ *
+ * Deriving it costs nothing in privacy. The leaf already hides behind `S = Poseidon(sk_id)`, and
+ * anyone who can recompute this salt already holds `sk_id`, which is to say they already own the
+ * account. What it buys is that `sk_id` alone is enough: replay your deals from the chain, rebuild
+ * your stats, recompute the leaf, find it in the tree.
+ *
+ * The handle salt stays free on purpose — rotating it IS the feature (§3.15.7: another salt is
+ * another handle, and the old one dies without linkage).
+ */
+export async function leafSalt(skId: bigint, version: bigint): Promise<bigint> {
+  return chain([skId, TAG_LEAF, version]);
 }
 
 /** `nullBond = Poseidon(sk_id, "bond", noteSalt)` — one use per spent note. */

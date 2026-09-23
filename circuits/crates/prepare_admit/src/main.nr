@@ -3,7 +3,7 @@
 // prepare identified); its current leaf sits in a live tree; the deal's
 // `inFlight + principal` fits the cap my score buys (the §3.14.7 tier computed IN-CIRCUIT
 // from the leaf's own stats — never read from chain); `newLeaf` is that leaf with the
-// principal taken into flight, the version bumped and the salt rotated; and `nullRep(v)`
+// principal taken into flight, the version bumped and the salt re-derived; and `nullRep(v)`
 // is the old version's nullifier". `lockCommit` selects the bond column of the cap table
 // when non-zero (§3.15.4) — in V2 no vault exists, so the adapter rejects any non-zero
 // `lockCommit` and only the base column is reachable on-chain.
@@ -14,7 +14,7 @@
 //   * genesis: the witness leaf is the registered leaf0 (token zero, all-zero stats) —
 //     the first deal of any token grows out of the account's genesis leaf. All-zero is
 //     forced, so a veteran token-leaf can never masquerade as genesis.
-use pluri_commitments::commitments::{account_commitment, deal_subject, leaf_rep, null_rep};
+use pluri_commitments::commitments::{account_commitment, deal_subject, leaf_rep, leaf_salt, null_rep};
 use pluri_commitments::merkle::is_member;
 use pluri_commitments::tiers;
 use pluri_commitments::vectors as v;
@@ -37,10 +37,7 @@ fn main(
     penalty: Field,
     in_flight: Field,
     leaf_token: Field,
-    salt: Field,
     version: Field,
-    // The new leaf's fresh salt (rotation).
-    new_salt: Field,
     // Depth-32 account-tree membership witness for the CURRENT leaf.
     siblings: [Field; 32],
     indices: [u8; 32],
@@ -59,7 +56,7 @@ fn main(
     let same_token = leaf_token == token;
     let genesis = (leaf_token == 0) & (count == 0) & (volume == 0) & (penalty == 0) & (in_flight == 0);
     assert(same_token | genesis, "leaf is neither this token's nor the genesis leaf");
-    let leaf = leaf_rep(s, count, volume, penalty, in_flight, leaf_token, salt, version);
+    let leaf = leaf_rep(s, count, volume, penalty, in_flight, leaf_token, leaf_salt(sk_id, version), version);
     assert(is_member::<32>(leaf, siblings, indices, rep_root), "not a live account leaf");
 
     // §3.14.7 in-circuit: the score comes from the leaf's own stats, the cap from the
@@ -83,10 +80,10 @@ fn main(
     assert(cap_v as Field == cap_raw, "cap too big");
     assert((inf as u128) + (prin as u128) <= cap_v, "inFlight + principal over the tier cap");
 
-    // The transition (§3.15.4): principal into flight, version bumped, salt rotated; the
+    // The transition (§3.15.4): principal into flight, version bumped, salt re-derived; the
     // new leaf's token is the deal's token — both branches move to it.
     assert(
-        leaf_rep(s, count, volume, penalty, in_flight + principal, token, new_salt, version + 1)
+        leaf_rep(s, count, volume, penalty, in_flight + principal, token, leaf_salt(sk_id, version + 1), version + 1)
             == new_leaf,
         "new leaf mismatch",
     );
@@ -121,9 +118,7 @@ fn prepare_admit_sample_verifies() {
         0,
         0,
         0, // leaf0: token zero, all-zero stats — the genesis branch
-        v::PREPARE_SALT,
         0,
-        v::PREPARE_NEW_SALT,
         v::PREPARE_SIBLINGS,
         v::PREPARE_INDICES,
     );
@@ -133,7 +128,7 @@ fn prepare_admit_sample_verifies() {
 fn new_leaf_is_the_transition() {
     // The transition's own arithmetic, pinned straight against the vectors: the sample
     // newLeaf is leaf0 with the principal into flight, the token moved to the deal's,
-    // the salt rotated and the version bumped.
+    // the salt re-derived and the version bumped.
     let s = account_commitment(v::PREPARE_SK_ID);
     let new_leaf = leaf_rep(
         s,
@@ -142,7 +137,7 @@ fn new_leaf_is_the_transition() {
         0,
         v::PREPARE_PRINCIPAL,
         v::PREPARE_TOKEN,
-        v::PREPARE_NEW_SALT,
+        leaf_salt(v::PREPARE_SK_ID, 1),
         1,
     );
     assert(new_leaf == v::PREPARE_NEW_LEAF, "transition leaf");
