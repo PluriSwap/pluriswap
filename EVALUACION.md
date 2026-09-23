@@ -210,8 +210,39 @@ hoja obliga a insertar las que están adelante— pero el ahorro sigue siendo un
 racional flushea el prefijo mínimo y paga lo mismo que hoy. Por eso el flush lo paga el protocolo, con
 el `activationFee` que ese mismo deal ya cobró.
 
-**Sigue abierto**: el `activate` del kernel no está descompuesto, y la traducción a dólares depende del
-precio del blob, que es volátil — eso se mide contra una chain real, no acá.
+**La traducción a plata, y la conclusión que ordena todo lo demás.** Con los gases medidos, ETH a
+3.500 y los dos ejes de un rollup separados:
+
+| | quieto | cargado |
+| --- | ---: | ---: |
+| **L2, ejecución** (activación de dos lados, ~4,3M) | $0,15 *(0,01 gwei)* | $1,50 *(0,1 gwei)* |
+| **L1, datos** (54 KB de proofs, vía blob) | $0,19 *(1 gwei)* | $18,84 *(100 gwei)* |
+
+En reposo los dos ejes son comparables; con el blob caro **L1 domina 12 a 1**, y es el eje volátil. O
+sea: *el costo de la privacidad no es el gas de ejecutar, es el tamaño de los proofs*.
+
+Eso reordena las palancas por valor, no por esfuerzo:
+
+| palanca | ahorro por deal | ataca |
+| --- | ---: | --- |
+| **Recursión** (un proof agregado en vez de seis) | ~$0,70 quieto, **~$16 cargado** | los dos ejes: 54 KB → ~9 KB y 2,9M → ~0,7M |
+| Cola diferida entre deals | $0,04 quieto, $0,40 cargado | sólo L2 |
+| Profundidad del árbol 32 → 26 | $0,01 quieto, $0,08 cargado | sólo L2 |
+
+**La recursión vale ~40 veces la cola.** Lo hecho hasta acá (el mux de `compute_root`, `insertMany`,
+`prepareBoth`) ya se llevó lo barato del eje L2; lo que queda de ese lado son centavos. La cola
+diferida, con toda su latencia y su discusión de incentivos, ahorra menos que el ruido del precio del
+blob.
+
+**Requisito de despliegue, si alguna vez se construye la cola.** El flush lo paga el protocolo, y el
+peor caso —un flush solitario, sin lote— son 2 × 673k = 1,35M de L2 por deal: $0,05 a 0,01 gwei, $0,47
+a 0,1. El `activationFee` tiene que cubrir **ese** número y no el promedio: así cada hoja paga su
+propio insert de peor caso al activarse, y negarnos el batching deja de ser un ataque posible. Es la
+misma lógica del bond — se calibra contra quien se porta mal, no contra el caso normal.
+`activationFee >= 2 · insertGas(depth) · gasPrice · precioETH / precioToken`.
+
+**Sigue abierto**: el `activate` del kernel no está descompuesto, y los precios de arriba son supuestos
+(ETH, gwei, blob) sobre gases medidos — el número firme sale de una chain real.
 
 ### LHF-6 — Kleros: whitelist y pineado son camino crítico y son externos
 
