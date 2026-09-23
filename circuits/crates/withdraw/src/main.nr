@@ -13,7 +13,7 @@
 // constraint shape inside what this pinned bb pipeline's optimized EVM verifier accepts
 // (circuits/README.md): `changeNote == (1 − whole) * noteBond(..., changeAmount, ...)`
 // — zero exactly when the note is consumed whole, the computed change note otherwise.
-use pluri_commitments::commitments::{note_bond, null_bond};
+use pluri_commitments::commitments::{note_bond, note_salt, null_bond};
 use pluri_commitments::merkle::is_member;
 use pluri_commitments::vectors as v;
 
@@ -24,12 +24,11 @@ fn main(
     change_note: pub Field,
     nullifier: pub Field,
     bond_root: pub Field,
-    // The owner's secret and the spent note's own secrets.
+    // The owner's secret and the spent note's own secrets (the source salt is whatever the note
+    // it spends was derived with — an index for a deposit, a parent nullifier otherwise).
     sk_id: Field,
-    note_salt: Field,
+    source_salt: Field,
     note_amount: Field,
-    // The change note's fresh salt (unused when the note is consumed whole).
-    change_salt: Field,
     // Depth-20 notes-tree membership witness for the spent note (§3.15.3).
     siblings: [Field; 20],
     indices: [u8; 20],
@@ -43,10 +42,10 @@ fn main(
     assert(amt >= 1, "zero amount");
 
     // The spent note: a live leaf of the notes tree, of exactly the public token.
-    let note = note_bond(sk_id, token, note_amount, note_salt);
+    let note = note_bond(sk_id, token, note_amount, source_salt);
     assert(is_member::<20>(note, siblings, indices, bond_root), "not a live note");
     // One use per spent note (§3.15.3).
-    assert(null_bond(sk_id, note_salt) == nullifier, "note nullifier mismatch");
+    assert(null_bond(sk_id, source_salt) == nullifier, "note nullifier mismatch");
 
     // Conservation (§3.15.6): the withdraw never exceeds the note — the change is the
     // exact remainder, and no negative change can exist.
@@ -55,8 +54,10 @@ fn main(
     assert(na >= amt, "withdraw over the note");
     let change_amount = note_amount - amount;
 
-    // The change note — whole consumption masks it to zero (§3.15.6's amendment).
-    let computed_change = note_bond(sk_id, token, change_amount, change_salt);
+    // The change note — whole consumption masks it to zero (§3.15.6's amendment). Its salt is
+    // DERIVED (2026-09-23) from the nullifier this proof publishes: the change of a withdraw is
+    // found again by following the same edge the chain shows, never from a client's local state.
+    let computed_change = note_bond(sk_id, token, change_amount, note_salt(sk_id, nullifier));
     let whole = (amount == note_amount) as Field;
     assert(change_note == (1 - whole) * computed_change, "change note mismatch");
 }
@@ -78,9 +79,8 @@ fn withdraw_sample_verifies() {
         v::WITHDRAW_NULL_BOND,
         v::WITHDRAW_ROOT,
         v::WITHDRAW_SK_ID,
-        v::WITHDRAW_NOTE_SALT,
+        v::WITHDRAW_SOURCE_SALT,
         v::WITHDRAW_NOTE_AMOUNT,
-        v::WITHDRAW_CHANGE_SALT,
         v::WITHDRAW_SIBLINGS,
         v::WITHDRAW_INDICES,
     );
@@ -108,12 +108,19 @@ fn whole_consumption_takes_zero_change() {
         v::WITHDRAW_NULL_BOND,
         v::WITHDRAW_ROOT,
         v::WITHDRAW_SK_ID,
-        v::WITHDRAW_NOTE_SALT,
+        v::WITHDRAW_SOURCE_SALT,
         v::WITHDRAW_NOTE_AMOUNT,
-        v::WITHDRAW_CHANGE_SALT,
         v::WITHDRAW_SIBLINGS,
         v::WITHDRAW_INDICES,
     );
+}
+
+#[test]
+fn the_change_is_seeded_by_the_burn() {
+    // The withdraw's change salt, derived from the nullifier this proof publishes: the note that
+    // lives on is found again from the note that died, with nothing kept on the side.
+    assert(null_bond(v::WITHDRAW_SK_ID, v::WITHDRAW_SOURCE_SALT) == v::WITHDRAW_NULL_BOND, "the source burns");
+    assert(note_salt(v::WITHDRAW_SK_ID, v::WITHDRAW_NULL_BOND) == v::WITHDRAW_CHANGE_SALT, "and seeds the change");
 }
 
 #[test]

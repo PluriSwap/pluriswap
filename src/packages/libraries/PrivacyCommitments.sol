@@ -23,6 +23,8 @@ library PrivacyCommitments {
     uint256 internal constant TAG_BOND = 2;
     uint256 internal constant TAG_HANDLE = 3;
     uint256 internal constant TAG_LEAF = 4;
+    uint256 internal constant TAG_NOTE = 5;
+    uint256 internal constant TAG_LOCK = 6;
 
     /// @dev PoseidonT2 — one input, capacity 0. The width of `S = Poseidon(sk_id)`.
     function poseidonT2(bytes32 x) internal view returns (bytes32) {
@@ -77,6 +79,30 @@ library PrivacyCommitments {
         f[0] = skId;
         f[1] = bytes32(TAG_LEAF);
         f[2] = bytes32(version);
+        return chain(f);
+    }
+
+    /// @dev `noteSalt = Poseidon(sk_id, "note", seed)` — a vault note's salt, DERIVED, for the same
+    ///      reason the account leaf's is, and with more at stake: a note holds TOKENS and its salt is
+    ///      what spends it. Two seed families, one rule — a note's salt derives from whatever it came
+    ///      from: a deposit's seed is a small per-account index (bound under 2^32 in-circuit), every
+    ///      other note is change and its seed is the nullifier of the note or lock it came out of,
+    ///      which the spending transaction publishes.
+    function noteSalt(bytes32 skId, bytes32 seed) internal view returns (bytes32) {
+        bytes32[] memory f = new bytes32[](3);
+        f[0] = skId;
+        f[1] = bytes32(TAG_NOTE);
+        f[2] = seed;
+        return chain(f);
+    }
+
+    /// @dev `lockSalt = Poseidon(sk_id, "lock", dealId)` — the earmark's salt, DERIVED from its deal.
+    ///      One lock per deal per subject, so the deal id is the only index it needs.
+    function lockSalt(bytes32 skId, bytes32 dealId) internal view returns (bytes32) {
+        bytes32[] memory f = new bytes32[](3);
+        f[0] = skId;
+        f[1] = bytes32(TAG_LOCK);
+        f[2] = dealId;
         return chain(f);
     }
 

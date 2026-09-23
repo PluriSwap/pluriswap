@@ -14,6 +14,8 @@ pub global TAG_REP: Field = 1;
 pub global TAG_BOND: Field = 2;
 pub global TAG_HANDLE: Field = 3;
 pub global TAG_LEAF: Field = 4;
+pub global TAG_NOTE: Field = 5;
+pub global TAG_LOCK: Field = 6;
 
 /// PoseidonT2 (one input, capacity 0): `S = Poseidon(sk_id)` — the account.
 pub fn poseidon_t2(x: Field) -> Field {
@@ -67,6 +69,38 @@ pub fn null_rep(sk_id: Field, version: Field) -> Field {
 /// that is the one day it cannot be fixed.
 pub fn leaf_salt(sk_id: Field, version: Field) -> Field {
     chain([sk_id, TAG_LEAF, version])
+}
+
+/// `noteSalt = Poseidon(sk_id, "note", seed)` — a vault note's salt, DERIVED, for the same reason
+/// the account leaf's is (`leaf_salt`) and with more at stake: a note holds TOKENS, and its salt is
+/// what spends it (`null_bond` is taken over the salt). A salt that only lives in a client's local
+/// state is money that dies with a laptop.
+///
+/// Two seed families, one rule — a note's salt derives from whatever the note came from:
+///   * a DEPOSIT has no parent, so the seed is a small per-account index (the deposit circuit binds
+///     it under 2^32). Recovery walks the index space against the public deposit events.
+///   * every other note is change: the seed is the NULLIFIER of the note or lock it came out of,
+///     which the spending transaction publishes. No counter, no gap, no ambiguity — the recovery
+///     walk follows the same edges the chain already shows.
+///
+/// The two families cannot collide in practice: a nullifier is a Poseidon output, uniform over the
+/// field, so landing inside the 2^32 index window has probability ~2^-222.
+///
+/// Recovery works because every amount is public somewhere: a deposit publishes `(token, amount)`,
+/// a withdraw its `amount`, a bond split its `lockAmount`, a reabsorb the record's `amount`. So a
+/// child's amount is its parent's minus something the chain states, and the walk bottoms out at
+/// deposits, which are public in full. Salts derived + amounts derivable = the vault is
+/// reconstructible from `sk_id` and the chain, with nothing kept on the side.
+pub fn note_salt(sk_id: Field, seed: Field) -> Field {
+    chain([sk_id, TAG_NOTE, seed])
+}
+
+/// `lockSalt = Poseidon(sk_id, "lock", dealId)` — the earmark's salt, DERIVED from the deal it
+/// belongs to. One lock per deal per subject (the kernel reserves once), so the deal id is the only
+/// index it needs — and `reabsorb` gets its whole witness back from public data: the record names
+/// the deal, the deal derives the salt.
+pub fn lock_salt(sk_id: Field, deal_id: Field) -> Field {
+    chain([sk_id, TAG_LOCK, deal_id])
 }
 
 /// `nullBond = Poseidon(sk_id, "bond", noteSalt)` — one use per spent note.
@@ -124,6 +158,8 @@ fn builders_match_vectors() {
     assert(deal_subject(vectors::SK_ID, vectors::DEAL_ID) == vectors::EXPECTED_DEAL_SUBJECT, "dealSubject");
     assert(null_rep(vectors::SK_ID, vectors::VERSION) == vectors::EXPECTED_NULL_REP, "nullRep");
     assert(null_bond(vectors::SK_ID, vectors::NOTE_SALT) == vectors::EXPECTED_NULL_BOND, "nullBond");
+    assert(note_salt(vectors::SK_ID, vectors::NOTE_SALT) == vectors::EXPECTED_NOTE_SALT, "noteSalt");
+    assert(lock_salt(vectors::SK_ID, vectors::DEAL_ID) == vectors::EXPECTED_LOCK_SALT, "lockSalt");
     assert(handle_commit(vectors::SK_ID, vectors::HANDLE_SALT) == vectors::EXPECTED_HANDLE_COMMIT, "handleCommit");
     assert(note_bond(vectors::SK_ID, vectors::TOKEN_ID, vectors::AMOUNT, vectors::NOTE_SALT) == vectors::EXPECTED_NOTE_BOND, "noteBond");
     assert(lock_commit(vectors::SK_ID, vectors::DEAL_ID, vectors::LOCK_AMOUNT, vectors::LOCK_SALT) == vectors::EXPECTED_LOCK_COMMIT, "lockCommit");
@@ -138,4 +174,26 @@ fn builders_match_vectors() {
 fn tags_are_distinct() {
     assert((TAG_REP != TAG_BOND) & (TAG_BOND != TAG_HANDLE) & (TAG_REP != TAG_HANDLE));
     assert((TAG_LEAF != TAG_REP) & (TAG_LEAF != TAG_BOND) & (TAG_LEAF != TAG_HANDLE));
+    assert((TAG_NOTE != TAG_REP) & (TAG_NOTE != TAG_BOND) & (TAG_NOTE != TAG_HANDLE) & (TAG_NOTE != TAG_LEAF));
+    assert(
+        (TAG_LOCK != TAG_REP)
+            & (TAG_LOCK != TAG_BOND)
+            & (TAG_LOCK != TAG_HANDLE)
+            & (TAG_LOCK != TAG_LEAF)
+            & (TAG_LOCK != TAG_NOTE),
+    );
+}
+
+#[test]
+fn a_salt_is_never_its_own_nullifier() {
+    // The domain separation that matters for the derived salts: a note's salt and the nullifier
+    // taken OVER that salt are different tags of the same fold, so they cannot collide — which is
+    // what lets a child's salt be seeded by its parent's nullifier without the two ever naming the
+    // same value.
+    let salt = note_salt(vectors::SK_ID, 7);
+    assert(salt != null_bond(vectors::SK_ID, 7), "note tag != bond tag");
+    assert(note_salt(vectors::SK_ID, salt) != salt, "a salt never seeds itself");
+    // And the two seed families of `note_salt` (a small deposit index, a parent nullifier) stay
+    // apart because a nullifier is a Poseidon output: nothing forces it, but nothing lands there.
+    assert(null_bond(vectors::SK_ID, salt) != 0, "the nullifier is a field element, not an index");
 }

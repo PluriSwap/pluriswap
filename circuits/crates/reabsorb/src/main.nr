@@ -11,7 +11,15 @@
 //
 // `nullBond = Poseidon(sk_id, "bond", lockSalt)` is one-use-per-lock: the vault burns it
 // in the notes tree's nullifier set, so the same released record cannot merge twice.
-use pluri_commitments::commitments::{deal_subject, lock_commit as lock_commit_of, note_bond, null_bond};
+//
+// Both salts are DERIVED (2026-09-23), which collapses this circuit's private witness to the
+// SECRET ALONE: the lock's salt comes from the deal it belongs to (one lock per deal per subject),
+// the merged note's from the nullifier this proof publishes. Everything else reabsorb needs is on
+// the public record the vault stored. It is the clearest statement of what deriving the salts buys
+// — a proof whose entire witness is `sk_id` plus what anyone can read.
+use pluri_commitments::commitments::{
+    deal_subject, lock_commit as lock_commit_of, lock_salt, note_bond, note_salt, null_bond,
+};
 use pluri_commitments::vectors as v;
 
 fn main(
@@ -22,11 +30,8 @@ fn main(
     lock_commit: pub Field,
     new_note: pub Field,
     nullifier: pub Field,
-    // The owner's secret and the lock's own salt (what the stored commit commits to).
+    // The owner's secret — the whole witness.
     sk_id: Field,
-    lock_salt: Field,
-    // The merged note's fresh salt.
-    new_salt: Field,
 ) {
     assert(token != 0, "zero token");
     // A released lock is never zero: `reserve` rejects a zero principal, so §3.14.5's
@@ -37,14 +42,16 @@ fn main(
 
     // The per-deal binding: the same pseudonym the whole deal ran under.
     assert(deal_subject(sk_id, deal_id) == subject, "deal subject mismatch");
-    // The stored earmark opens to exactly the record's (deal, amount) — the proof binds
-    // the lock the vault read, and the salt stays the owner's secret.
-    assert(lock_commit_of(sk_id, deal_id, amount, lock_salt) == lock_commit, "lock commit mismatch");
-    // The merge (§3.15.6): exactly the record's amount, in the record's token, into a
-    // fresh note — the value the split carved out, coming back whole.
-    assert(note_bond(sk_id, token, amount, new_salt) == new_note, "new note mismatch");
+    // The lock's salt, re-derived from the deal — the same value `prepare_bond` committed to when
+    // it carved the earmark out. The stored commit then opens to exactly the record's (deal, amount):
+    // the proof binds the lock the vault read, not a lock of the prover's choosing.
+    let lock_s = lock_salt(sk_id, deal_id);
+    assert(lock_commit_of(sk_id, deal_id, amount, lock_s) == lock_commit, "lock commit mismatch");
     // One use per lock (§3.15.3's bond tag over the lock's own salt).
-    assert(null_bond(sk_id, lock_salt) == nullifier, "lock nullifier mismatch");
+    assert(null_bond(sk_id, lock_s) == nullifier, "lock nullifier mismatch");
+    // The merge (§3.15.6): exactly the record's amount, in the record's token, into a fresh note —
+    // the value the split carved out, coming back whole, under the salt the nullifier above seeds.
+    assert(note_bond(sk_id, token, amount, note_salt(sk_id, nullifier)) == new_note, "new note mismatch");
 }
 
 // ---------------------------------------------------------------- parity tests (vectors.nr)
@@ -63,9 +70,19 @@ fn reabsorb_sample_verifies() {
         v::REABSORB_NEW_NOTE,
         v::REABSORB_NULL_BOND,
         v::REABSORB_SK_ID,
-        v::REABSORB_LOCK_SALT,
-        v::REABSORB_NEW_SALT,
     );
+}
+
+#[test]
+fn the_whole_witness_is_the_secret() {
+    // What deriving the salts bought here: `main` above takes `sk_id` and nothing else private.
+    // The lock's salt comes from the deal, the note's from the nullifier — so a released lock is
+    // reabsorbable by whoever holds the secret, reading only what the vault already stored.
+    let lock_s = lock_salt(v::REABSORB_SK_ID, v::REABSORB_DEAL_ID);
+    assert(lock_s == v::REABSORB_LOCK_SALT, "the lock salt is the deal's");
+    let nullifier = null_bond(v::REABSORB_SK_ID, lock_s);
+    assert(nullifier == v::REABSORB_NULL_BOND, "the nullifier follows");
+    assert(note_salt(v::REABSORB_SK_ID, nullifier) == v::REABSORB_NEW_SALT, "and seeds the merged note");
 }
 
 #[test]

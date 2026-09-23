@@ -8,7 +8,7 @@
 //
 // `dealId` stays private: the deal pseudonym is the only thing the kernel ever sees, and
 // the binding `dealSubject = Poseidon(sk_id, dealId)` is what a compositor cannot forge.
-use pluri_commitments::commitments::{account_commitment, deal_subject, leaf_rep};
+use pluri_commitments::commitments::{account_commitment, deal_subject, leaf_rep, leaf_salt};
 use pluri_commitments::merkle::is_member;
 use pluri_commitments::vectors as v;
 
@@ -24,7 +24,6 @@ fn main(
     penalty: Field,
     in_flight: Field,
     leaf_token: Field,
-    salt: Field,
     version: Field,
     // Depth-32 account-tree membership witness (§3.15.3).
     siblings: [Field; 32],
@@ -33,7 +32,11 @@ fn main(
     // The per-deal pseudonym (§3.15.3): dealSubject = PoseidonT3(sk_id, dealId).
     assert(deal_subject(sk_id, deal_id) == subject, "deal subject mismatch");
     let s = account_commitment(sk_id);
-    let leaf = leaf_rep(s, count, volume, penalty, in_flight, leaf_token, salt, version);
+    // The leaf's salt is derived, like everywhere else the account leaf is built (2026-09-23:
+    // this was the last circuit still taking it as a free witness). Membership alone already
+    // forced the honest value — nothing else is in the tree — but a rule applied in five of six
+    // places is the worst kind of rule to have.
+    let leaf = leaf_rep(s, count, volume, penalty, in_flight, leaf_token, leaf_salt(sk_id, version), version);
     assert(is_member::<32>(leaf, siblings, indices, rep_root), "not a live account leaf");
 }
 
@@ -54,8 +57,8 @@ fn prepare_passport_sample_verifies() {
         0,
         0,
         0, // leaf0's token is zero: nothing has happened in any token yet
-        v::PREPARE_SALT,
-        0,
+        0, // version zero — and the salt is derived from it, no longer passed
+
         v::PREPARE_SIBLINGS,
         v::PREPARE_INDICES,
     );

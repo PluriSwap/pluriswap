@@ -73,13 +73,14 @@ const PREPARE_PRINCIPAL = 100_000_000n;
 const NOTES_DEPTH = 20;
 const BOND_LOCK_AMOUNT = (PREPARE_PRINCIPAL + 9n) / 10n; // §3.14.5, exactly what reserve cross-checks
 const BOND_CHANGE_AMOUNT = AMOUNT - BOND_LOCK_AMOUNT; // the split's conservation
-const BOND_LOCK_SALT = BigInt(keccak("pluri:bond-lock-salt:1"));
-const BOND_CHANGE_SALT = BigInt(keccak("pluri:bond-change-salt:1"));
-const REABSORB_NEW_SALT = BigInt(keccak("pluri:reabsorb-new-salt:1"));
+// Every salt of this flow is DERIVED (2026-09-23), so none of them is a constant here: the
+// deposit's comes from its index, and each child's from the nullifier of what it was carved out
+// of. The sample IS the recovery walk — deposit index 0 → bond split → reabsorb / withdraw —
+// and `notes.test.ts` replays it from `sk_id` and the public amounts alone.
+const DEPOSIT_INDEX = 0n;
 const WITHDRAW_DEST = 0x2222222222222222222222222222222222222222n; // synthetic 20-byte dest
 const WITHDRAW_AMOUNT = 400_000_000n;
 const WITHDRAW_CHANGE_AMOUNT = BOND_CHANGE_AMOUNT - WITHDRAW_AMOUNT;
-const WITHDRAW_CHANGE_SALT = BigInt(keccak("pluri:withdraw-change-salt:1"));
 
 // The disclosure layer of F4 (§3.15.7): the same account tree, one more leaf later in
 // the account's life. The sample account is mid-history — 12 deals completed, 3 lots of
@@ -135,6 +136,12 @@ async function main() {
     null_rep: { sk_id: dec(SK_ID), version: dec(VERSION), output: dec(await c.nullRep(SK_ID, VERSION)) },
     null_bond: { sk_id: dec(SK_ID), note_salt: dec(NOTE_SALT), output: dec(await c.nullBond(SK_ID, NOTE_SALT)) },
     leaf_salt: { sk_id: dec(SK_ID), version: dec(VERSION), output: dec(await c.leafSalt(SK_ID, VERSION)) },
+    // The two derivations the vault's salts come from: a note's seed is either a deposit index or
+    // the nullifier of what it was carved out of; a lock's is the deal it belongs to. Pinned here
+    // over free sample values, like every other builder — the FLOW's use of them is pinned by the
+    // circuits' own vectors below.
+    note_salt: { sk_id: dec(SK_ID), seed: dec(NOTE_SALT), output: dec(await c.noteSalt(SK_ID, NOTE_SALT)) },
+    lock_salt: { sk_id: dec(SK_ID), deal_id: dec(DEAL_ID), output: dec(await c.lockSalt(SK_ID, DEAL_ID)) },
     handle_commit: {
       sk_id: dec(SK_ID),
       handle_salt: dec(HANDLE_SALT),
@@ -314,8 +321,13 @@ async function main() {
   // reabsorbed lock's new note (index 2) — exactly the inserts the vault performs in the
   // e2e order. The account tree (depth 32) continues V2's: leaf0 (index 0), the prepare's
   // new leaf (index 1) — the claim proves against that root.
+  // The deposit's note: salt derived from the account's deposit index (the one note with no
+  // parent to derive from). `note` above stays a free-salt builder sample — it pins the BUILDER;
+  // this pins the CIRCUIT's rule.
+  const depositSalt = await c.noteSalt(SK_ID, DEPOSIT_INDEX);
+  const depositNote = await c.noteBond(SK_ID, TOKEN_ID, AMOUNT, depositSalt);
   const notesTree = await IncrementalPoseidonTree.create(NOTES_DEPTH);
-  const bondRoot0 = await notesTree.insert(note); // vault.deposit's insert
+  const bondRoot0 = await notesTree.insert(depositNote); // vault.deposit's insert
   const bondProof = notesTree.proofOf(0); // prepare_bond's membership: the source note
 
   // deposit (§3.15.6): the only place fresh value enters the notes world. The proof pins
@@ -323,27 +335,30 @@ async function main() {
   const depositVectors = {
     token: dec(TOKEN_ID),
     amount: dec(AMOUNT),
-    note: dec(note),
+    note: dec(depositNote),
     sk_id: dec(SK_ID),
-    salt: dec(NOTE_SALT),
+    index: dec(DEPOSIT_INDEX),
+    salt: dec(depositSalt), // derived — carried for the twins and the recovery walk, not an input
   };
 
   // prepare_bond (§3.15.4 Bond): the split. The source note is a live leaf of bondRoot0;
   // the lock is §3.14.5's exact lockAmount, the change note the exact remainder, and both
   // lockAmount and token are public (F3's amendment: reserve cross-checks them).
-  const bondLockCommit = await c.lockCommit(SK_ID, prepareDealId, BOND_LOCK_AMOUNT, BOND_LOCK_SALT);
-  const bondChangeNote = await c.noteBond(SK_ID, TOKEN_ID, BOND_CHANGE_AMOUNT, BOND_CHANGE_SALT);
-  const bondNullBond = await c.nullBond(SK_ID, NOTE_SALT);
+  const bondLockSalt = await c.lockSalt(SK_ID, prepareDealId);
+  const bondNullBond = await c.nullBond(SK_ID, depositSalt);
+  const bondChangeSalt = await c.noteSalt(SK_ID, bondNullBond); // the split's change: seeded by the burn
+  const bondLockCommit = await c.lockCommit(SK_ID, prepareDealId, BOND_LOCK_AMOUNT, bondLockSalt);
+  const bondChangeNote = await c.noteBond(SK_ID, TOKEN_ID, BOND_CHANGE_AMOUNT, bondChangeSalt);
   const bondVectors = {
     depth: NOTES_DEPTH,
     deal_id: dec(prepareDealId),
     deal_subject: dec(prepareDealSubject),
     token: dec(TOKEN_ID),
     note_amount: dec(AMOUNT),
-    note_salt: dec(NOTE_SALT),
+    source_salt: dec(depositSalt),
     lock_amount: dec(BOND_LOCK_AMOUNT),
-    lock_salt: dec(BOND_LOCK_SALT),
-    change_salt: dec(BOND_CHANGE_SALT),
+    lock_salt: dec(bondLockSalt), // derived from the deal
+    change_salt: dec(bondChangeSalt), // derived from the nullifier above
     lock_commit: dec(bondLockCommit),
     change_note: dec(bondChangeNote),
     null_bond: dec(bondNullBond),
@@ -421,16 +436,17 @@ async function main() {
   // lockCommit — it opens to exactly (sk_id, dealId, amount, salt) with the record's own
   // amount — and mints a note of exactly that amount. No root, no membership: the lock
   // record is contract state. nullBond(sk_id, lockSalt) is one-use-per-lock.
-  const reabsorbNewNote = await c.noteBond(SK_ID, TOKEN_ID, BOND_LOCK_AMOUNT, REABSORB_NEW_SALT);
-  const reabsorbNullBond = await c.nullBond(SK_ID, BOND_LOCK_SALT);
+  const reabsorbNullBond = await c.nullBond(SK_ID, bondLockSalt);
+  const reabsorbNewSalt = await c.noteSalt(SK_ID, reabsorbNullBond);
+  const reabsorbNewNote = await c.noteBond(SK_ID, TOKEN_ID, BOND_LOCK_AMOUNT, reabsorbNewSalt);
   const reabsorbVectors = {
     deal_id: dec(prepareDealId),
     deal_subject: dec(prepareDealSubject),
     token: dec(TOKEN_ID),
     amount: dec(BOND_LOCK_AMOUNT),
     lock_commit: dec(bondLockCommit),
-    lock_salt: dec(BOND_LOCK_SALT),
-    new_salt: dec(REABSORB_NEW_SALT),
+    lock_salt: dec(bondLockSalt), // derived from the deal — reabsorb re-derives it, never receives it
+    new_salt: dec(reabsorbNewSalt), // derived from the lock's nullifier
     new_note: dec(reabsorbNewNote),
     null_bond: dec(reabsorbNullBond),
     sk_id: dec(SK_ID),
@@ -443,16 +459,17 @@ async function main() {
   // buffer — the nullifier decides the replay (§3.15.3), not the root's age.
   await notesTree.insert(bondChangeNote); // vault.prepare's insert
   const withdrawProof = notesTree.proofOf(1);
-  const withdrawChangeNote = await c.noteBond(SK_ID, TOKEN_ID, WITHDRAW_CHANGE_AMOUNT, WITHDRAW_CHANGE_SALT);
-  const withdrawNullBond = await c.nullBond(SK_ID, BOND_CHANGE_SALT);
+  const withdrawNullBond = await c.nullBond(SK_ID, bondChangeSalt);
+  const withdrawChangeSalt = await c.noteSalt(SK_ID, withdrawNullBond);
+  const withdrawChangeNote = await c.noteBond(SK_ID, TOKEN_ID, WITHDRAW_CHANGE_AMOUNT, withdrawChangeSalt);
   const withdrawVectors = {
     depth: NOTES_DEPTH,
     token: dec(TOKEN_ID),
     dest: dec(WITHDRAW_DEST),
     amount: dec(WITHDRAW_AMOUNT),
     note_amount: dec(BOND_CHANGE_AMOUNT),
-    note_salt: dec(BOND_CHANGE_SALT),
-    change_salt: dec(WITHDRAW_CHANGE_SALT),
+    source_salt: dec(bondChangeSalt),
+    change_salt: dec(withdrawChangeSalt), // derived from the nullifier above
     change_note: dec(withdrawChangeNote),
     null_bond: dec(withdrawNullBond),
     siblings: withdrawProof.siblings.map(dec),
@@ -711,6 +728,7 @@ type Sample = {
 type DepositVectors = {
   token: string;
   amount: string;
+  index: string;
   note: string;
   sk_id: string;
   salt: string;
@@ -722,7 +740,7 @@ type BondVectors = {
   deal_subject: string;
   token: string;
   note_amount: string;
-  note_salt: string;
+  source_salt: string;
   lock_amount: string;
   lock_salt: string;
   change_salt: string;
@@ -791,7 +809,7 @@ type WithdrawVectors = {
   dest: string;
   amount: string;
   note_amount: string;
-  note_salt: string;
+  source_salt: string;
   change_salt: string;
   change_note: string;
   null_bond: string;
@@ -890,6 +908,8 @@ function renderNoirVectors(
   nr.push(`pub global EXPECTED_NULL_REP: Field = ${b.null_rep.output};`);
   nr.push(`pub global EXPECTED_NULL_BOND: Field = ${b.null_bond.output};`);
   nr.push(`pub global EXPECTED_HANDLE_COMMIT: Field = ${b.handle_commit.output};`);
+  nr.push(`pub global EXPECTED_NOTE_SALT: Field = ${b.note_salt.output};`);
+  nr.push(`pub global EXPECTED_LOCK_SALT: Field = ${b.lock_salt.output};`);
   nr.push(`pub global EXPECTED_NOTE_BOND: Field = ${b.note_bond.output};`);
   nr.push(`pub global EXPECTED_LOCK_COMMIT: Field = ${b.lock_commit.output};`);
   nr.push(`pub global EXPECTED_LEAF_REP: Field = ${b.leaf_rep.output};`);
@@ -992,6 +1012,7 @@ function renderNoirVectors(
   nr.push(`pub global DEPOSIT_AMOUNT: Field = ${d.amount};`);
   nr.push(`pub global DEPOSIT_NOTE: Field = ${d.note};`);
   nr.push(`pub global DEPOSIT_SK_ID: Field = ${d.sk_id};`);
+  nr.push(`pub global DEPOSIT_INDEX: Field = ${d.index};`);
   nr.push(`pub global DEPOSIT_SALT: Field = ${dec(field(d.salt))};`);
   nr.push("");
   const bo = (v as { bond: BondVectors }).bond;
@@ -1000,7 +1021,7 @@ function renderNoirVectors(
   nr.push(`pub global BOND_DEAL_SUBJECT: Field = ${bo.deal_subject};`);
   nr.push(`pub global BOND_TOKEN: Field = ${bo.token};`);
   nr.push(`pub global BOND_NOTE_AMOUNT: Field = ${bo.note_amount};`);
-  nr.push(`pub global BOND_NOTE_SALT: Field = ${dec(field(bo.note_salt))};`);
+  nr.push(`pub global BOND_SOURCE_SALT: Field = ${dec(field(bo.source_salt))};`);
   nr.push(`pub global BOND_LOCK_AMOUNT: Field = ${bo.lock_amount};`);
   nr.push(`pub global BOND_LOCK_SALT: Field = ${dec(field(bo.lock_salt))};`);
   nr.push(`pub global BOND_CHANGE_SALT: Field = ${dec(field(bo.change_salt))};`);
@@ -1074,7 +1095,7 @@ function renderNoirVectors(
   nr.push(`pub global WITHDRAW_DEST: Field = ${w.dest};`);
   nr.push(`pub global WITHDRAW_AMOUNT: Field = ${w.amount};`);
   nr.push(`pub global WITHDRAW_NOTE_AMOUNT: Field = ${w.note_amount};`);
-  nr.push(`pub global WITHDRAW_NOTE_SALT: Field = ${dec(field(w.note_salt))};`);
+  nr.push(`pub global WITHDRAW_SOURCE_SALT: Field = ${dec(field(w.source_salt))};`);
   nr.push(`pub global WITHDRAW_CHANGE_SALT: Field = ${dec(field(w.change_salt))};`);
   nr.push(`pub global WITHDRAW_CHANGE_NOTE: Field = ${w.change_note};`);
   nr.push(`pub global WITHDRAW_NULL_BOND: Field = ${w.null_bond};`);

@@ -93,14 +93,14 @@ type PrepareVectors = {
   cap: string;
 };
 
-type DepositVectors = { token: string; amount: string; note: string; sk_id: string; salt: string };
+type DepositVectors = { token: string; amount: string; note: string; sk_id: string; index: string; salt: string };
 
 type BondVectors = {
   deal_id: string;
   deal_subject: string;
   token: string;
   note_amount: string;
-  note_salt: string;
+  source_salt: string;
   lock_amount: string;
   lock_salt: string;
   change_salt: string;
@@ -153,7 +153,7 @@ type WithdrawVectors = {
   dest: string;
   amount: string;
   note_amount: string;
-  note_salt: string;
+  source_salt: string;
   change_salt: string;
   change_note: string;
   null_bond: string;
@@ -264,7 +264,6 @@ const CIRCUIT_LIST: Circuit[] = [
         `penalty = "0"`,
         `in_flight = "0"`,
         `leaf_token = "0"`,
-        `salt = ${str(modP(BigInt(v.prepare.salt)))}`,
         `version = "0"`,
         `siblings = [${v.prepare.siblings.map(str).join(", ")}]`,
         `indices = [${v.prepare.indices.join(", ")}]`,
@@ -308,7 +307,7 @@ const CIRCUIT_LIST: Circuit[] = [
         `amount = ${str(v.deposit.amount)}`,
         `note = ${str(v.deposit.note)}`,
         `sk_id = ${str(v.deposit.sk_id)}`,
-        `salt = ${str(modP(BigInt(v.deposit.salt)))}`,
+        `index = ${str(v.deposit.index)}`,
       ]),
   },
   {
@@ -326,10 +325,8 @@ const CIRCUIT_LIST: Circuit[] = [
         `nullifier = ${str(v.bond.null_bond)}`,
         `bond_root = ${str(v.bond.root)}`,
         `sk_id = ${str(v.bond.sk_id)}`,
-        `note_salt = ${str(modP(BigInt(v.bond.note_salt)))}`,
+        `source_salt = ${str(modP(BigInt(v.bond.source_salt)))}`,
         `note_amount = ${str(v.bond.note_amount)}`,
-        `lock_salt = ${str(modP(BigInt(v.bond.lock_salt)))}`,
-        `change_salt = ${str(modP(BigInt(v.bond.change_salt)))}`,
         `siblings = [${v.bond.siblings.map(str).join(", ")}]`,
         `indices = [${v.bond.indices.join(", ")}]`,
       ]),
@@ -373,8 +370,6 @@ const CIRCUIT_LIST: Circuit[] = [
         `new_note = ${str(v.reabsorb.new_note)}`,
         `nullifier = ${str(v.reabsorb.null_bond)}`,
         `sk_id = ${str(v.reabsorb.sk_id)}`,
-        `lock_salt = ${str(modP(BigInt(v.reabsorb.lock_salt)))}`,
-        `new_salt = ${str(modP(BigInt(v.reabsorb.new_salt)))}`,
       ]),
   },
   {
@@ -390,9 +385,8 @@ const CIRCUIT_LIST: Circuit[] = [
         `nullifier = ${str(v.withdraw.null_bond)}`,
         `bond_root = ${str(v.withdraw.root)}`,
         `sk_id = ${str(v.withdraw.sk_id)}`,
-        `note_salt = ${str(modP(BigInt(v.withdraw.note_salt)))}`,
+        `source_salt = ${str(modP(BigInt(v.withdraw.source_salt)))}`,
         `note_amount = ${str(v.withdraw.note_amount)}`,
-        `change_salt = ${str(modP(BigInt(v.withdraw.change_salt)))}`,
         `siblings = [${v.withdraw.siblings.map(str).join(", ")}]`,
         `indices = [${v.withdraw.indices.join(", ")}]`,
       ]),

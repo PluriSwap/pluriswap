@@ -329,6 +329,17 @@ depositados. Cualquier producto de consumo pierde 1–5% de usuarios por año a 
 recovery sobre `sk_id`, o al menos separar custodia del bond de custodia de la identidad, es
 arquitectura, no UX.
 
+**Cerrada la mitad de abajo (2026-09-23).** Había dos pérdidas distintas metidas en una: perder el
+*secreto* y perder el *estado del cliente*. La segunda ya no existe. Todos los salts del protocolo
+se derivan menos el del handle (que es libre a propósito), así que con `sk_id` y la chain se
+reconstruyen la cuenta (`account.ts`) y el vault entero (`notes.ts`): las notes se derivan en cadena
+desde los deposits, que son públicos, siguiendo los nullifiers hacia adelante. Antes, un cliente que
+perdía su base de datos perdía los bonds aunque su dueño recordara el secreto perfectamente.
+
+**Lo que sigue abierto es la mitad de arriba**, y es la que da nombre a la discusión: perder `sk_id`
+sigue siendo pérdida total. Derivar salts no es social recovery — es la precondición para que
+cualquier esquema de recovery tenga algo que recuperar.
+
 ### G. Farmeo de reputación por auto-trading
 
 El score es `successCount + volume/UNIT − penalty`. Un deal entre dos wallets propias con dos juegos

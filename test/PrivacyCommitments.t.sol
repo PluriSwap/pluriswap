@@ -132,6 +132,79 @@ contract PrivacyCommitmentsTest is Test {
         );
     }
 
+    /// The vault's salts are DERIVED too (2026-09-23), and for a heavier reason than the leaf's: a
+    /// note holds TOKENS and its salt is what spends it. Pinned in the fourth language, both of them.
+    function test_noteSalt() public view {
+        assertEq(
+            PrivacyCommitments.noteSalt(
+                bytes32(_in(".builders.note_salt.sk_id")), bytes32(_in(".builders.note_salt.seed"))
+            ),
+            _out(".builders.note_salt.output")
+        );
+    }
+
+    function test_lockSalt() public view {
+        uint256 rawDealId = _in(".builders.lock_salt.deal_id");
+        assertGt(rawDealId, BN254_P);
+        assertEq(
+            PrivacyCommitments.lockSalt(bytes32(_in(".builders.lock_salt.sk_id")), bytes32(rawDealId)),
+            _out(".builders.lock_salt.output")
+        );
+    }
+
+    /// The vault's own version of the property above: with the secret and what the chain states,
+    /// every note of the committed lifecycle comes back. A note's salt derives from whatever the
+    /// note came from -- a deposit index, or the nullifier of the note or lock it was carved out of
+    /// -- and every amount is public somewhere, so the walk needs nothing kept on the side.
+    function test_aVaultIsRebuiltFromTheSecretAlone() public view {
+        bytes32 skId = bytes32(_in(".deposit.sk_id"));
+        bytes32 token = bytes32(_in(".deposit.token"));
+
+        // The deposit: the one note with no parent, seeded by the account's deposit index.
+        bytes32 depositSalt = PrivacyCommitments.noteSalt(skId, bytes32(_in(".deposit.index")));
+        assertEq(
+            PrivacyCommitments.noteBond(skId, token, _in(".deposit.amount"), depositSalt), _out(".deposit.note")
+        );
+
+        // The split: the earmark from the deal it belongs to, the change from the parent's burn.
+        bytes32 lockSalt = PrivacyCommitments.lockSalt(skId, bytes32(_in(".bond.deal_id")));
+        assertEq(
+            PrivacyCommitments.lockCommit(skId, bytes32(_in(".bond.deal_id")), _in(".bond.lock_amount"), lockSalt),
+            _out(".bond.lock_commit")
+        );
+        bytes32 burn = PrivacyCommitments.nullBond(skId, depositSalt);
+        assertEq(burn, _out(".bond.null_bond"));
+        assertEq(
+            PrivacyCommitments.noteBond(
+                skId, token, _in(".deposit.amount") - _in(".bond.lock_amount"), PrivacyCommitments.noteSalt(skId, burn)
+            ),
+            _out(".bond.change_note")
+        );
+
+        // The reabsorb: the released lock merges back, seeded by the lock's own burn.
+        bytes32 lockBurn = PrivacyCommitments.nullBond(skId, lockSalt);
+        assertEq(lockBurn, _out(".reabsorb.null_bond"));
+        assertEq(
+            PrivacyCommitments.noteBond(
+                skId, token, _in(".reabsorb.amount"), PrivacyCommitments.noteSalt(skId, lockBurn)
+            ),
+            _out(".reabsorb.new_note")
+        );
+
+        // The withdraw: the change of the change, seeded by the change note's burn.
+        bytes32 changeBurn = PrivacyCommitments.nullBond(skId, bytes32(_in(".bond.change_salt")));
+        assertEq(changeBurn, _out(".withdraw.null_bond"));
+        assertEq(
+            PrivacyCommitments.noteBond(
+                skId,
+                token,
+                _in(".bond.note_amount") - _in(".bond.lock_amount") - _in(".withdraw.amount"),
+                PrivacyCommitments.noteSalt(skId, changeBurn)
+            ),
+            _out(".withdraw.change_note")
+        );
+    }
+
     function test_handleCommit() public view {
         // handle_salt is a raw keccak256 output (>= p).
         uint256 rawHandleSalt = _in(".builders.handle_commit.handle_salt");
@@ -192,9 +265,22 @@ contract PrivacyCommitmentsTest is Test {
     }
 
     function test_tags_areDistinct() public pure {
-        assertTrue(PrivacyCommitments.TAG_REP != PrivacyCommitments.TAG_BOND);
-        assertTrue(PrivacyCommitments.TAG_BOND != PrivacyCommitments.TAG_HANDLE);
-        assertTrue(PrivacyCommitments.TAG_REP != PrivacyCommitments.TAG_HANDLE);
+        // Every tag against every other: the domains only stay apart while this holds, and the
+        // derived salts lean on it -- a note's salt and the nullifier taken over that salt are two
+        // tags of the same fold, which is what lets a child be seeded by its parent's burn.
+        uint256[6] memory tags = [
+            PrivacyCommitments.TAG_REP,
+            PrivacyCommitments.TAG_BOND,
+            PrivacyCommitments.TAG_HANDLE,
+            PrivacyCommitments.TAG_LEAF,
+            PrivacyCommitments.TAG_NOTE,
+            PrivacyCommitments.TAG_LOCK
+        ];
+        for (uint256 i = 0; i < tags.length; i++) {
+            for (uint256 j = i + 1; j < tags.length; j++) {
+                assertTrue(tags[i] != tags[j], "tags collide");
+            }
+        }
     }
 
     // ---------------------------------------------------------------- tree (PoseidonTree parity)

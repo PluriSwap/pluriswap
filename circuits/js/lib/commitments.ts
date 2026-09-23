@@ -17,6 +17,8 @@ export const TAG_REP = 1n;
 export const TAG_BOND = 2n;
 export const TAG_HANDLE = 3n;
 export const TAG_LEAF = 4n;
+export const TAG_NOTE = 5n;
+export const TAG_LOCK = 6n;
 
 /** `S = Poseidon(sk_id)` — the account; never on-chain in the clear (lives inside leafRep). */
 export async function accountCommitment(skId: bigint): Promise<bigint> {
@@ -57,6 +59,35 @@ export async function nullRep(skId: bigint, version: bigint): Promise<bigint> {
  */
 export async function leafSalt(skId: bigint, version: bigint): Promise<bigint> {
   return chain([skId, TAG_LEAF, version]);
+}
+
+/**
+ * `noteSalt = Poseidon(sk_id, "note", seed)` — a vault note's salt, DERIVED, for the same reason the
+ * account leaf's is ([[leafSalt]]) and with more at stake: a note holds TOKENS, and its salt is what
+ * spends it (`nullBond` is taken over the salt). A salt that only lives in a client's local state is
+ * money that dies with a laptop.
+ *
+ * Two seed families, one rule — a note's salt derives from whatever the note came from:
+ *   * a DEPOSIT has no parent, so the seed is a small per-account index (the deposit circuit binds it
+ *     under 2^32). Recovery walks the index space against the public deposit events.
+ *   * every other note is change: the seed is the NULLIFIER of the note or lock it came out of, which
+ *     the spending transaction publishes. No counter, no gap — the recovery walk follows the edges
+ *     the chain already shows.
+ *
+ * Recovery works because every amount is public somewhere: a deposit publishes `(token, amount)`, a
+ * withdraw its `amount`, a bond split its `lockAmount`, a reabsorb the record's `amount`. A child's
+ * amount is its parent's minus something the chain states, and the walk bottoms out at deposits,
+ * which are public in full.
+ */
+export async function noteSalt(skId: bigint, seed: bigint): Promise<bigint> {
+  return chain([skId, TAG_NOTE, seed]);
+}
+
+/** `lockSalt = Poseidon(sk_id, "lock", dealId)` — the earmark's salt, DERIVED from its deal. One lock
+ *  per deal per subject, so the deal id is the only index it needs: `reabsorb` recovers its entire
+ *  witness from the public record. */
+export async function lockSalt(skId: bigint, dealId: bigint): Promise<bigint> {
+  return chain([skId, TAG_LOCK, dealId]);
 }
 
 /** `nullBond = Poseidon(sk_id, "bond", noteSalt)` — one use per spent note. */
