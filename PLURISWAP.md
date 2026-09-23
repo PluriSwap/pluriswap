@@ -772,6 +772,21 @@ sequenceDiagram
     Note over M: gated por claimed
 ```
 
+**Un proof por lado (`prepare_side`, 2026-09-23).** Los tres prepares de un lado prueban cosas de un mismo deal y se pisan: los tres derivan `dealSubject = Poseidon(sk_id, dealId)`, y passport y admit prueban **la misma membresía de la misma hoja bajo la misma raíz**, un recorrido de 32 niveles cada uno. Fusionados en un circuito son **89.739 gates contra 135.933 sumados (−34%)**, y el bond queda opcional enmascarado por `lockCommit != 0` — la misma señal con la que §3.14.7 ya elige la columna del cap.
+
+| por activación de dos lados | hoy | con `prepare_side` |
+| --- | ---: | ---: |
+| proofs | 6 | **2** |
+| calldata a L1 | 53.824 B | **~19.200 B** |
+| gas de verificación | 4,36M | **~1,50M** |
+| tiempo de prueba por lado | ~839 ms | **~554 ms** |
+
+Baja el eje que domina el costo en un rollup (los bytes que llegan a L1) y encima el usuario espera menos. Descarta la otra forma de llegar acá: **una sola** verificación recursiva adentro de un circuito son 681k gates, cinco veces este circuito entero.
+
+**El verifier de bundle compartido.** Un proof fusionado rompe, si no se tiene cuidado, la propiedad de que cada paquete verifica su propio statement. El diseño que la conserva: un `BundleVerifier` bindeado por `packageId` como cualquier otro adapter, que verifica **una vez** y deja constancia en **storage transitorio** (Cancun) bajo el hash de los inputs; cada módulo recibe los mismos inputs, pregunta "¿esto se probó en esta tx?" y después **exige lo suyo** de esos inputs — el passport que el subject sea el que identifica, la reputación que `newLeaf`/`nullRep`/cap sean los que va a escribir, el vault que el `lockCommit`/`changeNote` sean los que va a guardar. Ningún módulo confía en otro; los tres confían en un verifier que las partes firmaron en sus `packageId`.
+
+Qué cambia en el modelo de confianza, dicho sin adornos: **la superficie no cambia de naturaleza pero sí se concentra**. Hoy cada módulo confía en su propio adapter; con esto los tres confían en uno. Si mintiera, aceptarían una transición forjada — exactamente lo que pasa hoy si miente cualquiera de los tres adapters, sólo que ahora es un contrato en vez de tres. A cambio, hay un solo contrato que auditar en vez de tres, y el ticket vive en storage transitorio: no sobrevive a la tx, así que no hay estado que envenenar entre bloques.
+
 #### 3.15.5 Terminal y claim
 
 `notifyTerminal(subject, token, principal, Close)` — el kernel pasa el `dealSubject` snapshotado. El módulo escribe `pending[dealSubject] = (Close, principal, token)` y nada más: no sabe cuál es la cuenta oculta. `try`/`retryPostTerminal` como siempre.

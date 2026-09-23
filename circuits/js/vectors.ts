@@ -790,6 +790,20 @@ async function main() {
     builders,
     tree: treeVectors,
     registry: registryVectors,
+    // The merged side (2026-09-23): the same deal the prepare and bond samples already describe,
+    // proven in one statement instead of three. Every value is a reference to those two sections —
+    // that IS the point: the three proofs were always talking about one deal.
+    side: {
+      lock_commit: dec(bondLockCommit),
+      lock_amount: dec(BOND_LOCK_AMOUNT),
+      change_note: dec(bondChangeNote),
+      null_bond: dec(bondNullBond),
+      bond_root: dec(bondRoot0),
+      note_amount: dec(AMOUNT),
+      source_salt: dec(depositSalt),
+      note_siblings: bondProof.siblings.map(dec),
+      note_indices: bondProof.indices,
+    },
     claim_repeat: claimRepeatVectors,
     claim_full: claimFullVectors,
     tiers: tierVectors,
@@ -930,6 +944,18 @@ type PrepareVectors = {
   new_leaf: string;
   score: string;
   cap: string;
+};
+
+type SideVectors = {
+  lock_commit: string;
+  lock_amount: string;
+  change_note: string;
+  null_bond: string;
+  bond_root: string;
+  note_amount: string;
+  source_salt: string;
+  note_siblings: string[];
+  note_indices: number[];
 };
 
 type ClaimScenario = {
@@ -1252,6 +1278,18 @@ function renderNoirVectors(
   nr.push(`pub global PREPARE_CP_ROOT: Field = ${p.cp_root};`);
   nr.push(`pub global PREPARE_CP_S: Field = ${p.cp_s};`);
   nr.push(`pub global PREPARE_PAIR_TAG: Field = ${p.pair_tag};`);
+  const sd = (v as { side: SideVectors }).side;
+  nr.push(`pub global SIDE_LOCK_COMMIT: Field = ${sd.lock_commit};`);
+  nr.push(`pub global SIDE_LOCK_AMOUNT: Field = ${sd.lock_amount};`);
+  nr.push(`pub global SIDE_CHANGE_NOTE: Field = ${sd.change_note};`);
+  nr.push(`pub global SIDE_NULL_BOND: Field = ${sd.null_bond};`);
+  nr.push(`pub global SIDE_BOND_ROOT: Field = ${sd.bond_root};`);
+  nr.push(`pub global SIDE_NOTE_AMOUNT: Field = ${sd.note_amount};`);
+  nr.push(`pub global SIDE_SOURCE_SALT: Field = ${dec(field(sd.source_salt))};`);
+  nr.push(`pub global SIDE_NOTE_SIBLINGS: [Field; ${sd.note_siblings.length}] = [`);
+  nr.push(...sd.note_siblings.map((x) => `    ${x},`));
+  nr.push("];");
+  nr.push(`pub global SIDE_NOTE_INDICES: [u8; ${sd.note_indices.length}] = [${sd.note_indices.join(", ")}];`);
   nr.push(`pub global PREPARE_S: Field = ${p.s};`);
   nr.push(`pub global PREPARE_LEAF0: Field = ${p.leaf0};`);
   nr.push(`pub global PREPARE_ROOT: Field = ${p.root};`);

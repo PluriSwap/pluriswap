@@ -7,6 +7,7 @@ members = [
     "crates/prepare_admit",
     "crates/deposit",
     "crates/prepare_bond",
+    "crates/prepare_side",
     "crates/claim",
     "crates/reabsorb",
     "crates/withdraw",

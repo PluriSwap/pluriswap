@@ -224,6 +224,18 @@ type RevealVectors = {
   indices: number[];
 };
 
+type SideVectorsP = {
+  lock_commit: string;
+  lock_amount: string;
+  change_note: string;
+  null_bond: string;
+  bond_root: string;
+  note_amount: string;
+  source_salt: string;
+  note_siblings: string[];
+  note_indices: number[];
+};
+
 type Vectors = {
   registry: RegistryVectors;
   prepare: PrepareVectors;
@@ -232,6 +244,7 @@ type Vectors = {
   claim: ClaimVectors;
   reabsorb: ReabsorbVectors;
   withdraw: WithdrawVectors;
+  side: SideVectorsP;
   attest: AttestVectors;
   reveal: RevealVectors;
 };
@@ -319,6 +332,49 @@ const CIRCUIT_LIST: Circuit[] = [
         `epoch_credits = "0"`,
         `siblings = [${v.prepare.siblings.map(str).join(", ")}]`,
         `indices = [${v.prepare.indices.join(", ")}]`,
+      ]),
+  },
+  {
+    // The merged side (§3.15.4, 2026-09-23): the three per-module statements of one side in one
+    // proof. `offchain` only until its adapter exists — the fixture is generated now so the circuit
+    // is pinned and its proof measured, which is what the decision to wire it rests on.
+    name: "prepare_side",
+    offchain: true,
+    pubs: 14,
+    proverToml: (v) =>
+      toml([
+        `subject = ${str(v.prepare.deal_subject)}`,
+        `deal_id = ${str(modP(BigInt(v.prepare.deal_id)))}`,
+        `token = ${str(v.prepare.token)}`,
+        `principal = ${str(v.prepare.principal)}`,
+        `decimals = ${str(v.prepare.decimals)}`,
+        `rep_root = ${str(v.prepare.root)}`,
+        `new_leaf = ${str(v.prepare.new_leaf)}`,
+        `nullifier = ${str(v.prepare.null_rep)}`,
+        `pair_tag = ${str(v.prepare.pair_tag)}`,
+        // The bonded shape: the same deal's lock and the change of the deposited note.
+        `lock_commit = ${str(v.side.lock_commit)}`,
+        `lock_amount = ${str(v.side.lock_amount)}`,
+        `change_note = ${str(v.side.change_note)}`,
+        `null_bond_out = ${str(v.side.null_bond)}`,
+        `bond_root = ${str(v.side.bond_root)}`,
+        `sk_id = ${str(v.prepare.sk_id)}`,
+        `s_other = ${str(v.prepare.cp_s)}`,
+        `count = "0"`,
+        `volume = "0"`,
+        `penalty = "0"`,
+        `in_flight = "0"`,
+        `leaf_token = "0"`,
+        `version = "0"`,
+        `cp_root = ${str(v.prepare.cp_root)}`,
+        `epoch = "0"`,
+        `epoch_credits = "0"`,
+        `rep_siblings = [${v.prepare.siblings.map(str).join(", ")}]`,
+        `rep_indices = [${v.prepare.indices.join(", ")}]`,
+        `source_salt = ${str(modP(BigInt(v.side.source_salt)))}`,
+        `note_amount = ${str(v.side.note_amount)}`,
+        `note_siblings = [${v.side.note_siblings.map(str).join(", ")}]`,
+        `note_indices = [${v.side.note_indices.join(", ")}]`,
       ]),
   },
   // ------------------------------------------------------------- V3: the vault circuits

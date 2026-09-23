@@ -268,12 +268,27 @@ raíz**, así que el fusionado real es más chico que esa suma. Un proof por lad
 | gas de verificación | 4,36M | **~1,5M** |
 | tiempo de prueba por lado | ~0,9 s (tres proofs) | **~0,8 s** |
 
-Gana en los cuatro ejes a la vez, incluido el que la recursión empeora. El obstáculo no es
-criptográfico sino arquitectónico: hoy cada módulo verifica su propio statement con su propio
-verifier. Un proof fusionado exige o que un módulo verifique y los otros le crean —rompe la propiedad
-de que cada paquete verifica lo suyo— o un verifier de bundle compartido que los tres lean dentro de
-la misma tx (storage transitorio), bindeado por `packageId` como todo lo demás. Esa decisión es de
-arquitectura y está sin tomar.
+Gana en los cuatro ejes a la vez, incluido el que la recursión empeora.
+
+**Construido y medido (2026-09-23): `crates/prepare_side`.** La estimación era 136k gates; el
+fusionado real son **89.739**, un 34% menos que la suma, porque la fusión borra la duplicación en vez
+de esconderla (tres `dealSubject` en uno, dos membresías de la misma hoja en una). El bond queda
+opcional enmascarado por `lockCommit != 0`, la misma señal con la que §3.14.7 ya elige la columna del
+cap, y hay un test negativo que ancla lo que la máscara no puede aflojar: un lado bonded sigue
+necesitando su note viva.
+
+| por activación de dos lados | hoy | `prepare_side` |
+| --- | ---: | ---: |
+| proofs | 6 | **2** |
+| calldata a L1 | 53.824 B | **19.200 B** *(medido, −64%)* |
+| gas de verificación | 4,36M | **~1,50M** |
+| tiempo de prueba por lado | ~839 ms | **~554 ms** |
+
+**Falta la integración**, que es la mitad arquitectónica: el `BundleVerifier` compartido (verifica una
+vez, deja el ticket en storage transitorio bajo el hash de los inputs, bindeado por `packageId`) y los
+tres módulos pidiéndole el ticket en vez de verificar cada uno. El diseño está en §3.15.4 con su
+análisis de confianza: la superficie no cambia de naturaleza —cada módulo ya confía en su adapter—
+pero se concentra en un contrato en vez de tres.
 
 **Sigue abierto**: el `activate` del kernel no está descompuesto, y los precios de arriba son supuestos
 (ETH, gwei, blob) sobre gases medidos — el número firme sale de una chain real.
