@@ -11,7 +11,8 @@ import {Test} from "forge-std/Test.sol";
 ///      all against the committed rows of test/fixtures/vectors.json (`tiers` section).
 ///
 ///      score = satSub(count + volume / UNIT, penalty) with UNIT = 250 * 10^decimals;
-///      caps: base 250/500/1000/2000, bond 400/700/1500/5000, T5 unbounded.
+///      caps: base 250/500/1000/2000/5000, bond 400/700/1500/5000/unbounded (only T5's bond
+///      column is unbounded — unlimited exposure requires a live lock behind it).
 contract TierParityTest is Test {
     string internal vectors;
 
@@ -29,7 +30,7 @@ contract TierParityTest is Test {
 
     /// @dev The §3.14.7 cap table — the same ladder `Reputation._capTokens` walks.
     function _capUnits(uint256 sc, bool withBond) internal pure returns (bool unbounded, uint256 cap) {
-        if (sc >= 100) return (true, 0);
+        if (sc >= 100) return withBond ? (true, 0) : (false, 5000);
         if (sc >= 50) return (false, withBond ? 5000 : 2000);
         if (sc >= 25) return (false, withBond ? 1500 : 1000);
         if (sc >= 10) return (false, withBond ? 700 : 500);
@@ -50,15 +51,16 @@ contract TierParityTest is Test {
             uint256 expScore = vm.parseJsonUint(vectors, string.concat(row, ".score"));
             uint256 capBase = vm.parseJsonUint(vectors, string.concat(row, ".cap_base"));
             uint256 capBond = vm.parseJsonUint(vectors, string.concat(row, ".cap_bond"));
-            bool unbounded = vm.parseJsonBool(vectors, string.concat(row, ".unbounded"));
+            bool unboundedBase = vm.parseJsonBool(vectors, string.concat(row, ".unbounded_base"));
+            bool unboundedBond = vm.parseJsonBool(vectors, string.concat(row, ".unbounded_bond"));
 
             uint256 sc = _score(count, volume, penalty, decimals);
             assertEq(sc, expScore, "score");
             (bool ub, uint256 units) = _capUnits(sc, false);
-            assertTrue(ub == unbounded, "base unbounded");
+            assertTrue(ub == unboundedBase, "base unbounded");
             assertEq(ub ? 0 : units * 10 ** decimals, capBase, "base cap");
             (bool ubB, uint256 unitsB) = _capUnits(sc, true);
-            assertTrue(ubB == unbounded, "bond unbounded");
+            assertTrue(ubB == unboundedBond, "bond unbounded");
             assertEq(ubB ? 0 : unitsB * 10 ** decimals, capBond, "bond cap");
         }
     }
@@ -81,10 +83,11 @@ contract TierParityTest is Test {
         assertEq(t4, 2000, "T4 base");
         (, uint256 t4b) = _capUnits(50, true);
         assertEq(t4b, 5000, "T4 bond");
-        (bool ub5,) = _capUnits(100, false);
-        assertTrue(ub5, "T5 unbounded");
+        (bool ub5, uint256 t5) = _capUnits(100, false);
+        assertFalse(ub5, "T5 base is finite");
+        assertEq(t5, 5000, "T5 base tops at T4's bond column");
         (bool ub5b,) = _capUnits(250, true);
-        assertTrue(ub5b, "T5 bond also unbounded");
+        assertTrue(ub5b, "only T5's bond column is unbounded");
     }
 
     function test_satSub_andTruncation() public pure {

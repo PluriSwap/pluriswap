@@ -265,7 +265,9 @@ async function main() {
       score: dec(sc),
       cap_base: dec(tiers.capRaw(sc, false, decimals) ?? 0n),
       cap_bond: dec(tiers.capRaw(sc, true, decimals) ?? 0n),
-      unbounded: sc >= 100n,
+      // Unbounded is now a per-COLUMN fact, not a per-row one: only T5's bond column is.
+      unbounded_base: tiers.capUnits(sc, false) === null,
+      unbounded_bond: tiers.capUnits(sc, true) === null,
       // The §3.15.7 aggregate: off-chain only (no Solidity twin — the band is a disclosure
       // reading of the same counter), pinned JS<->Noir through these rows.
       band: dec(BigInt(tiers.penaltyBand(penalty))),
@@ -683,6 +685,8 @@ type TierVectors = {
   score: string;
   cap_base: string;
   cap_bond: string;
+  unbounded_base: boolean;
+  unbounded_bond: boolean;
   band: string;
   volume_band: string;
   unbounded: boolean;
@@ -985,8 +989,11 @@ function renderNoirVectors(
   nr.push(`pub global TIER_VOLUME_BANDS: [Field; ${ti.length}] = [`);
   nr.push(...ti.map((x) => `    ${x.volume_band},`));
   nr.push("];");
-  nr.push(`pub global TIER_UNBOUNDED: [bool; ${ti.length}] = [`);
-  nr.push(...ti.map((x) => `    ${x.unbounded},`));
+  nr.push(`pub global TIER_UNBOUNDED_BASE: [bool; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.unbounded_base},`));
+  nr.push("];");
+  nr.push(`pub global TIER_UNBOUNDED_BOND: [bool; ${ti.length}] = [`);
+  nr.push(...ti.map((x) => `    ${x.unbounded_bond},`));
   nr.push("];");
   nr.push("");
   // Prepare section (V2): the pinned sample of the prepare circuits. salt and new_salt are

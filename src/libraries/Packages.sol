@@ -44,6 +44,7 @@ library Packages {
     error PackageRequired();
     error PeerMismatch();
     error PackageDrift();
+    error SameSubject();
 
     // --- activation ----------------------------------------------------------------------------------
 
@@ -107,6 +108,12 @@ library Packages {
         if ((pkgs & PASSPORT) != 0) {
             subjectH = IPassport(mods.passport).identify(t.holder);
             subjectP = IPassport(mods.passport).identify(t.provider);
+            // Two wallets, ONE account: the cheapest reputation farm there is, and until now nothing
+            // stopped it. In the private layer `dealSubject = Poseidon(sk_id, dealId)` is deterministic,
+            // so one account on both sides of one deal produces the SAME subject — visible here even
+            // though the account behind it is not. Two DIFFERENT accounts of the same human stay
+            // undetectable by construction; that is what the counterparty set prices instead (§3.14.7).
+            if (subjectH == subjectP) revert SameSubject();
         }
         if ((pkgs & REP) != 0) {
             IReputation r = IReputation(mods.reputation);

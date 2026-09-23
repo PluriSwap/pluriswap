@@ -108,10 +108,13 @@ contract Reputation is IReputation {
         return raw > s.penalty ? raw - s.penalty : 0;
     }
 
+    /// @dev T5's unbounded column is the BOND one (2026-09-23): unlimited exposure requires a live
+    ///      lock, so at §3.14.5's 10% it is always 10% backed. Without bond the ladder tops at 5.000.
     function _capTokens(uint256 sc, bool withBond, uint8 decimals) internal pure returns (uint256) {
-        if (sc >= 100) return type(uint256).max;
+        if (sc >= 100 && withBond) return type(uint256).max;
         uint256 tokens;
-        if (sc >= 50) tokens = withBond ? 5000 : 2000;
+        if (sc >= 100) tokens = 5000;
+        else if (sc >= 50) tokens = withBond ? 5000 : 2000;
         else if (sc >= 25) tokens = withBond ? 1500 : 1000;
         else if (sc >= 10) tokens = withBond ? 700 : 500;
         else tokens = withBond ? 400 : 250;

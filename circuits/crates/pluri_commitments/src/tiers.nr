@@ -80,11 +80,17 @@ pub fn cap_raw(sc: Field, with_bond: bool, decimals: Field) -> Field {
     }
 }
 
-/// 0 means T5 (unbounded — the sentinel takes over in `cap_raw`); otherwise the tier's
-/// cap in whole tokens of the column.
+/// 0 means unbounded (the sentinel takes over in `cap_raw`); otherwise the tier's cap in whole
+/// tokens of the column.
+///
+/// T5's unbounded column is the BOND one (2026-09-23). It used to be both, which put the protocol's
+/// only unlimited exposure exactly where the money is and with no skin behind it: 21 deals bought a
+/// cap of infinity and a bond of nothing. Now the ladder tops out at 5.000 without bond — a step
+/// above T4 and equal to T4's bond column, so climbing still pays — and unlimited requires a live
+/// lock, which at §3.14.5's 10% means any exposure is always 10% backed by its own holder.
 fn cap_units(sc: u128, with_bond: bool) -> Field {
     if sc >= 100 {
-        0
+        if with_bond { 0 } else { 5000 }
     } else if sc >= 50 {
         if with_bond { 5000 } else { 2000 }
     } else if sc >= 25 {
@@ -213,6 +219,16 @@ fn tier_ordinals_match_the_ladder() {
 }
 
 #[test]
+fn only_the_bond_column_is_unbounded() {
+    // The 2026-09-23 change, anchored: T5 without bond tops at 5.000 (T4's bond column — climbing
+    // still pays), and the protocol's only unlimited exposure is the one with a live lock behind it.
+    assert(cap_raw(100, false, 6) == 5000000000, "T5 base is finite");
+    assert(cap_raw(100, true, 6) == T5_SENTINEL, "T5 with bond is unbounded");
+    assert(cap_raw(99, false, 6) == 2000000000, "T4 base unchanged");
+    assert(cap_raw(99, true, 6) == 5000000000, "T4 bond unchanged");
+}
+
+#[test]
 fn tiers_match_vectors() {
     for i in 0..vectors::TIER_COUNT {
         let sc = score(
@@ -224,8 +240,10 @@ fn tiers_match_vectors() {
         assert(sc == vectors::TIER_SCORES[i], "score mismatch");
         // The vectors carry T5 as (cap 0, unbounded true); the circuit encodes it as the
         // sentinel. The mapping is asserted, not assumed.
-        let base_expected = if vectors::TIER_UNBOUNDED[i] { T5_SENTINEL } else { vectors::TIER_CAPS_BASE[i] };
-        let bond_expected = if vectors::TIER_UNBOUNDED[i] { T5_SENTINEL } else { vectors::TIER_CAPS_BOND[i] };
+        let base_expected =
+            if vectors::TIER_UNBOUNDED_BASE[i] { T5_SENTINEL } else { vectors::TIER_CAPS_BASE[i] };
+        let bond_expected =
+            if vectors::TIER_UNBOUNDED_BOND[i] { T5_SENTINEL } else { vectors::TIER_CAPS_BOND[i] };
         assert(cap_raw(sc, false, vectors::TIER_DECIMALS[i]) == base_expected, "base cap mismatch");
         assert(cap_raw(sc, true, vectors::TIER_DECIMALS[i]) == bond_expected, "bond cap mismatch");
     }

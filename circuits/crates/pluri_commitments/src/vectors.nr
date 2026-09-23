@@ -202,9 +202,9 @@ pub global TIER_CAPS_BASE: [Field; 13] = [
     500000000,
     1000000000,
     2000000000000000000000,
-    0,
+    5000000000,
     250000000,
-    0,
+    5000000000,
     1000000000,
     1000000000,
     1000000000,
@@ -256,7 +256,22 @@ pub global TIER_VOLUME_BANDS: [Field; 13] = [
     0,
     0,
 ];
-pub global TIER_UNBOUNDED: [bool; 13] = [
+pub global TIER_UNBOUNDED_BASE: [bool; 13] = [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+];
+pub global TIER_UNBOUNDED_BOND: [bool; 13] = [
     false,
     false,
     false,

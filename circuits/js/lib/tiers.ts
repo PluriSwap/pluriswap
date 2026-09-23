@@ -16,11 +16,14 @@ export function score(count: bigint, volume: bigint, penalty: bigint, decimals: 
   return raw > penalty ? raw - penalty : 0n;
 }
 
-/** The cap in whole tokens of the tier a score buys, or null when unbounded (T5).
+/** The cap in whole tokens of the tier a score buys, or null when unbounded.
  *  Mirrors `Reputation._capTokens`'s table — thresholds 0/10/25/50/100, base column
- *  250/500/1000/2000, bond column 400/700/1500/5000. */
+ *  250/500/1000/2000/5000, bond column 400/700/1500/5000/unbounded.
+ *
+ *  Only T5's BOND column is unbounded (2026-09-23): the protocol's one unlimited exposure now
+ *  requires a live lock, so it is always 10% backed. Without bond the ladder tops out at 5.000. */
 export function capUnits(sc: bigint, withBond: boolean): bigint | null {
-  if (sc >= 100n) return null;
+  if (sc >= 100n) return withBond ? null : 5000n;
   if (sc >= 50n) return withBond ? 5000n : 2000n;
   if (sc >= 25n) return withBond ? 1500n : 1000n;
   if (sc >= 10n) return withBond ? 700n : 500n;

@@ -118,6 +118,26 @@ contract PackagesTest is BaseTest {
         escrow.activate(ha, hs, pa, ps, ca, "", mods);
     }
 
+    /// Two wallets, ONE private account: the cheapest reputation farm there is, and until 2026-09-23
+    /// nothing stopped it. The address-level self-deal is already impossible (`Terms.hashTerms` will
+    /// not even hash it), but `dealSubject = Poseidon(sk_id, dealId)` is deterministic, so one account
+    /// preparing under two wallets produces the SAME subject on both sides — which is visible here
+    /// even though the account behind it is not. Two DIFFERENT accounts of the same human stay
+    /// undetectable by construction: that is what the counterparty set prices instead.
+    function test_oneAccountOnBothSides_isRejected() public {
+        passport.setHuman(provider, SUB_H); // the holder's subject, under the provider's wallet
+        _fundBonds();
+        DealTerms memory terms = _trioTerms();
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca;
+        bytes memory hs = _signHolder(ha);
+        bytes memory ps = _signProvider(pa);
+        vm.expectRevert(Packages.SameSubject.selector);
+        escrow.activate(ha, hs, pa, ps, ca, "", _trioMods());
+        assertFalse(escrow.used(holder, 1));
+    }
+
     function test_noPassport_noAdmit() public {
         passport.setHuman(holder, bytes32(0));
         _fundBonds();

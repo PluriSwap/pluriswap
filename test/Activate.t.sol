@@ -57,6 +57,20 @@ contract ActivateTest is BaseTest {
         assertTrue(found);
     }
 
+    /// A deal with yourself moves no value: it exists only to feed a reputation meant to measure
+    /// counterparties. The kernel closes it at the strongest possible place — the TERMS cannot hash,
+    /// so they cannot be signed and no such deal can be built at all. Pinned here because the
+    /// 2026-09-23 anti-farming work builds on it: with the address case structurally impossible, the
+    /// only self-deal left was the SUBJECT one (two wallets, one private account), which `Packages`
+    /// now rejects with `SameSubject`. Two different accounts of the same human stay undetectable by
+    /// construction, and that is what the counterparty set prices instead.
+    function test_terms_cannotEvenHashASelfDeal() public {
+        DealTerms memory t = _p2pTerms();
+        t.provider = holder;
+        vm.expectRevert(Terms.HolderEqualsProvider.selector);
+        Terms.hashTerms(t);
+    }
+
     function test_activate_revertsIfHolderSigBad() public {
         HolderAuthorization memory ha = _holderAuth(_p2pTerms(), 1);
         ProviderAgreement memory pa = _providerAuth(_p2pTerms(), 1);

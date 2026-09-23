@@ -75,7 +75,10 @@ contract ReputationCurveTest is Test {
             _closeAtCap(IReputation.Close.Peaceful);
         }
         assertEq(_score(), 104, "twenty-one deals");
-        assertEq(_cap(), type(uint256).max, "T5: no limit");
+        // T5's base column tops at 5.000 (2026-09-23): unlimited exposure is the BOND column, so the
+        // protocol's one uncapped position always has a live lock — 10% of itself — behind it.
+        assertEq(_cap(), 5000e6, "T5 without bond");
+        assertEq(rep.cap(SUBJECT, address(token), true), type(uint256).max, "T5 with bond: no limit");
     }
 
     /// A deal at the cap is worth two points and not one: the cap IS the unit.
