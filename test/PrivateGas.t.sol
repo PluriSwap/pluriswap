@@ -89,6 +89,90 @@ contract PrivateGasTest is Test {
         assertGt(first, second);
     }
 
+    /// The batch has to produce EXACTLY the tree the sequential inserts would, or it is not an
+    /// optimisation but a fork. Two trees, the same leaves, one batched and one not: same root, same
+    /// index — and then more inserts on both afterwards, because equal roots with different
+    /// `filledSubtrees` would diverge on the NEXT insert and nowhere else.
+    function test_batch_isTheSameTree(uint8 batchSize, uint8 offset) public {
+        uint256 k = uint256(batchSize) % 8 + 1;
+        uint256 pre = uint256(offset) % 5;
+        PoseidonTree a = new PoseidonTree(32, ROOT_HISTORY, address(this));
+        PoseidonTree b = new PoseidonTree(32, ROOT_HISTORY, address(this));
+
+        // A batch is rarely aligned to an even index in real life: seed both trees with `pre` leaves.
+        for (uint256 i = 0; i < pre; i++) {
+            a.insert(keccak256(abi.encode("pre", i)));
+            b.insert(keccak256(abi.encode("pre", i)));
+        }
+
+        bytes32[] memory leaves = new bytes32[](k);
+        for (uint256 i = 0; i < k; i++) {
+            leaves[i] = keccak256(abi.encode("batch", i));
+        }
+        for (uint256 i = 0; i < k; i++) {
+            a.insert(leaves[i]);
+        }
+        (uint256 firstIndex, bytes32 batched) = b.insertMany(leaves);
+
+        assertEq(firstIndex, pre, "the batch starts where the tree was");
+        assertEq(a.root(), batched, "same root");
+        assertEq(a.nextIndex(), b.nextIndex(), "same count");
+
+        // The tail: divergent filledSubtrees show up on the next insert, not on this root.
+        for (uint256 i = 0; i < 3; i++) {
+            a.insert(keccak256(abi.encode("after", i)));
+            b.insert(keccak256(abi.encode("after", i)));
+            assertEq(a.root(), b.root(), "the trees keep agreeing");
+        }
+    }
+
+    /// And what it saves, at the shape a private activation actually has: two account leaves in one
+    /// transaction (one per side), and two note changes in the notes tree.
+    function test_batch_savings() public {
+        PoseidonTree seq = new PoseidonTree(32, ROOT_HISTORY, address(this));
+        PoseidonTree bat = new PoseidonTree(32, ROOT_HISTORY, address(this));
+        seq.insert(keccak256("warm"));
+        bat.insert(keccak256("warm"));
+
+        uint256 before = gasleft();
+        seq.insert(keccak256("a"));
+        seq.insert(keccak256("b"));
+        uint256 sequential = before - gasleft();
+
+        bytes32[] memory two = new bytes32[](2);
+        two[0] = keccak256("a");
+        two[1] = keccak256("b");
+        before = gasleft();
+        bat.insertMany(two);
+        uint256 batched = before - gasleft();
+
+        emit log_named_uint("two inserts, sequential", sequential);
+        emit log_named_uint("two inserts, batched", batched);
+        emit log_named_uint("saved", sequential - batched);
+        assertLt(batched, sequential, "the batch has to be cheaper or it is only complexity");
+
+        // Four, the shape of a two-sided bonded activation across both trees.
+        PoseidonTree s4 = new PoseidonTree(32, ROOT_HISTORY, address(this));
+        PoseidonTree b4 = new PoseidonTree(32, ROOT_HISTORY, address(this));
+        s4.insert(keccak256("warm"));
+        b4.insert(keccak256("warm"));
+        bytes32[] memory four = new bytes32[](4);
+        for (uint256 i = 0; i < 4; i++) {
+            four[i] = keccak256(abi.encode("x", i));
+        }
+        before = gasleft();
+        for (uint256 i = 0; i < 4; i++) {
+            s4.insert(four[i]);
+        }
+        uint256 seq4 = before - gasleft();
+        before = gasleft();
+        b4.insertMany(four);
+        uint256 bat4 = before - gasleft();
+        emit log_named_uint("four inserts, sequential", seq4);
+        emit log_named_uint("four inserts, batched", bat4);
+        emit log_named_uint("saved", seq4 - bat4);
+    }
+
     /// The nullifier burn, for completeness: every prepare and every claim spends one, and it is the
     /// one piece of the private path that is a plain storage write.
     function test_lever_nullifier() public {

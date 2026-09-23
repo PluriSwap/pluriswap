@@ -68,6 +68,7 @@ contract PoseidonTree {
     error ZeroLeaf();
     error NotOwner();
     error NullifierUsed();
+    error EmptyBatch();
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert NotOwner();
@@ -91,6 +92,82 @@ contract PoseidonTree {
         }
         currentRoot = zeros[depth_];
         _remember(bytes32(currentRoot));
+    }
+
+    /// @notice Appends several leaves at once and returns the first index and the resulting root.
+    ///         Produces exactly the tree `insert` called in sequence would, for a fraction of the
+    ///         hashing: the leaves land at adjacent indices, so everything above the bottom of their
+    ///         common subtree is hashed once instead of once per leaf.
+    ///
+    /// @dev Why it is worth the extra code: a private activation inserts several leaves into the same
+    ///      tree in one transaction (an account leaf per side, a change note per side), and each
+    ///      `insert` walked its whole path alone. Measured at depth 32, four separate inserts are 128
+    ///      hashes; the same four leaves batched are 37.
+    ///
+    ///      The algorithm is the sequential one, read level by level instead of leaf by leaf. At each
+    ///      level the batch occupies a contiguous run of node indices `[lo, hi]`. A parent's children
+    ///      come from that run when they are inside it; the left neighbour of `lo` (when `lo` is odd)
+    ///      is the subtree already in the tree, which is exactly what `filledSubtrees[level]` held
+    ///      BEFORE this batch — hence the read before the write — and anything past `hi` is empty, so
+    ///      `zeros[level]`. `filledSubtrees[level]` ends up holding the node at the largest EVEN index
+    ///      of the run, which is what the last sequential insert to pass through an even cursor would
+    ///      have left there.
+    ///
+    ///      Only the FINAL root is remembered. The intermediate roots a sequential run would have
+    ///      published never existed, so no proof can reference one; the window simply holds fewer,
+    ///      further-apart roots, which makes it last longer.
+    function insertMany(bytes32[] calldata leaves)
+        external
+        onlyOwner
+        returns (uint256 firstIndex, bytes32 newRoot)
+    {
+        uint256 k = leaves.length;
+        if (k == 0) revert EmptyBatch();
+        firstIndex = nextIndex;
+        if (firstIndex + k > uint256(1) << depth) revert TreeFull();
+
+        uint256[] memory cur = new uint256[](k);
+        for (uint256 i = 0; i < k; i++) {
+            if (leaves[i] == bytes32(0)) revert ZeroLeaf();
+            cur[i] = uint256(leaves[i]);
+        }
+
+        uint256 lo = firstIndex;
+        uint256 hi = firstIndex + k - 1;
+        for (uint8 level = 0; level < depth; level++) {
+            uint256 neighbour = filledSubtrees[level]; // read BEFORE the write: the tree as it was
+            if (hi % 2 == 0) {
+                filledSubtrees[level] = cur[hi - lo];
+            } else if (hi - 1 >= lo) {
+                filledSubtrees[level] = cur[hi - 1 - lo];
+            }
+
+            uint256 plo = lo >> 1;
+            uint256 phi = hi >> 1;
+            uint256[] memory parents = new uint256[](phi - plo + 1);
+            for (uint256 p = 0; p < parents.length; p++) {
+                uint256 j = (plo + p) << 1; // the left child's index at this level
+                uint256 left = j >= lo ? cur[j - lo] : neighbour;
+                uint256 right = j + 1 <= hi ? cur[j + 1 - lo] : zeros[level];
+                parents[p] = _hashPair(left, right);
+            }
+            cur = parents;
+            lo = plo;
+            hi = phi;
+        }
+
+        nextIndex = firstIndex + k;
+        currentRoot = cur[0];
+        newRoot = bytes32(currentRoot);
+        _remember(newRoot);
+
+        // One event per leaf, as a single insert emits: the indexer rebuilds from (index, leaf). The
+        // root each one carries is the batch's — a root that contains that leaf, which is the only
+        // thing the field ever promised.
+        for (uint256 i = 0; i < k; i++) {
+            emit LeafInserted(firstIndex + i, leaves[i], currentRoot);
+        }
+        return (firstIndex, newRoot);
     }
 
     /// @notice Appends `leaf` and returns its index and the new root. Cost: `depth` Poseidon hashes.
