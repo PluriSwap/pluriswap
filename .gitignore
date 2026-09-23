@@ -3,7 +3,9 @@ out/
 broadcast/
 .env
 .DS_Store
-deployments/31337.json
+# Anvil is a throwaway chain and `script/e2e.sh` rewrites this whole family on every run.
+# The Sepolia records are the ones worth keeping.
+deployments/31337*.json
 lab/node_modules/
 lab/dist/
 node_modules/

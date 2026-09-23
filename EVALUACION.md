@@ -330,6 +330,29 @@ jurisdicción, antes del mainnet.
 
 ---
 
+## Verificación end-to-end (2026-09-22)
+
+Antes de tocar ZK: el stack entero corre sobre una chain fría. `script/e2e.sh` despliega core →
+paquetes → pool → capa privada, camina CASE-CORE-03..15 y verifica los eventos que aterrizaron —
+doce terminales, principal conservado en todos, el abandono pagando el pot entero al Provider.
+
+La corrida encontró **dos scripts rotos desde antes de esta revisión**, y ninguno de los dos aparecía
+en un unit test porque son fallas de cableado, no de contrato:
+
+- `Paths.s.sol` afirmaba `claim → RELEASED`. Roto desde el 2026-09-12, cuando `CLAIMED` pasó a ser
+  terminal propio. Nadie corrió el catálogo Core on-chain en tres meses.
+- `PoolDeal.s.sol` pasaba al Sponsor también como controller designado. Roto desde que el vault con
+  shares reemplazó a owned v1: un Sponsor ya es agente y `initialize` lo rechaza.
+
+La causa raíz es la misma en los dos: **CI corría `forge test`, que no toca los scripts.** Ahora
+corre `script/e2e.sh` en cada push, y un desarrollador corre exactamente lo mismo.
+
+Wart menor encontrado de paso: `forge script` sin `--broadcast` igual ejecuta `vm.writeJson`, así que
+una simulación pisa `deployments/`. Los `31337*` pasaron a gitignore (anvil es descartable); los de
+Sepolia siguen versionados.
+
+---
+
 ## Orden de ataque propuesto
 
 1. LHF-1 (CI verde), LHF-4 (constante), LHF-2 (capa privada en Sepolia), LHF-6 (arrancar el trámite).

@@ -27,6 +27,10 @@ contract DeployPackages is PassportPicker {
     ///      kernel bump (`contestFloor` is a stateless getter that lives inside the packageId).
     uint256 internal constant CONTEST_FLOOR = 2_000_000;
     uint256 internal constant ZK_FEE = 10_000;
+    /// @dev The ARBITRATION package prices its own contest (PLURISWAP.md §3.14.6). Deliberately
+    ///      different from CONTEST_FLOOR so an operator watching the lab can tell the two invoices
+    ///      apart when a deal carries both packages.
+    uint256 internal constant COURT_CONTEST = 500_000;
     uint256 internal constant COURT_FEE = 1_000_000;
     address internal constant FEE_RECIPIENT = address(0xFEE);
     address internal constant SINK = address(0xdeaD);
@@ -49,7 +53,7 @@ contract DeployPackages is PassportPicker {
         ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE, predicted);
         BondVault vault = new BondVault(predicted, SINK, passport);
         ArbitrationMock arb =
-            new ArbitrationMock(TRIBUNAL, address(token), COURT_FEE, 1 days, predicted, CONTEST_FLOOR, FEE_RECIPIENT);
+            new ArbitrationMock(TRIBUNAL, address(token), COURT_FEE, 1 days, predicted, COURT_CONTEST, FEE_RECIPIENT);
         Escrow escrow = new Escrow();
         vm.stopBroadcast();
 

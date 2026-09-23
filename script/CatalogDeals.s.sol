@@ -24,6 +24,9 @@ contract CatalogDeals is Script {
     uint256 internal constant PRINCIPAL = 1_000_000;
     uint256 internal constant ZK_FEE = 10_000;
     uint256 internal constant COURT_FEE = 1_000_000;
+    /// @dev Mirrors `DeployPackages`: the two contest-open invoices a fight costs in this stack.
+    uint256 internal constant CONTEST_FLOOR = 2_000_000;
+    uint256 internal constant COURT_CONTEST = 500_000;
     uint256 internal constant ARBITRUM_SEPOLIA = 421614;
 
     function run() external {
@@ -51,7 +54,9 @@ contract CatalogDeals is Script {
         uint256 feesBefore = token.balanceOf(feeRecipient);
 
         vm.startBroadcast(holderPk);
-        token.mint(holder, PRINCIPAL * 2 + COURT_FEE);
+        // Two deals, the court fee, and the contest-open invoices of BOTH packages: the reputation
+        // floor and the court's own (PLURISWAP.md §3.14.6). Opening a fight costs each of them.
+        token.mint(holder, PRINCIPAL * 2 + COURT_FEE + (CONTEST_FLOOR + COURT_CONTEST) * 2);
         token.approve(address(escrow), type(uint256).max);
         token.approve(address(arb), type(uint256).max);
         vm.stopBroadcast();

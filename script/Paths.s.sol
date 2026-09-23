@@ -62,20 +62,24 @@ contract Paths is Script {
         bytes32 mutualDisputed = _pathMutualDisputed();
         bytes32 cosignedDisputed = _pathCosignedDisputed();
         bytes32 splitDisputed = _pathSplitDisputed();
-        bytes32 stalemate = _pathStalemate();
+        bytes32 abandoned = _pathAbandoned();
 
         require(escrow.status(cancelProvider) == Status.CANCELLED, "03");
         require(escrow.status(timeoutFiat) == Status.CANCELLED, "04");
         require(escrow.status(mutualFunded) == Status.CANCELLED, "05");
         require(escrow.status(controllerRelease) == Status.RELEASED, "06");
-        require(escrow.status(claim) == Status.RELEASED, "07");
+        // CLAIMED is its own terminal since 2026-09-12: same economics as RELEASED, different origin
+        // and a different reputation reading. This script had not been run since.
+        require(escrow.status(claim) == Status.CLAIMED, "07");
         require(escrow.status(mutualFiat) == Status.CANCELLED, "08");
         require(escrow.status(splitFiat) == Status.RESOLVED_SPLIT, "09");
         require(escrow.status(cosignedFiat) == Status.RELEASED, "10");
         require(escrow.status(mutualDisputed) == Status.CANCELLED, "12");
         require(escrow.status(cosignedDisputed) == Status.RELEASED, "13");
         require(escrow.status(splitDisputed) == Status.RESOLVED_SPLIT, "14");
-        require(escrow.status(stalemate) == Status.STALEMATE, "15");
+        // CASE-CORE-15 is no longer a stalemate: the Controller opened a fight and let it expire,
+        // so the Provider takes the principal in full (§3.11 OUT-14).
+        require(escrow.status(abandoned) == Status.ABANDONED, "15");
 
         console.log("03 cancelByProvider", vm.toString(cancelProvider));
         console.log("04 timeoutFiat    ", vm.toString(timeoutFiat));
@@ -88,7 +92,7 @@ contract Paths is Script {
         console.log("12 mutual DISPUTED", vm.toString(mutualDisputed));
         console.log("13 cosigned DISP  ", vm.toString(cosignedDisputed));
         console.log("14 split DISPUTED ", vm.toString(splitDisputed));
-        console.log("15 stalemate      ", vm.toString(stalemate));
+        console.log("15 abandoned      ", vm.toString(abandoned));
     }
 
     function _pathCancelProvider() internal returns (bytes32 id) {
@@ -165,7 +169,7 @@ contract Paths is Script {
         _broadcastSplit(id, 4000);
     }
 
-    function _pathStalemate() internal returns (bytes32 id) {
+    function _pathAbandoned() internal returns (bytes32 id) {
         id = _activate(_terms(3600, 100, 0));
         _broadcastMarkFiat(id);
         _broadcastOpenDisputed(id);

@@ -295,7 +295,7 @@ Peer binding (pre-activate y en snapshot):
 
 Mismatch → `PeerMismatch`. Visible en el panel de slots **antes** de enviar.
 
-Drift post-activación (`_named` en `verifyProof` / `openCourt` / completion / bonds): el id recomputeado con getters *vivos* debe seguir en `terms.packageIds`. Si no: `PackageDrift` en aristas; fee 0 en completion; fail-open en bonds. KERNEL-04: las salidas Core siguen. La consola re-ejecuta el recompute en cada render del deal vivo y muestra un badge `DRIFT` por slot, sin bloquear `timeoutFiat` / dual-sign / `forceStalemate`.
+Drift post-activación (`_named` en `verifyProof` / `openCourt` / completion / bonds): el id recomputeado con getters *vivos* debe seguir en `terms.packageIds`. Si no: `PackageDrift` en aristas; fee 0 en completion; fail-open en bonds. KERNEL-04: las salidas Core siguen. La consola re-ejecuta el recompute en cada render del deal vivo y muestra un badge `DRIFT` por slot, sin bloquear `timeoutFiat` / dual-sign / `forceDisputeTimeout`.
 
 #### 1.7 Pool
 
@@ -351,7 +351,7 @@ Derivados (UI, misma aritmética que `Clocks.sol`):
 | --- | --- | --- |
 | `fiatDeadline` | `activatedAt + fiatDuration` | `timeoutFiat`: `requireDue` → `timestamp >= deadline`. `TooEarly` si no. |
 | `releaseDeadline` | `fiatSentAt + releaseDuration` | `claim`: due. `openDisputed` / `openCourt` desde FIAT_SENT: `requireStrictlyBefore` → `timestamp < deadline`. `TooLate` si no. |
-| `disputeDeadline` | `disputedAt + disputeDuration` | `forceStalemate`: due. `openCourt` desde DISPUTED: strictly-before. |
+| `disputeDeadline` | `disputedAt + disputeDuration` | `forceDisputeTimeout`: due. `openCourt` desde DISPUTED: strictly-before. |
 | `arbitrationDeadline` | `arbitrationOpenedAt + arbitrationDuration` | `forceArbitrationTimeout`: due. |
 
 Origen `0` = el reloj no arrancó. No se muestra un deadline fantasma.
@@ -360,7 +360,7 @@ Origen `0` = el reloj no arrancó. No se muestra un deadline fantasma.
 
 | Predicado | `duration = 0` | `duration > 0` |
 | --- | --- | --- |
-| `requireDue` (`timeoutFiat`, `claim`, `forceStalemate`, `forceArbitrationTimeout`) | Enabled **en el mismo bloque** en que se escribe el origen (`timestamp >= origin + 0`) | Enabled cuando `now >= origin + duration` |
+| `requireDue` (`timeoutFiat`, `claim`, `forceDisputeTimeout`, `forceArbitrationTimeout`) | Enabled **en el mismo bloque** en que se escribe el origen (`timestamp >= origin + 0`) | Enabled cuando `now >= origin + duration` |
 | `requireStrictlyBefore` (`openDisputed`, `openCourt` desde FIAT_SENT o DISPUTED) | **Ya cerrado.** Tras `markFiat`, `fiatSentAt = block.timestamp`, luego `timestamp < fiatSentAt + 0` es imposible en ese bloque y en todos los posteriores. Matriz: `TooLate` de inmediato. Igual para `openCourt` desde DISPUTED si `disputeDuration = 0`. | Enabled mientras `now < origin + duration` |
 
 Copy en Consentimiento: *«0 = due inmediato **y** strictly-before ya `TooLate`»*. No defaultar plantillas de lab a `0` en un reloj que el Path todavía necesita para una arista strictly-before. `script/Paths.s.sol` ya lo hace: timeout/claim usan `0` en **ese** reloj; `openDisputed` usa `releaseDuration = 100`; stalemate usa `disputeDuration = 0` **después** de una ventana de release no nula (`_terms(3600, 100, 0)`).
@@ -389,7 +389,8 @@ Líneas derivadas del panel (no son storage; se etiquetan *proyectado* antes del
 | `verifyProof` | `verifyFee` luego completion sobre el leftover | resto al Provider |
 | arb holder/provider win | completion sobre principal | 100% del leftover al ganador |
 | `cancelByProvider`, `timeoutFiat`, `mutualCancel` | no hay completion | 100% Holder = `principal` |
-| `forceStalemate` / arb refused / arb timeout | no hay completion | `principal/2` Holder, resto Provider |
+| `forceDisputeTimeout` | **sí** hay completion (un trade cerró) | `ABANDONED`: todo al Provider |
+| arb refused / arb timeout | no hay completion | `STALEMATE`: `principal/2` Holder, resto Provider |
 
 PATH-TRIO se juzga así: activation fee sale en `activate` (pull extra); completion fee sale en `release` (no en un `claim`); score `Peaceful` en ambos sujetos; bonds `unlock`. Un `claim` sobre el mismo trío **no** cobraria completion y `Close` sería `Silent`.
 
@@ -701,7 +702,7 @@ Probes de preflight (lecturas, no txs): `holder != provider`, `principal > 0`, c
 | `release` | `WrongStatus` ≠ FIAT_SENT; `Unauthorized` ≠ controller | FIAT_SENT ∧ sender=Controller. (ZK no llega a FIAT_SENT.) Completion se cobra aquí, no en `claim`. |
 | `claim` | `WrongStatus` ≠ FIAT_SENT; `EdgeOff` si ZK; `Clocks.TooEarly` | FIAT_SENT ∧ ¬ZK ∧ due. Anyone. **Sin** `_takeCompletion`. |
 | `openDisputed` | `WrongStatus` ≠ FIAT_SENT; `EdgeOff` si ZK; `Unauthorized` ≠ controller; `Clocks.TooLate` si `now >= fiatSentAt+releaseDuration`; `InexactPull` si reputación cobra contest y el opener no tiene allowance | FIAT_SENT ∧ ¬ZK ∧ sender=Controller ∧ strictly-before ∧ (Core-only o allowance ≥ contestDue). Si `releaseDuration=0` ⇒ `TooLate` inmediato. |
-| `forceStalemate` | `WrongStatus` ≠ DISPUTED; `Clocks.TooEarly` | DISPUTED ∧ due. Anyone. |
+| `forceDisputeTimeout` | `WrongStatus` ≠ DISPUTED; `Clocks.TooEarly` | DISPUTED ∧ due. Anyone. |
 | `mutualCancel` | `DealIdMismatch`; `DeadlineMismatch`; `DeadlinePassed`; `WrongStatus` si no `FUNDED\|FIAT_SENT\|DISPUTED\|ARBITRATION_ACTIVE`; `Invalid*Signature`; `NonceUsed` | DualSignDraft coincidente + deal vivo + firmas P+C + nonces libres. Relayer anyone. |
 | `coSignedRelease` | envelope checks; `WrongStatus` si no `FIAT_SENT\|DISPUTED\|ARBITRATION_ACTIVE` | idem, `_assertDualSignFromActive` |
 | `mutualSplit` | + `BpsMismatch` si bps distintos o `> 10000` | idem + `providerBps` igual. Preview = `bps * leftoverAfterCompletion / 10000`. |
@@ -857,7 +858,7 @@ Plantillas que `script/*.s.sol` recorren en lote. Un paso = una tx (dual-sign = 
 | `CASE-CORE-12` | core | `(3600, 100, 7200)` | no* | composer mutualCancel DISPUTED | `CANCELLED` |
 | `CASE-CORE-13` | core | `(3600, 100, 7200)` | no* | composer coSigned DISPUTED | `RELEASED` |
 | `CASE-CORE-14` | core | `(3600, 100, 7200)` | no* | composer split bps=4000 | `RESOLVED_SPLIT` |
-| `CASE-CORE-15` | core | **`(3600, 100, 0)`** | no* | openDisputed luego forceStalemate due | `STALEMATE` 50/50 |
+| `CASE-CORE-15` | core | **`(3600, 100, 0)`** | no* | openDisputed luego forceDisputeTimeout due | `ABANDONED`: principal entero al Provider |
 | `CASE-CORE-16` | core | `(3600, 100, 7200)` | — | release/claim en DISPUTED | matriz `WrongStatus` |
 | `CASE-CORE-17` | core | cualquier terminal | — | verbo de estado | `WrongStatus` |
 | `PATH-TRIO` | packages + **su** `testToken` | `(3600, 1800, 7200, 0)` — `TrioDeal.s.sol` | no | LAB `setHuman` ×2, `vault.deposit`, slots P+R+B, activate P2P (dummy CA), preflight `NoPassport`/`InsufficientAvailable`/`CapExceeded`, markFiat, **release** (no claim) | activationFee cobrado; completionFee en release; score Peaceful; bonds unlock |
@@ -884,7 +885,7 @@ La consola no es “connect wallet and you are the user”. Es un banco de cuatr
 | Holder | `HolderAuthorization`, `approve`, `withdraw` si es destino, LAB `setHuman` de su wallet, bond `deposit`/`withdraw` |
 | Provider | `ProviderAgreement`, `markFiat`, `cancelByProvider`, envelopes dual-sign, `withdraw` |
 | Controller | `ControllerAcceptance` si distinto, `release`, `openDisputed`, `openCourt`, envelopes dual-sign |
-| Relayer | `activate`, dual-sign txs, timeouts permissionless, `claim`, `verifyProof`, `readRuling`, `forceStalemate`, `forceArbitrationTimeout` |
+| Relayer | `activate`, dual-sign txs, timeouts permissionless, `claim`, `verifyProof`, `readRuling`, `forceDisputeTimeout`, `forceArbitrationTimeout` |
 
 Cualquier asiento puede ejecutar un verbo `anyone`. El default del asiento Relayer es “la wallet que tiene gas”. El operador **cambia de asiento** conscientemente; la matriz se recalcula contra `msg.sender` de ese asiento. Si Holder=Controller, los asientos 1 y 3 apuntan a la misma address (un solo connector, dos etiquetas).
 
@@ -1025,7 +1026,7 @@ Flujo típico: connect → “crear orden” → “pagué” → “liberar”.
 - **A favor:** onboarding; menos carga cognitiva para un Holder de a pie.
 - **En contra (fatal para un lab):**
   1. Una wallet no puede ser Provider a las 10:00 y Relayer de dual-sign a las 10:05 sin un modelo de asientos. El wizard esconde el tercer rol.
-  2. El wizard *sugiere* un siguiente paso y oculta `openDisputed` / `forceStalemate` / `cancelNonce`. Eso es lo contrario de probar la máquina.
+  2. El wizard *sugiere* un siguiente paso y oculta `openDisputed` / `forceDisputeTimeout` / `cancelNonce`. Eso es lo contrario de probar la máquina.
   3. Empujar “paquetes oficiales” convierte el AddressBook en gate (PERM-05 / PERM-08).
   4. Etiquetar `setHuman` como “verificá tu identidad” falsifica Sepolia.
   5. Core-only desaparece detrás de un default empaquetado.
@@ -1250,7 +1251,7 @@ Fuente de verdad del corte (Decision 17). Ubicación: `lab/` en este repo (Vite 
 ### PR-5 — Escrituras de asiento Core
 
 - **Título:** `lab: role-seat core verbs markFiat through cancelNonce`
-- **Archivos:** `lab/src/verbs/{markFiat,cancelByProvider,timeoutFiat,release,claim,openDisputed,forceStalemate,withdraw,cancelNonce}.*`.
+- **Archivos:** `lab/src/verbs/{markFiat,cancelByProvider,timeoutFiat,release,claim,openDisputed,forceDisputeTimeout,withdraw,cancelNonce}.*`.
 - **Dependencias:** PR-4.
 - **Flag:** `coreWrites`.
 - **Cambio:** verbos de §4.1 Core excepto dual-sign y `activate`. `withdraw` = `no-op` si crédito 0. `cancelNonce` idempotente. Paths CASE-CORE-02, 03, 04 `(0,1800,7200)`, 06, 07 `(3600,0,7200)`, 11 `(3600,100,7200)`, 15 `(3600,100,0)`.

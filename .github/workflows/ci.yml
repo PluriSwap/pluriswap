@@ -137,6 +137,24 @@ jobs:
         with:
           fail-on: high
 
+  e2e:
+    # `forge test` exercises the contracts; until this job existed, nothing exercised the SCRIPTS --
+    # and two of them had been broken for months. `Paths` still asserted a timeout claim lands in
+    # RELEASED (CLAIMED became its own terminal on 2026-09-12) and `PoolDeal` still listed a Sponsor
+    # as a designated controller (the share vault rejects that). Neither shows up in a unit test.
+    name: deploy + catalog on a cold chain
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+      - name: deploy the whole stack and walk the Core catalog
+        run: script/e2e.sh
+
   lab:
     name: lab console (vitest + build)
     runs-on: ubuntu-latest

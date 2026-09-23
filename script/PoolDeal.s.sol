@@ -51,8 +51,9 @@ contract PoolDeal is Script {
 
         address[] memory sponsors = new address[](1);
         sponsors[0] = owner;
-        address[] memory cs = new address[](1);
-        cs[0] = controller;
+        // A Sponsor is already an agent (§3.16.1), and `initialize` rejects one that is ALSO listed
+        // as designated. This demo's controller is the sponsor, so the designated roster is empty.
+        address[] memory cs = new address[](0);
         address[] memory depositors = new address[](1);
         depositors[0] = owner;
 
