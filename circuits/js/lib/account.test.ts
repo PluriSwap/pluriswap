@@ -6,7 +6,7 @@
 import { describe, expect, test } from "bun:test";
 import { createPublicClient, http, type Address } from "viem";
 import { readFileSync } from "node:fs";
-import { GENESIS, leafFor, locate, scanDeals } from "./account.ts";
+import { GENESIS, leafFor, locate, registrationBlock, scanDeals } from "./account.ts";
 import { readTree } from "./indexer.ts";
 import { foldPath } from "./tree.ts";
 
@@ -52,9 +52,25 @@ describe("locate, against a chain", () => {
     expect(await locate(snapshot, SK_ID + 1n, GENESIS, 0n)).toBeNull();
   });
 
+  // The answer to "where do I start looking": the account's own leaf, not a token held by a wallet.
+  // A wallet-held marker would publish wallet-to-account, the one link §3.15 exists to break.
+  test.skipIf(!live)("the secret finds the block its own registration landed in", async () => {
+    const client = createPublicClient({ transport: http(RPC) });
+    const snapshot = await readTree(client, TREE!);
+    const block = await registrationBlock(snapshot, SK_ID);
+    expect(block).not.toBeNull();
+    expect(block!).toBeGreaterThan(0n);
+    expect(block!).toBeLessThanOrEqual(snapshot.blockNumber);
+    // A secret with no account on this chain gets null, not a misleading block.
+    expect(await registrationBlock(snapshot, SK_ID + 1n)).toBeNull();
+  });
+
   test.skipIf(!(live && ESCROW))("a secret with no deals finds none, and does not throw", async () => {
     const client = createPublicClient({ transport: http(RPC) });
     // The sample account has registered but never activated a private deal.
-    expect(await scanDeals(client, ESCROW!, SK_ID)).toEqual([]);
+    const snapshot = await readTree(client, TREE!);
+    const from = (await registrationBlock(snapshot, SK_ID)) ?? 0n;
+    // Bounded by the registration rather than by genesis: the scan a real client would run.
+    expect(await scanDeals(client, ESCROW!, SK_ID, { fromBlock: from })).toEqual([]);
   });
 });

@@ -80,6 +80,25 @@ export async function locate(
   };
 }
 
+/**
+ * The block an account's genesis leaf was inserted at — where a deal scan should start.
+ *
+ * Scanning for your own deals means recomputing `dealSubject` against every activation, because a
+ * subject is indistinguishable to anyone without the secret: no indexer can narrow it for you, which
+ * is the privacy model working in its least convenient direction. What CAN narrow it is that your
+ * deals postdate your registration, and your registration is findable from the secret alone — the
+ * genesis leaf is computable, and the log says when it landed.
+ *
+ * Worth saying because the obvious alternative is worse: a token or marker held by a wallet would
+ * publish wallet-to-account, which is the exact link §3.15 exists to break. The marker already
+ * exists and it is the account's own leaf.
+ */
+export async function registrationBlock(snapshot: TreeSnapshot, skId: bigint): Promise<bigint | null> {
+  const leaf = await leafFor(skId, GENESIS, 0n);
+  const index = snapshot.state.indexOf(leaf);
+  return index < 0 ? null : (snapshot.insertedAt[index] ?? null);
+}
+
 const ESCROW_ABI = [
   {
     type: "event",

@@ -48,6 +48,9 @@ export type TreeSnapshot = {
   depth: number;
   /** The leaves in insert order — index i is the leaf at tree index i. */
   leaves: bigint[];
+  /** Block each leaf was inserted at, by tree index. An owner's own leaf is the only marker they
+   *  need to bound a later scan, and it costs nothing to carry: the log already says it. */
+  insertedAt: bigint[];
   /** Folded locally from those leaves; equal to `onChainRoot` or reconstruction threw. */
   state: PoseidonTreeState;
   onChainRoot: bigint;
@@ -84,10 +87,10 @@ export async function readTree(
     toBlock: blockNumber,
   });
 
-  const byIndex = new Map<bigint, bigint>();
+  const byIndex = new Map<bigint, { leaf: bigint; block: bigint }>();
   for (const log of logs) {
     const { index, leaf } = log.args as { index: bigint; leaf: `0x${string}` };
-    byIndex.set(index, BigInt(leaf));
+    byIndex.set(index, { leaf: BigInt(leaf), block: log.blockNumber ?? 0n });
   }
 
   if (BigInt(byIndex.size) !== nextIndex) {
@@ -98,10 +101,12 @@ export async function readTree(
   }
 
   const leaves: bigint[] = [];
+  const insertedAt: bigint[] = [];
   for (let i = 0n; i < nextIndex; i++) {
-    const leaf = byIndex.get(i);
-    if (leaf === undefined) throw new TreeReconstructionError(`tree ${address}: no leaf at index ${i}`);
-    leaves.push(leaf);
+    const row = byIndex.get(i);
+    if (row === undefined) throw new TreeReconstructionError(`tree ${address}: no leaf at index ${i}`);
+    leaves.push(row.leaf);
+    insertedAt.push(row.block);
   }
 
   const state = await PoseidonTreeState.from(Number(depth), leaves);
@@ -113,7 +118,7 @@ export async function readTree(
     );
   }
 
-  return { address, depth: Number(depth), leaves, state, onChainRoot, blockNumber };
+  return { address, depth: Number(depth), leaves, insertedAt, state, onChainRoot, blockNumber };
 }
 
 /** True while the contract still accepts this root — the window a proof has to land in. */
