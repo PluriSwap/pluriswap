@@ -140,12 +140,18 @@ contract RegisterRealProofTest is Test {
     // ---------------------------------------------------------------- gas of the real verify
 
     function test_verify_gas() public {
+        // The blobs are read BEFORE the window: building one goes through a file-reading cheatcode,
+        // and a cheatcode inside the measurement is the measurement — it was reading as ~1.1M of
+        // verifier gas the verifier never spent (2026-09-23).
+        bytes memory humanityBlob = proofHumanityBlob();
+        bytes memory accountBlob = proofAccountBlob();
+
         uint256 before = gasleft();
-        humanityVerifier.verifyHumanity(proofHumanityBlob(), hn);
+        humanityVerifier.verifyHumanity(humanityBlob, hn);
         uint256 humanityCost = before - gasleft();
 
         before = gasleft();
-        accountVerifier.verifyAccount(proofAccountBlob(), hn, leaf0);
+        accountVerifier.verifyAccount(accountBlob, hn, leaf0);
         uint256 accountCost = before - gasleft();
 
         emit log_named_uint("verifyHumanity gas", humanityCost);

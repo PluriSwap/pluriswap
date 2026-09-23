@@ -146,7 +146,33 @@ acercarse al valor del trade. No es un bug: es consecuencia del diseño atómico
 falta al lado de las cotas de gas de `verify` en §3.15.11, porque decide si la capa privada es usable
 en el segmento que más la necesita.
 
-**Estado:** abierto.
+**Estado: MEDIDO (2026-09-23), y el dato que faltaba estaba mal.** El primer hallazgo es que las
+cifras publicadas de `verify` (1,7–2,1M por adapter) eran **un artefacto de medición**: los tests
+construían el blob del proof con un cheatcode de lectura de archivo adentro de la ventana de
+`gasleft()`, y eso son ~1,1M de forge que la EVM nunca gastó. Medido limpio, un verify de UltraHonk
+cuesta **0,67–0,75M**, casi sin importar el circuito que tenga detrás:
+
+| verify | gas | verify | gas |
+| --- | ---: | --- | ---: |
+| humanity | 708k | bond | 732k |
+| account | 680k | deposit | 665k |
+| passport | 717k | claim | 746k |
+| admit | 730k | reabsorb | 685k |
+| | | withdraw | 708k |
+
+Lo que cambia la conclusión: **el costo de un deal privado no está en verificar**. Los seis proofs del
+bundle suman 4,36M; el bundle de un solo lado mide 7,64M, así que lo que domina son los **inserts de
+Merkle** (0,93M el primero de un árbol, 0,65M los siguientes, depth 32) más el trabajo del kernel.
+Optimizar apunta ahí, no a los proofs.
+
+El calldata sí era correcto y es el otro eje: **53.824 bytes** medidos para el bundle de seis
+(`test_privateDeal_costModel` en VaultRealProof). En un rollup eso es lo que llega a L1, y un proof es
+alta entropía, así que la compresión casi no lo toca.
+
+**Sigue abierto**: descomponer los ~5,5M no-verificación del bundle de un lado (inserts vs kernel vs
+storage), decidir si la profundidad 32 del árbol de cuentas es necesaria —cada nivel son ~29k de gas
+por insert— y si los inserts de un mismo bundle pueden compartir camino. Y la traducción a dólares,
+que depende del precio del blob y es volátil.
 
 ### LHF-6 — Kleros: whitelist y pineado son camino crítico y son externos
 

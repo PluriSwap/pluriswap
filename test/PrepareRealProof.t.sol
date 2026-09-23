@@ -512,14 +512,19 @@ contract PrepareRealProofTest is Test {
     // ---------------------------------------------------------------- gas of the real verify
 
     function test_verify_gas() public {
+        // Everything the call needs is read BEFORE the window. `pairTag()` parses vectors.json through
+        // a cheatcode, and a cheatcode inside the measurement is the measurement: it read as ~4M of
+        // verifier gas that the verifier never spent (2026-09-23).
+        bytes memory passportBlob = proofPassportBlob();
+        bytes memory admitBlob = proofAdmitBlob();
+        bytes32 tag = pairTag();
+
         uint256 before = gasleft();
-        passportVerifier.verifyPassport(dealSubject, repRoot, proofPassportBlob());
+        passportVerifier.verifyPassport(dealSubject, repRoot, passportBlob);
         uint256 passportCost = before - gasleft();
 
         before = gasleft();
-        admitVerifier.verifyAdmit(
-            dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
-        );
+        admitVerifier.verifyAdmit(dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, tag, admitBlob);
         uint256 admitCost = before - gasleft();
 
         emit log_named_uint("verifyPassport gas", passportCost);

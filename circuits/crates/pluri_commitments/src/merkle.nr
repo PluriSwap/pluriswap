@@ -16,16 +16,30 @@ pub fn empty_root<let D: u32>() -> Field {
 }
 
 /// Root implied by a membership witness: the leaf's position path and its siblings.
+///
+/// The direction selects the hash's INPUTS, not between two hashes. A circuit has no branches: an
+/// `if` over a witness evaluates both sides and muxes the result, so hashing inside one would cost
+/// two Poseidon permutations per level and throw one away. Selecting the operands first costs the
+/// two muxes — a handful of constraints — and hashes once. Every membership proof in the protocol
+/// walks through here (accounts at depth 32, notes at 20, the registry, the counterparty tree), so
+/// the factor of two lands on all of them at once (measured 2026-09-23, ACIR opcodes):
+///
+///   claim 71.8k → 41.5k   prepare_admit 29.9k → 19.7k   attest_base 26.0k → 15.8k
+///   reveal_advanced 25.5k → 15.3k   prepare_passport 25.1k → 14.9k   prepare_bond 17.4k → 11.0k
+///   withdraw 15.8k → 9.4k   register_humanity 13.6k → 7.2k
+///
+/// It barely moves on-chain verification (an UltraHonk verify is ~0.7M gas almost regardless of the
+/// circuit behind it); what it buys is proving time and headroom.
 pub fn compute_root<let D: u32>(leaf: Field, siblings: [Field; D], indices: [u8; D]) -> Field {
     let mut node = leaf;
     for level in 0..D {
         let bit = indices[level];
         assert(bit < 2, "index bit must be 0 or 1");
-        if bit == 0 {
-            node = poseidon_t3(node, siblings[level]);
-        } else {
-            node = poseidon_t3(siblings[level], node);
-        }
+        let right = bit as Field; // 0: the node is on the left; 1: on the right
+        let sibling = siblings[level];
+        let left_in = node + right * (sibling - node);
+        let right_in = sibling + right * (node - sibling);
+        node = poseidon_t3(left_in, right_in);
     }
     node
 }

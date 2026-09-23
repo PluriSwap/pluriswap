@@ -1068,13 +1068,23 @@ contract VaultRealProofTest is Test {
     // ---------------------------------------------------------------- gas of the real verifies
 
     function test_verify_gas() public {
+        // Read every input BEFORE the window: `pairTag()`/`claimEpoch()` parse vectors.json through a
+        // cheatcode, and a cheatcode inside the measurement is the measurement.
+        bytes memory depositBlob = proofDepositBlob();
+        bytes memory bondBlob = proofBondBlob();
+        bytes memory claimBlob = proofClaimBlob();
+        bytes memory reabsorbBlob = proofReabsorbBlob();
+        bytes memory withdrawBlob = proofWithdrawBlob();
+        bytes32 tag = pairTag();
+        uint256 epoch = claimEpoch();
+
         uint256 before = gasleft();
-        depositVerifier.verifyDeposit(token, depositAmount, depositNote, proofDepositBlob());
+        depositVerifier.verifyDeposit(token, depositAmount, depositNote, depositBlob);
         emit log_named_uint("verifyDeposit gas", before - gasleft());
 
         before = gasleft();
         bondVerifier.verifyBond(
-            dealSubject, dealId, token, lockAmount, lockCommit, changeNote, nullBondNote, bondRoot0, proofBondBlob()
+            dealSubject, dealId, token, lockAmount, lockCommit, changeNote, nullBondNote, bondRoot0, bondBlob
         );
         emit log_named_uint("verifyBond gas", before - gasleft());
 
@@ -1088,23 +1098,50 @@ contract VaultRealProofTest is Test {
             token,
             principal,
             claimRoot,
-            pairTag(),
-            claimEpoch(),
-            proofClaimBlob()
+            tag,
+            epoch,
+            claimBlob
         );
         emit log_named_uint("verifyClaim gas", before - gasleft());
 
         before = gasleft();
         reabsorbVerifier.verifyReabsorb(
-            dealId, dealSubject, token, lockAmount, lockCommit, reabsorbNote, reabsorbNull, proofReabsorbBlob()
+            dealId, dealSubject, token, lockAmount, lockCommit, reabsorbNote, reabsorbNull, reabsorbBlob
         );
         emit log_named_uint("verifyReabsorb gas", before - gasleft());
 
         before = gasleft();
         withdrawVerifier.verifyWithdraw(
-            token, withdrawDest, withdrawAmount, withdrawChangeNote, withdrawNull, withdrawRoot, proofWithdrawBlob()
+            token, withdrawDest, withdrawAmount, withdrawChangeNote, withdrawNull, withdrawRoot, withdrawBlob
         );
         emit log_named_uint("verifyWithdraw gas", before - gasleft());
+    }
+
+    /// What a private deal actually costs, in the two currencies that matter on a rollup: L2 gas and
+    /// the bytes that have to reach L1. `EVALUACION.md` LHF-5 said the number was missing; it was
+    /// worse than missing, it was wrong — every published per-verify figure (1.7–2.1M) had been
+    /// measured with a file-reading cheatcode inside the gas window, which is ~1.1M of forge, not of
+    /// the EVM. Measured clean, an UltraHonk verify is ~0.67–0.75M.
+    ///
+    /// A two-sided private activation carries SIX proofs (two passports, two admits, two bonds) plus
+    /// the kernel's own work, all in one atomic tx (§3.15.4). The verification half is measured here;
+    /// the calldata half is the proofs themselves, and on Arbitrum that is the part that reaches L1.
+    function test_privateDeal_costModel() public {
+        uint256 passportBytes = vm.parseJsonBytes(vm.readFile("test/fixtures/proofs/prepare_passport.json"), ".proof_with_public_inputs").length;
+        uint256 admitBytes = vm.parseJsonBytes(vm.readFile("test/fixtures/proofs/prepare_admit.json"), ".proof_with_public_inputs").length;
+        uint256 bondBytes = proofBondBlob().length;
+        uint256 bundleBytes = 2 * passportBytes + 2 * admitBytes + 2 * bondBytes;
+
+        emit log_named_uint("one passport proof, bytes", passportBytes);
+        emit log_named_uint("one admit proof, bytes", admitBytes);
+        emit log_named_uint("one bond proof, bytes", bondBytes);
+        emit log_named_uint("six-proof bundle, bytes", bundleBytes);
+        // The claim is a separate transaction, later: the terminal delta is not part of activation.
+        emit log_named_uint("one claim proof, bytes", proofClaimBlob().length);
+
+        // A proof is high-entropy, so a rollup's compression barely touches it: this is very close to
+        // what a bundle costs in L1 data, whatever the posting mechanism prices it at.
+        assertLt(bundleBytes, 60_000, "a bundle should stay well under a blob");
     }
 
     /// @dev Solidity cannot slice memory bytes; the truncated-blob test needs a copy.
