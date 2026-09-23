@@ -30,6 +30,11 @@ contract DeployKlerosPackages is PassportPicker, KlerosConfig {
     ///      regressive against the T1 cap (250); a per-tier/per-deal floor is not implementable without a
     ///      kernel bump (`contestFloor` is a stateless getter that lives inside the packageId).
     uint256 internal constant CONTEST_FLOOR = 2_000_000;
+    /// @dev The ARBITRATION package prices its own contest (PLURISWAP.md §3.14.6): a deal that
+    ///      carries a tribunal must cost something to fight in even without a reputation package,
+    ///      or freezing is free for the only party who can freeze. Deliberately different from
+    ///      CONTEST_FLOOR so the two invoices are distinguishable on chain.
+    uint256 internal constant COURT_CONTEST = 500_000;
     uint256 internal constant ZK_FEE = 10_000;
     address internal constant FEE_RECIPIENT = address(0xFEE);
     address internal constant SINK = address(0xdeaD);
@@ -51,8 +56,9 @@ contract DeployKlerosPackages is PassportPicker, KlerosConfig {
         VerifierMock verifier = new VerifierMock();
         ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE, predicted);
         BondVault vault = new BondVault(predicted, SINK, passport);
-        KlerosAdapter court =
-            new KlerosAdapter(k.core, k.extraData, 0, "", predicted, k.registry, k.policyUri, 0, address(0xFEE));
+        KlerosAdapter court = new KlerosAdapter(
+            k.core, k.extraData, 0, "", predicted, k.registry, k.policyUri, COURT_CONTEST, FEE_RECIPIENT
+        );
         Escrow escrow = new Escrow();
         vm.stopBroadcast();
 

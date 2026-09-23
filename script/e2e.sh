@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# End-to-end deploy and catalog run against a throwaway chain.
+# Deploy the whole stack in order, walk the Core catalogue, and ask the doctor whether the records
+# still describe the chain.
 #
 # `forge test` exercises the contracts; nothing exercised the SCRIPTS until this existed, and two of
 # them had been broken for months without anyone noticing: `Paths` still asserted that a timeout
@@ -7,20 +8,34 @@
 # listed a Sponsor as a designated controller (the share vault rejects that). Both are the kind of
 # rot that only a cold chain finds, so CI runs this on every push.
 #
-# Usage: script/e2e.sh [port]     (needs anvil and forge on PATH)
+#   script/e2e.sh [port]              throwaway anvil on that port (the CI path)
+#   RPC_URL=... DEPLOY_KEY=0x... script/e2e.sh
+#                                     an existing chain. On Arbitrum Sepolia this also runs the
+#                                     Stargate ramp, which cannot exist on anvil.
+#
+# Pointing it at a real chain BROADCASTS. It is the same ordered run either way, which is the point:
+# a testnet deploy should not be eight hand-typed commands in the right order.
 set -euo pipefail
 
-PORT="${1:-8545}"
-RPC="http://127.0.0.1:${PORT}"
-# Anvil's first account. A throwaway chain, a published key: never used anywhere else.
-KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-anvil --silent --port "$PORT" &
-ANVIL=$!
-trap 'kill $ANVIL 2>/dev/null || true' EXIT
-until cast block-number --rpc-url "$RPC" >/dev/null 2>&1; do sleep 1; done
+if [ -n "${RPC_URL:-}" ]; then
+  RPC="$RPC_URL"
+  KEY="${DEPLOY_KEY:?DEPLOY_KEY is required when RPC_URL is set}"
+  echo "target: $RPC (broadcasting)"
+else
+  PORT="${1:-8545}"
+  RPC="http://127.0.0.1:${PORT}"
+  # Anvil's first account. A throwaway chain, a published key: never used anywhere else.
+  KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+  anvil --silent --port "$PORT" &
+  ANVIL=$!
+  trap 'kill $ANVIL 2>/dev/null || true' EXIT
+  until cast block-number --rpc-url "$RPC" >/dev/null 2>&1; do sleep 1; done
+fi
+
+CHAIN=$(cast chain-id --rpc-url "$RPC")
 
 # Order matters: each step reads the deployment record the previous one wrote.
 STEPS=(
@@ -33,6 +48,11 @@ STEPS=(
   "script/PoolDeal.s.sol:PoolDeal"
   "script/DeployPrivate.s.sol:DeployPrivate"
 )
+# The ramp needs a Stargate V2 pool, which only exists on a real chain (StargateSepolia.sol pins the
+# Arbitrum Sepolia one). It is the only component with no path on anvil, so it runs where it can.
+if [ "$CHAIN" = "421614" ]; then
+  STEPS+=("script/RampDeal.s.sol:RampDeal")
+fi
 
 failed=0
 for step in "${STEPS[@]}"; do
@@ -49,7 +69,8 @@ done
 [ "$failed" -eq 0 ] || { echo "e2e: a deploy or catalog script failed"; exit 1; }
 
 # The scripts' own `require`s run locally; this checks what actually LANDED on the chain.
-ESCROW=$(python3 -c "import json;print(json.load(open('deployments/31337-paths.json'))['escrow'])")
+ESCROW=$(python3 -c "import json;print(json.load(open('deployments/${CHAIN/421614/sepolia}-paths.json'))['escrow'])" 2>/dev/null \
+  || python3 -c "import json;print(json.load(open('deployments/$CHAIN-paths.json'))['escrow'])")
 cast logs --rpc-url "$RPC" --address "$ESCROW" \
   "Settled(bytes32,uint8,uint256,uint256)" --from-block 0 --json \
   | python3 -c '
@@ -72,4 +93,9 @@ for row in rows:
 assert got == EXPECTED, f"terminal histogram {got} != {EXPECTED}"
 print(f"[OK]   {len(rows)} Core terminals on chain, principal conserved in every one")
 '
+
+# Finally, ask the doctor whether the records just written still describe the chain. On a chain built
+# ten seconds ago every answer must be yes, which is what makes the same script trustworthy when it
+# is pointed at a testnet that has been drifting for months.
+forge script script/Doctor.s.sol:Doctor --rpc-url "$RPC" -vv 2>&1 | sed -n '/^== Logs ==/,/^$/p'
 echo "e2e: green"

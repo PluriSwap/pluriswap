@@ -355,6 +355,31 @@ Sepolia siguen versionados.
 
 ---
 
+## Estado de Sepolia (2026-09-23)
+
+`script/Doctor.s.sol` apuntado al Sepolia actual: **7 fallas de 41**. No hay ambigüedad sobre si
+hace falta redesplegar:
+
+- el escrow no tiene `forceDisputeTimeout` **ni** `retryPostTerminal` — o sea que es anterior incluso
+  a esta rama;
+- la reputación no tiene los getters de contest (anterior al 2026-09-17);
+- los dos courts no tienen `contestFee` / `feeRecipient` (anterior a ayer).
+
+Lo que sí está sano: el pool factory (codehash del clon coincide con la factory y con la
+implementación registrada), PoseidonT3 vivo y circomlib-compatible, y el escrow contestando su
+domain separator. `PoseidonT2` no está, pero lo pone `script/Poseidon.s.sol` — prerequisito, no
+registro roto.
+
+Contra una chain recién construida el mismo doctor da **42 de 42**, que es lo que hace confiable la
+lectura sobre Sepolia.
+
+**Cobertura de mocks para Sepolia: completa.** Lo único que no existe ahí tiene stand-in y ya está
+cableado — decoder de Passport (`PassportMock` / `PassportDecoderMock`), y nada más: Kleros V2 es
+real en Sepolia y sin whitelist, el pool de Stargate V2 USDC es real y está pineado, PoseidonT3 está
+vivo, y los verificadores Honk salen de initcode comprometido.
+
+---
+
 ## Orden de ataque propuesto
 
 1. LHF-1 (CI verde), LHF-4 (constante), LHF-2 (capa privada en Sepolia), LHF-6 (arrancar el trámite).
