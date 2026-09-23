@@ -195,6 +195,21 @@ Orden de rendimiento: la recursión es la palanca grande y la más cara de const
 inserts es la mejor relación esfuerzo/ahorro; la profundidad es casi gratis pero decide cuántas
 cuentas direcciona el protocolo para siempre. El nullifier (24k) y el `admit` (29k) son ruido.
 
+**Hecho (2026-09-23): el batch dentro de la activación.** `PoseidonTree.insertMany` hashea una sola vez
+todo lo que está arriba del subárbol común (dos hojas: 1.351k → 745k; cuatro: 2.702k → 788k, o sea que
+cuatro cuestan apenas más que dos), y `PrivateReputation.prepareBoth` toma los dos lados de una
+activación en una llamada. Medido punta a punta: **1.972k → 1.081k, 891k de ahorro** — más que el
+insert solo, porque también se ahorra el segundo `isKnownRoot`, la segunda escritura del ring de raíces
+y el calldata repetido. Efecto lateral que vale por sí mismo: sin insert entre los dos lados, **los dos
+proofs se construyen contra la misma raíz**, así que se pueden generar en paralelo off-chain en vez de
+en secuencia.
+
+**Lo que NO hace**: batchear entre deals distintos. Eso pide la cola diferida que habilita la
+consistencia eventual, y ahí el incentivo es estructural —el árbol es append-only, así que flushear tu
+hoja obliga a insertar las que están adelante— pero el ahorro sigue siendo un bien público: un usuario
+racional flushea el prefijo mínimo y paga lo mismo que hoy. Por eso el flush lo paga el protocolo, con
+el `activationFee` que ese mismo deal ya cobró.
+
 **Sigue abierto**: el `activate` del kernel no está descompuesto, y la traducción a dólares depende del
 precio del blob, que es volátil — eso se mide contra una chain real, no acá.
 

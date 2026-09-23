@@ -101,35 +101,34 @@ contract RelayerMock {
                 p.bondSig
             );
         }
-        reputation.prepare(
-            h.wallet,
+        // Both sides in one call: nothing is inserted between them, so both proofs were built
+        // against the SAME root — they can be produced in parallel, off-chain — and the two account
+        // leaves go into the tree together (§3.14.7's `insertMany`, 891k measured).
+        reputation.prepareBoth(
             dealId,
-            h.dealSubject,
-            h.newLeaf,
-            h.nullRep,
+            PrivateReputation.Side({
+                wallet: h.wallet,
+                dealSubject: h.dealSubject,
+                newLeaf: h.newLeaf,
+                nullRep: h.nullRep,
+                lockCommit: bonded ? h.lockCommit : bytes32(0),
+                proof: h.admitProof,
+                walletSig: h.admitSig
+            }),
+            PrivateReputation.Side({
+                wallet: p.wallet,
+                dealSubject: p.dealSubject,
+                newLeaf: p.newLeaf,
+                nullRep: p.nullRep,
+                lockCommit: bonded ? p.lockCommit : bytes32(0),
+                proof: p.admitProof,
+                walletSig: p.admitSig
+            }),
             token,
             principal,
-            bonded ? h.lockCommit : bytes32(0), // the bond column of the cap proof, if any
             reputation.accountTree().root(),
             pairTag,
-            deadline,
-            h.admitProof,
-            h.admitSig
-        );
-        reputation.prepare(
-            p.wallet,
-            dealId,
-            p.dealSubject,
-            p.newLeaf,
-            p.nullRep,
-            token,
-            principal,
-            bonded ? p.lockCommit : bytes32(0),
-            reputation.accountTree().root(),
-            pairTag,
-            deadline,
-            p.admitProof,
-            p.admitSig
+            deadline
         );
         return escrow.activate(ha, holderSig, pa, providerSig, ca, controllerSig, mods);
     }

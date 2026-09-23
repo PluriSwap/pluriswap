@@ -82,6 +82,18 @@ contract PrivatePrepareTest is Test {
         assertEq(address(reputation), predictedRep, "predicted tree owner drifted");
     }
 
+    /// @dev A second, identical stack: the two-sided prepare has to be compared against two separate
+    ///      prepares on a tree in the same starting state, and a tree cannot be rewound.
+    function _freshModule() internal returns (PrivateReputation rep2, PoseidonTree tree2) {
+        address predicted = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
+        tree2 = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predicted);
+        PrivatePassport passport2 = new PrivatePassport(tree2, humanity, passportProof);
+        rep2 = new PrivateReputation(
+            passport2, tree2, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
+        );
+        assertEq(address(rep2), predicted, "predicted tree owner drifted");
+    }
+
     function ok(bool pass) internal pure returns (bytes memory) {
         return abi.encode(pass);
     }
@@ -390,4 +402,102 @@ contract PrivatePrepareTest is Test {
         assertFalse(tree.isSpent(NULLREP_H));
         assertEq(tree.nextIndex(), 0);
     }
+    // ---------------------------------------------------------------- the two-sided prepare
+
+    /// @dev The consent is bound to the module that will read it (its address is in the EIP-712
+    ///      domain AND in the struct), so a side built for one module is not valid on another.
+    function _side(
+        address module,
+        address wallet,
+        uint256 pk,
+        bytes32 subject,
+        bytes32 leaf,
+        bytes32 nullifier,
+        uint256 deadline_
+    ) internal view returns (PrivateReputation.Side memory) {
+        return PrivateReputation.Side({
+            wallet: wallet,
+            dealSubject: subject,
+            newLeaf: leaf,
+            nullRep: nullifier,
+            lockCommit: bytes32(0),
+            proof: ok(true),
+            walletSig: _sig(module, pk, DEAL_ID, subject, deadline_)
+        });
+    }
+
+    /// The two sides of one activation, prepared together, have to leave EXACTLY the state two
+    /// separate calls would: same root, same count, same buffers, same nullifiers burned. The saving
+    /// is the tree's — two leaves at adjacent indices share every level above their common subtree.
+    function test_prepareBoth_isTheSameStateAsTwoPrepares() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 root = tree.root();
+
+        // Path A: the two calls, on this tree.
+        reputation.prepare(
+            holder, DEAL_ID, SUBJECT_H, NEW_LEAF_H, NULLREP_H, TOKEN, PRINCIPAL, bytes32(0), root, PAIR_TAG,
+            deadline, ok(true), _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
+        );
+        // The second side proves against the root the first insert produced: that sequencing is what
+        // `prepareBoth` removes.
+        reputation.prepare(
+            other, DEAL_ID, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), TOKEN, PRINCIPAL, bytes32(0),
+            tree.root(), PAIR_TAG, deadline, ok(true), _sig(address(reputation), otherPk, DEAL_ID, SUBJECT_X, deadline)
+        );
+        bytes32 rootAfterTwo = tree.root();
+        uint256 countAfterTwo = tree.nextIndex();
+
+        // Path B: a second stack, the same two sides, one call.
+        (PrivateReputation rep2, PoseidonTree tree2) = _freshModule();
+        bytes32 root2 = tree2.root();
+        assertEq(root2, root, "both stacks start from the same empty tree");
+        rep2.prepareBoth(
+            DEAL_ID,
+            _side(address(rep2), holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline),
+            _side(address(rep2), other, otherPk, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), deadline),
+            TOKEN,
+            PRINCIPAL,
+            root2,
+            PAIR_TAG,
+            deadline
+        );
+
+        assertEq(tree2.root(), rootAfterTwo, "same root");
+        assertEq(tree2.nextIndex(), countAfterTwo, "same count");
+        assertTrue(tree2.isSpent(NULLREP_H) && tree2.isSpent(keccak256("nullrep-x-1")), "both nullifiers burned");
+        (bytes32 bufH,,,,) = rep2.preparedAdmit(holder);
+        (bytes32 bufX,,,,) = rep2.preparedAdmit(other);
+        assertEq(bufH, SUBJECT_H, "holder buffered");
+        assertEq(bufX, SUBJECT_X, "provider buffered");
+        assertEq(rep2.pairTagOf(DEAL_ID), PAIR_TAG, "the pair is recorded once");
+    }
+
+    function test_prepareBoth_costsLess() public {
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes32 root = tree.root();
+        uint256 before = gasleft();
+        reputation.prepare(
+            holder, DEAL_ID, SUBJECT_H, NEW_LEAF_H, NULLREP_H, TOKEN, PRINCIPAL, bytes32(0), root, PAIR_TAG,
+            deadline, ok(true), _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
+        );
+        reputation.prepare(
+            other, DEAL_ID, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), TOKEN, PRINCIPAL, bytes32(0),
+            tree.root(), PAIR_TAG, deadline, ok(true), _sig(address(reputation), otherPk, DEAL_ID, SUBJECT_X, deadline)
+        );
+        uint256 separate = before - gasleft();
+
+        (PrivateReputation rep2,) = _freshModule();
+        PrivateReputation.Side memory h = _side(address(rep2), holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline);
+        PrivateReputation.Side memory p = _side(address(rep2), other, otherPk, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), deadline);
+        bytes32 root2 = rep2.accountTree().root();
+        before = gasleft();
+        rep2.prepareBoth(DEAL_ID, h, p, TOKEN, PRINCIPAL, root2, PAIR_TAG, deadline);
+        uint256 together = before - gasleft();
+
+        emit log_named_uint("two prepares, separately", separate);
+        emit log_named_uint("prepareBoth", together);
+        emit log_named_uint("saved", separate - together);
+        assertLt(together, separate, "batching the insert has to pay for the extra entrypoint");
+    }
+
 }
