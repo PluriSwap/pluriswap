@@ -48,8 +48,8 @@ contract Reputation is IReputation {
     ///      layer's subjects are wallet-derived and already visible, so hiding the pair here would buy
     ///      nothing. The PRIVATE layer cannot use a map at all — it would publish the trading graph —
     ///      and proves the same rule inside the circuit against a per-account tree (§3.15.5).
-    mapping(bytes32 subject => mapping(bytes32 counterparty => bool)) public credited;
-    mapping(bytes32 subject => Rate) internal _rate;
+    mapping(bytes32 subject => mapping(bytes32 counterparty => mapping(address token => bool))) public credited;
+    mapping(bytes32 subject => mapping(address token => Rate)) internal _rate;
 
     constructor(
         IPassport passport_,
@@ -176,7 +176,7 @@ contract Reputation is IReputation {
         inFlight[subject][token] = inf - principal;
         Stat storage s = _stat[subject][token];
         if (kind == IReputation.Close.Peaceful) {
-            if (_creditable(subject, counterparty)) {
+            if (_creditable(subject, counterparty, token)) {
                 s.successCount += 1;
                 s.volume += principal;
             }
@@ -190,10 +190,17 @@ contract Reputation is IReputation {
     /// @dev True exactly once per (subject, counterparty), and at most `MAX_CREDITS_PER_EPOCH` times
     ///      per epoch. Burns the pair either way: a deal that arrives over the rate limit does not get
     ///      to come back for its credit later, or the limit would only be a delay.
-    function _creditable(bytes32 subject, bytes32 counterparty) internal returns (bool) {
-        if (credited[subject][counterparty]) return false;
-        credited[subject][counterparty] = true;
-        Rate storage r = _rate[subject];
+    ///      Keyed per TOKEN, like the stats themselves (§3.14.7: "los stats son por sujeto Y token").
+    ///      The private twin gets this for free — an account holds one leaf per token, so its
+    ///      counterparty tree and its rate window already live inside the token's own leaf — and the
+    ///      two implementations of one rule have to agree or the rule is whichever layer you read.
+    ///      It is also the honest reading: a counterparty vouching for you in USDC has said nothing
+    ///      about how you behave in another token, and the credit only buys cap in the token it was
+    ///      earned in, so the extra dimension gives a farmer no shortcut into the tier that matters.
+    function _creditable(bytes32 subject, bytes32 counterparty, address token) internal returns (bool) {
+        if (credited[subject][counterparty][token]) return false;
+        credited[subject][counterparty][token] = true;
+        Rate storage r = _rate[subject][token];
         uint64 epoch = uint64(block.timestamp / EPOCH);
         if (r.epoch != epoch) {
             r.epoch = epoch;

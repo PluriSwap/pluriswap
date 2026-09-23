@@ -188,6 +188,28 @@ contract ReputationCurveTest is Test {
         assertEq(pen, 20, "and an arbitration loss still costs 15");
     }
 
+    /// The rule is keyed per TOKEN, like the stats it moves — and like the private twin, where an
+    /// account holds one leaf per token so its counterparty tree already lives inside it. A partner
+    /// who vouched for you in one token has said nothing about another, and the credit only buys cap
+    /// where it was earned, so the extra dimension is no shortcut into the tier that matters.
+    function test_creditIsPerToken() public {
+        TestToken other = new TestToken();
+        bytes32 partner = keccak256("the same partner, another token");
+        vm.startPrank(operator);
+        rep.admit(wallet, _dealTag(), address(token), 1, address(0));
+        rep.notifyTerminal(SUBJECT, partner, address(token), 1, IReputation.Close.Peaceful);
+        rep.admit(wallet, _dealTag(), address(other), 1, address(0));
+        rep.notifyTerminal(SUBJECT, partner, address(other), 1, IReputation.Close.Peaceful);
+        // The same partner again in the FIRST token earns nothing: that pair is spent there.
+        rep.admit(wallet, _dealTag(), address(token), 1, address(0));
+        rep.notifyTerminal(SUBJECT, partner, address(token), 1, IReputation.Close.Peaceful);
+        vm.stopPrank();
+        (uint32 inToken,,) = rep.stats(SUBJECT, address(token));
+        (uint32 inOther,,) = rep.stats(SUBJECT, address(other));
+        assertEq(inToken, 1, "one credit in the token it was earned in");
+        assertEq(inOther, 1, "and one in the other, from the same partner");
+    }
+
     /// The rate window: sixteen credited deals in an epoch, and the seventeenth earns nothing — not
     /// even later. A limit that let the credit come back tomorrow would only be a delay.
     function test_theSeventeenthDealOfADayEarnsNothing() public {
