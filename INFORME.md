@@ -26,7 +26,7 @@ ejercitan on-chain**, no sólo en tests.
 | OUT-10 Arb provider win | `RESOLVED_BY_ARBITRATION` | 100% Provider | `ArbitrationPaths`, `CatalogDeals` |
 | OUT-11 Tribunal rehúsa | `STALEMATE` | 50/50 | `ArbitrationPaths` |
 | OUT-12 Arbitration timeout | `STALEMATE` | 50/50 | `ArbitrationPaths` |
-| OUT-13 Deadlock (2026-09-24) | `STALEMATE` | 50/50, bonds al sink | `Paths` 15 (Core), `ReputationLadder` |
+| OUT-13 Deadlock (2026-09-24) | `STALEMATE` | principal quemado, bonds al sink | `Paths` 15 (Core), `ReputationLadder` |
 | OUT-14 Dispute abandonado | `ABANDONED` | 100% Provider | `ArbitrationPaths` (con tribunal y bonds) |
 
 Además, cada corrida de `e2e.sh` lee los eventos `Settled` que aterrizaron y verifica que los doce

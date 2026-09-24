@@ -70,7 +70,7 @@ Tres reglas que explican casi todo el dibujo:
 | `CANCELLED` fiat timeout | cualquiera | pasado el fiat deadline | 100% / 0 | no | vuelven | nadie |
 | `CANCELLED` mutual | dual-sign | cualquier estado vivo | 100% / 0 | no | vuelven | nadie |
 | `RESOLVED_SPLIT` | dual-sign | cualquier estado vivo | bps firmados | sí | vuelven | ambos limpios |
-| `STALEMATE` deadlock | cualquiera | pasado el dispute deadline, **sin** tribunal | 50% / 50% | no | **al sink, los dos** | **ambos −10** |
+| `STALEMATE` deadlock | cualquiera | pasado el dispute deadline, **sin** tribunal | 0 / 0 — **se quema** | no | **al sink, los dos** | **ambos −10** |
 | `ABANDONED` | cualquiera | pasado el dispute deadline, **con** tribunal | 0 / 100% | sí | vuelven | **el que abrió −5**, el otro limpio |
 | `RESOLVED_BY_ARBITRATION` holder | cualquiera, tras el ruling | `ARBITRATION_ACTIVE` | 100% / 0 | no | **slash al Holder** | perdedor **−15** |
 | `RESOLVED_BY_ARBITRATION` provider | cualquiera, tras el ruling | `ARBITRATION_ACTIVE` | 0 / 100% | sí | **slash al Provider** | perdedor **−15** |
@@ -80,9 +80,10 @@ Tres reglas que explican casi todo el dibujo:
 Dos asimetrías que conviene tener presentes, porque son decisiones y no accidentes:
 
 - **Un refund no es un trade**, así que no paga completion fee. Un payout sí, gane como gane.
-- **Un desacuerdo sin tribunal cuesta a los dos; con tribunal, lo pierde quien no escaló.** Si las
-  partes firmaron sin ARBITRATION y nadie cede antes del reloj, el deal cierra en stalemate: mitad y
-  mitad, los bonds de ambos al sink y −10 a cada uno. Existe para que acordar siempre convenga. Si
+- **Un desacuerdo sin tribunal no le paga a nadie; con tribunal, lo pierde quien no escaló.** Si las
+  partes firmaron sin ARBITRATION, después de disputar sólo pueden cancelar o liberar (no hay split),
+  y si nadie cede antes del reloj el principal se quema, junto con los bonds de ambos, y −10 a cada
+  uno. Existe para que rendirse sea la mejor respuesta de un tramposo racional. Si
   firmaron con tribunal, el Controller que abrió la pelea y no la escaló la pierde: el principal va
   entero a la contraparte, y los bonds vuelven porque el abandono es culpa *asumida*
   (Parte IV, 2026-09-24).

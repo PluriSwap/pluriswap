@@ -451,8 +451,9 @@ debería ser el precio de poder ir a corte.
 **Reabierta y re-decidida (2026-09-24).** El forfeit dejaba a Core sin defensa frente a un Provider que
 nunca pagó: se llevaba el 100%. La crítica original al 50/50 (el Provider no tiene cómo escalar) no
 aplica donde **ninguno** puede escalar porque las partes firmaron no tener tribunal. Ahora el timeout de
-`DISPUTED` depende de ARBITRATION: sin tribunal es un deadlock que cuesta a los dos (50/50, locks de ambos
-al sink, `+10` a cada uno); con tribunal sigue siendo abandono. Parte IV, 2026-09-24.
+`DISPUTED` depende de ARBITRATION: sin tribunal no hay split tras disputar y el deadlock quema el
+principal (más los locks y `+10` a cada uno); con tribunal sigue siendo abandono. Parte IV, 2026-09-24.
+Medido en `SIMULACIONES.md`: sin tribunal es un equilibrio débil; lo que alinea el largo plazo es el tribunal.
 
 ### B. El único cuadrante limpio es el que no está construido
 
