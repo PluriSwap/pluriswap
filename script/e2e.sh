@@ -64,7 +64,8 @@ STEPS=(
   # cap, the concurrency check and the penalty have.
   "script/ReputationLadder.s.sol:ReputationLadder"
   # Everything downstream of a verdict, which Core cannot reach because Core has no tribunal: the two
-  # slashes, the two stalemates, and what an abandoned dispute does with bonds on the table.
+  # slashes, the two stalemates, and what an abandoned dispute does with bonds on the table -- in a deal
+  # WITH a tribunal, the only kind where abandonment still loses (Parte IV, 2026-09-24).
   "script/ArbitrationPaths.s.sol:ArbitrationPaths"
   # The first time the private layer runs on a chain rather than in a test: the sample account,
   # registered with the committed proofs. It leaves a leaf in the accounts tree, which is what the
@@ -102,7 +103,7 @@ import json, sys
 NAMES = ["NONE","FUNDED","FIAT_SENT","DISPUTED","RELEASED","RESOLVED_SPLIT","STALEMATE",
          "CANCELLED","ARBITRATION_ACTIVE","RESOLVED_BY_ARBITRATION","CLAIMED","ABANDONED"]
 # CASE-CORE-03..15, as PLURISWAP.md §3.9 lists them.
-EXPECTED = {"CANCELLED": 5, "RELEASED": 3, "CLAIMED": 1, "RESOLVED_SPLIT": 2, "ABANDONED": 1}
+EXPECTED = {"CANCELLED": 5, "RELEASED": 3, "CLAIMED": 1, "RESOLVED_SPLIT": 2, "STALEMATE": 1}
 PRINCIPAL = 1_000_000
 rows = json.load(sys.stdin)
 got = {}
@@ -112,8 +113,9 @@ for row in rows:
     status, holder, provider = NAMES[int(w[1],16)], int(w[2],16), int(w[3],16)
     got[status] = got.get(status, 0) + 1
     assert holder + provider == PRINCIPAL, f"{status} does not conserve principal: {holder}+{provider}"
-    if status == "ABANDONED":
-        assert provider == PRINCIPAL, f"abandoned dispute paid the Provider {provider}, not the pot"
+    if status == "STALEMATE":
+        # Core has no tribunal: a dispute nobody settles is a deadlock, split (Parte IV, 2026-09-24).
+        assert provider == PRINCIPAL // 2, f"a Core deadlock paid the Provider {provider}, not half"
 assert got == EXPECTED, f"terminal histogram {got} != {EXPECTED}"
 print(f"[OK]   {len(rows)} Core terminals on chain, principal conserved in every one")
 '

@@ -79,7 +79,7 @@ contract Paths is Script {
         require(escrow.status(splitDisputed) == Status.RESOLVED_SPLIT, "14");
         // CASE-CORE-15 is no longer a stalemate: the Controller opened a fight and let it expire,
         // so the Provider takes the principal in full (§3.11 OUT-14).
-        require(escrow.status(abandoned) == Status.ABANDONED, "15");
+        require(escrow.status(abandoned) == Status.STALEMATE, "15: no tribunal, nobody gave way");
 
         console.log("03 cancelByProvider", vm.toString(cancelProvider));
         console.log("04 timeoutFiat    ", vm.toString(timeoutFiat));
@@ -92,7 +92,7 @@ contract Paths is Script {
         console.log("12 mutual DISPUTED", vm.toString(mutualDisputed));
         console.log("13 cosigned DISP  ", vm.toString(cosignedDisputed));
         console.log("14 split DISPUTED ", vm.toString(splitDisputed));
-        console.log("15 abandoned      ", vm.toString(abandoned));
+        console.log("15 deadlock       ", vm.toString(abandoned));
     }
 
     function _pathCancelProvider() internal returns (bytes32 id) {

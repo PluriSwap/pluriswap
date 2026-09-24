@@ -187,6 +187,8 @@ contract Reputation is IReputation {
             s.penalty += 5;
         } else if (kind == IReputation.Close.ArbLoss) {
             s.penalty += 15;
+        } else if (kind == IReputation.Close.Deadlock) {
+            s.penalty += 10;
         }
     }
 

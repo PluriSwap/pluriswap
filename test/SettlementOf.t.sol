@@ -34,7 +34,7 @@ contract SettlementOfTest is BaseTest {
         assertEq(p, 0);
     }
 
-    function test_settlementOf_abandonedDisputePaysTheProvider() public {
+    function test_settlementOf_deadlockSplits() public {
         bytes32 id = _activateP2P(1, 1);
         vm.prank(provider);
         escrow.markFiat(id);
@@ -43,8 +43,8 @@ contract SettlementOfTest is BaseTest {
         vm.warp(block.timestamp + 7200);
         escrow.forceDisputeTimeout(id);
         (Status st, uint256 h, uint256 p) = escrow.settlementOf(id);
-        assertEq(uint8(st), uint8(Status.ABANDONED));
-        assertEq(h, 0);
-        assertEq(p, PRINCIPAL);
+        assertEq(uint8(st), uint8(Status.STALEMATE));
+        assertEq(h, PRINCIPAL / 2);
+        assertEq(p, PRINCIPAL - PRINCIPAL / 2);
     }
 }

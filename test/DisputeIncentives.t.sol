@@ -6,21 +6,22 @@ import {Escrow} from "../src/Escrow.sol";
 import {Status} from "../src/libraries/Types.sol";
 
 /// @title Dispute incentives, as decided
-/// @notice The shape of a fight after the Parte IV decision of 2026-09-22, including its price.
-/// @dev Three things hold together and none of them is an accident:
+/// @notice The shape of a fight after the Parte IV decision of 2026-09-24 (over 2026-09-22).
+/// @dev What holds together:
 ///
 ///      1. Only the Controller opens a fight, and only the Controller escalates one. Settled: the
 ///         Provider does not need to dispute, because when the Controller is absent the release
 ///         deadline pays them in full without anyone's permission.
-///      2. Opening a fight and abandoning it loses it. That is what makes (1) safe. Before, a
-///         Controller could freeze a trade it had lost and take half by doing nothing; now doing
-///         nothing hands over everything, which is the same outcome as never having frozen.
-///      3. So the freeze is worth exactly what it is for: time to settle, or to escalate.
+///      2. In a deal WITH a tribunal, opening a fight and abandoning it loses it (`Packages.t.sol`):
+///         the Controller had a court and did not use it.
+///      3. In a deal WITHOUT one — Core included — nobody can escalate, because the two parties chose
+///         not to have a tribunal. A fight nobody settles is a deadlock, and a deadlock costs both:
+///         the principal split, and with the official packages both scores marked and both bonds
+///         burned. The freeze is worth what it is for: time to settle.
 ///
-///      The price, asserted here rather than left implicit: in a Core-only deal a Provider who
-///      never sent fiat and refuses every settlement now takes 100% instead of 50%. Core has no
-///      tribunal by construction (II.2), so it cannot tell the two stories apart, and the decision
-///      is to stop pretending a 50/50 was a judgement. That is the argument for ARBITRATION.
+///      Stated rather than hidden: in pure Core, with no packages, a deadlock is only the split. Core
+///      cannot tell the two stories apart and does not pretend to; the split caps what either lie
+///      pays at half, where the 2026-09-22 forfeit paid an unpaid Provider the whole pot.
 contract DisputeIncentivesTest is BaseTest {
     /// Settled and not reopened: the Provider's protection is the clock, not a verb of their own.
     function test_providerNeedsNoDispute_whenTheControllerIsAbsent() public {
@@ -45,29 +46,25 @@ contract DisputeIncentivesTest is BaseTest {
         escrow.openCourt(id);
     }
 
-    /// What makes that safe: freezing and waiting is now the same as never freezing.
-    function test_freezingAndAbandoningEqualsNotFreezing() public {
+    /// Freezing is not free and not a win: a frozen trade that nobody settles ends split, where leaving it
+    /// alone would have paid the Provider in full. Both sides end worse than if they had agreed.
+    function test_aFreezeNobodySettles_costsBothSides() public {
         bytes32 frozen = _activateP2P(5, 6);
         _markFiat(frozen);
         vm.prank(holder);
         escrow.openDisputed(frozen);
         vm.warp(block.timestamp + 7200);
         escrow.forceDisputeTimeout(frozen);
-        (, uint256 hFrozen, uint256 pFrozen) = escrow.settlementOf(frozen);
+        (Status st, uint256 hFrozen, uint256 pFrozen) = escrow.settlementOf(frozen);
 
-        token.mint(holder, PRINCIPAL);
-        bytes32 left = _activateP2P(7, 8);
-        _markFiat(left);
-        vm.warp(block.timestamp + 1800);
-        escrow.claim(left);
-        (, uint256 hLeft, uint256 pLeft) = escrow.settlementOf(left);
-
-        assertEq(pFrozen, pLeft, "the Provider ends in the same place either way");
-        assertEq(hFrozen, hLeft, "and so does the Holder: the freeze bought nothing by itself");
+        assertEq(uint8(st), uint8(Status.STALEMATE));
+        assertEq(hFrozen, PRINCIPAL / 2, "the Holder recovers half, not all");
+        assertEq(pFrozen, PRINCIPAL - PRINCIPAL / 2, "the Provider collects half, not all");
     }
 
-    /// The price of the decision, stated. Core cannot adjudicate, so it stops pretending to.
-    function test_thePrice_coreCannotTellTheTwoStoriesApart() public {
+    /// Core cannot tell the two stories apart, so it does not pick one: a Provider who never paid and
+    /// refuses every settlement takes half — not the whole pot, and not nothing.
+    function test_coreCannotTellTheTwoStoriesApart_andSplits() public {
         bytes32 id = _activateP2P(9, 10);
         _markFiat(id); // no fiat was sent; `markFiat` authenticates nothing (§3.11)
         vm.prank(holder);
@@ -76,8 +73,8 @@ contract DisputeIncentivesTest is BaseTest {
         escrow.forceDisputeTimeout(id);
 
         (, uint256 holderAmt, uint256 providerAmt) = escrow.settlementOf(id);
-        assertEq(providerAmt, PRINCIPAL, "an unpaid Provider who refuses to settle takes everything");
-        assertEq(holderAmt, 0, "this is why a deal that matters selects ARBITRATION");
+        assertEq(providerAmt, PRINCIPAL - PRINCIPAL / 2, "a lie pays at most half in pure Core");
+        assertEq(holderAmt, PRINCIPAL / 2, "a deal that must not lose half selects ARBITRATION");
     }
 
     /// Core charges nothing to open one. The official reputation package prices it (§3.14.6).

@@ -893,24 +893,23 @@ contract PrivateDealTest is BaseTest {
         vault.reabsorb(bondDealId, SUBJECT_P, bytes32(uint256(0x2202)), keccak256("nullbond-p-2"), ok(true));
     }
 
-    /// The kernel's `unlock` under an abandoned dispute: the Controller opened a fight and let it
-    /// expire, so the Provider takes the principal in full and both locks come back released
-    /// (§3.11 OUT-14). No kernel path burns any more -- `BondAction.Burn` existed only for the
-    /// 50/50 this terminal replaced.
-    function test_bondDeal_abandonedDisputeReleasesBothLocks() public {
+    /// The kernel's `burn` under a deadlock (Parte IV, 2026-09-24): a deal with bonds but no tribunal, a
+    /// fight nobody settled. Both locks leave the private vault for the sink — the same disposal the
+    /// public vault runs, answered here by the private one — and nothing is left to reabsorb.
+    function test_bondDeal_deadlockBurnsBothLocks() public {
         _activateBonded();
         _markFiat(bondDealId);
         _openDisputed(bondDealId);
         vm.warp(block.timestamp + 7200 + 1); // disputeDuration of the p2p terms
         escrow.forceDisputeTimeout(bondDealId);
 
-        assertTrue(uint8(escrow.status(bondDealId)) == uint8(Status.ABANDONED));
+        assertTrue(uint8(escrow.status(bondDealId)) == uint8(Status.STALEMATE));
         assertEq(escrow.postPending(bondDealId), 0);
-        assertEq(token.balanceOf(SINK), 0, "nothing burns: the terminal has a loser");
-        (,,, bool releasedH) = vault.lockOf(bondDealId, SUBJECT_H);
-        (,,, bool releasedP) = vault.lockOf(bondDealId, SUBJECT_P);
-        assertTrue(releasedH, "the opener's lock is released, not taken");
-        assertTrue(releasedP);
+        assertEq(token.balanceOf(SINK), 2 * LOCK, "both locks burned, to nobody");
+        (, uint256 amountH,,) = vault.lockOf(bondDealId, SUBJECT_H);
+        (, uint256 amountP,,) = vault.lockOf(bondDealId, SUBJECT_P);
+        assertEq(amountH, 0, "consumed, not released: there is nothing to reabsorb");
+        assertEq(amountP, 0);
     }
 
     /// @dev The last kernel verb the private vault had never answered under fire: `slash`, driven

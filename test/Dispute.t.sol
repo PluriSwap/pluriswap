@@ -74,7 +74,7 @@ contract DisputeTest is BaseTest {
         escrow.forceDisputeTimeout(id);
     }
 
-    function test_forceDisputeTimeout_paysTheProviderInFull() public {
+    function test_forceDisputeTimeout_withoutATribunal_splits() public {
         DealTerms memory terms = _p2pTerms();
         terms.releaseDuration = 100;
         terms.disputeDuration = 0;
@@ -84,10 +84,10 @@ contract DisputeTest is BaseTest {
         vm.prank(holder);
         escrow.openDisputed(id);
         escrow.forceDisputeTimeout(id);
-        // Abandoning the fight loses it: the Controller opened one and neither settled nor escalated.
-        assertEq(uint8(escrow.status(id)), uint8(Status.ABANDONED));
-        assertEq(token.balanceOf(holder), 0);
-        assertEq(token.balanceOf(provider), PRINCIPAL);
+        // No tribunal was signed and nobody gave way: a deadlock, split (Parte IV, 2026-09-24).
+        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        assertEq(token.balanceOf(holder), PRINCIPAL / 2);
+        assertEq(token.balanceOf(provider), PRINCIPAL - PRINCIPAL / 2);
     }
 
     function test_forceDisputeTimeout_anyone() public {
@@ -101,7 +101,7 @@ contract DisputeTest is BaseTest {
         escrow.openDisputed(id);
         vm.prank(address(0xDEAD));
         escrow.forceDisputeTimeout(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.ABANDONED));
+        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
     }
 
     function test_terminal_rejectsFurtherStateChange() public {

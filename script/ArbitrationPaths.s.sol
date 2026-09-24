@@ -169,8 +169,9 @@ contract ArbitrationPaths is Script {
         _scores();
     }
 
-    /// OUT-14 with collateral on the table. The opener walked away, so the Provider takes the pot --
-    /// but the bonds still come back, because abandonment is assumed fault, not proven fault.
+    /// OUT-14 with collateral on the table, in a deal WITH a tribunal: the opener had a court and walked
+    /// away, so the Provider takes the pot -- but the bonds still come back, because abandonment is
+    /// assumed fault, not proven fault. (Without a tribunal the same timeout is a deadlock: Paths 15.)
     function _abandonedWithBonds() internal {
         console.log("");
         console.log("abandoned dispute, with bonds posted");

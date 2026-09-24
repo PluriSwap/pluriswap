@@ -22,7 +22,7 @@ import {Reputation} from "../src/packages/Reputation.sol";
 /// @dev The reputation package is the one part of the protocol whose behaviour is a *curve* rather
 ///      than a transition, so no single deal shows what it does. This runs the curve: it earns the
 ///      tiers, hits the two refusals that surprise people, shows what a bond adds, and then throws
-///      it away with one abandoned dispute.
+///      it away with one deadlock.
 ///
 ///      Every subject is salted per run (`LADDER_RUN`, default the block timestamp), so the script
 ///      is repeatable on a chain that already has history — you can run it, look at it, and run it
@@ -151,25 +151,28 @@ contract ReputationLadder is Script {
         console.log("  the bond is 10% of the deal, locked per side, returned on any peaceful close");
     }
 
-    /// And the part worth staring at: one abandoned dispute is -5, which is two and a half clean
-    /// deals at the T1 cap. Reputation is slow to earn and fast to lose, on purpose.
+    /// And the part worth staring at: one deadlock is +10 penalty -- five clean deals at the T1 cap.
+    /// A dispute in a deal with no tribunal that nobody settles marks BOTH sides (Parte IV, 2026-09-24).
+    /// Reputation is slow to earn and fast to lose, on purpose.
     function _demotion() internal {
         console.log("");
-        console.log("one abandoned dispute, on a deal the Controller opens and walks away from");
+        console.log("one deadlock: a dispute nobody settles, in a deal with no tribunal");
         uint256 before = rep.score(SUB_H, address(token));
+        (, uint32 penaltyBefore,) = rep.stats(SUB_H, address(token));
         bytes32 id = _activate(_dealCap(), 3600, 100, 0);
         vm.startBroadcast(providerPk);
         escrow.markFiat(id);
         vm.stopBroadcast();
         vm.startBroadcast(holderPk);
         escrow.openDisputed(id); // costs the contest fee, from the opener's wallet
-        escrow.forceDisputeTimeout(id); // disputeDuration 0: abandoned in the block it was opened
+        escrow.forceDisputeTimeout(id); // disputeDuration 0: deadlocked in the block it was opened
         vm.stopBroadcast();
-        require(escrow.status(id) == Status.ABANDONED, "abandoned");
-        console.log("  the principal went to the Provider in full, and the opener carries the score");
+        require(escrow.status(id) == Status.STALEMATE, "deadlock");
+        console.log("  the principal split in half, and both sides carry +10");
         console.log("  score before", before);
         _state();
-        require(rep.score(SUB_H, address(token)) + 5 <= before + 1, "an abandoned dispute must cost the opener");
+        (, uint32 penaltyAfter,) = rep.stats(SUB_H, address(token));
+        require(penaltyAfter == penaltyBefore + 10, "a deadlock must mark the side that froze");
     }
 
     // ---------------------------------------------------------------- plumbing

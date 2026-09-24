@@ -222,26 +222,27 @@ contract PackagesTest is BaseTest {
         assertEq(vault.available(SUB_H, address(token)), BOND);
     }
 
-    /// An abandoned dispute has a loser, so it is not a stalemate and the bonds do not burn: the
-    /// principal already carries the consequence, and II.6 only moves a bond on a verdict. What the
-    /// opener carries is the score (§3.11 OUT-14). Burning is still what a real stalemate does --
-    /// `test_arbitrationRefused_burnsBonds` keeps that.
-    function test_abandonedDispute_unlocksBondsAndPenalisesTheOpener() public {
+    /// No tribunal, no agreement, no verdict: a deadlock (Parte IV, 2026-09-24). Both sides pay it — half of
+    /// the principal each way, both locks to the sink, and +10 on both scores, a mark stronger than a
+    /// tribunal's refusal (+5, not the parties' fault) and weaker than a proven loss (+15). The locks go to
+    /// the SINK and not to the counterparty: nobody may profit from letting the clock run out.
+    function test_deadlock_burnsBothLocksAndMarksBothSides() public {
         _fundBonds();
         bytes32 id = _activateTrio(1, 1);
         _markFiat(id);
         _openDisputed(id);
         vm.warp(block.timestamp + 7200);
         escrow.forceDisputeTimeout(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.ABANDONED));
-        assertEq(token.balanceOf(sink), 0, "nothing burns: there was a loser, not a stalemate");
-        assertEq(vault.lockOf(SUB_H, id), 0, "both locks released");
+        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        assertEq(token.balanceOf(sink), 2 * BOND, "both locks burned, to nobody");
+        assertEq(vault.lockOf(SUB_H, id), 0);
         assertEq(vault.lockOf(SUB_P, id), 0);
+        assertEq(vault.available(SUB_H, address(token)), 0);
+        assertEq(vault.available(SUB_P, address(token)), 0);
         (, uint32 penaltyH,) = reputation.stats(SUB_H, address(token));
         (, uint32 penaltyP,) = reputation.stats(SUB_P, address(token));
-        assertEq(penaltyH, 5, "the side that abandoned carries it");
-        assertEq(penaltyP, 0, "the side that did not abandon does not");
-        assertEq(reputation.score(SUB_P, address(token)), 1, "the Provider closed a trade");
+        assertEq(penaltyH, 10, "the side that froze");
+        assertEq(penaltyP, 10, "and the side that would not give way");
     }
 
     /// The other side of the same decision. `BondAction.Burn` existed for exactly one terminal -- the
@@ -272,24 +273,19 @@ contract PackagesTest is BaseTest {
         assertEq(penaltyP, 5);
     }
 
-    /// An abandoned dispute pays the Provider in full, so it IS a completion and is invoiced like one
-    /// -- the same reading as CLAIMED. The exemption belongs to STALEMATE, where nobody closed a trade.
-    function test_abandonedDispute_chargesCompletionLikeAClaim() public {
+    /// A deadlock closed no trade, so it is invoiced like the stalemate it is: no completion fee (II.7).
+    function test_deadlock_chargesNoCompletionFee() public {
         _fundBonds();
         bytes32 id = _activateTrio(1, 1);
         _markFiat(id);
         _openDisputed(id);
         vm.warp(block.timestamp + 7200);
         escrow.forceDisputeTimeout(id);
-        assertEq(
-            token.balanceOf(feeRecipient),
-            ACT_FEE + CONTEST_FLOOR + COMP_FEE,
-            "activation + contest-open + completion: a trade did close"
-        );
-        assertEq(token.balanceOf(provider), PRINCIPAL - COMP_FEE);
+        assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FLOOR, "activation + contest-open, nothing else");
+        assertEq(token.balanceOf(provider), PRINCIPAL - PRINCIPAL / 2);
         // `_fundContest` mints for both possible contest invoices; this deal carries no court, so the
-        // court's share was never pulled and stays with the opener.
-        assertEq(token.balanceOf(holder), COURT_CONTEST);
+        // court's share was never pulled and stays with the opener, next to its half.
+        assertEq(token.balanceOf(holder), COURT_CONTEST + PRINCIPAL / 2);
     }
 
     /// Decision: CLAIMED is its own terminal. The trade happened: fee on the pot, Provider credited, Holder silent.
@@ -814,6 +810,9 @@ contract PackagesTest is BaseTest {
         assertEq(uint8(escrow.status(id)), uint8(Status.FUNDED));
     }
 
+    /// The deadlock is the one kernel path that burns, so a vault that swapped its sink after the deal was
+    /// signed is exactly who would profit from it. The kernel re-derives the id, sees the drift and
+    /// abandons the disposal (TRUST-03): the lock stays in the vault and NOTHING reaches either sink.
     function test_bondSinkDrift_disposeFailOpen() public {
         DriftSinkVault driftVault = new DriftSinkVault(address(escrow), sink, passport);
         DealTerms memory terms = _p2pTerms();
@@ -828,8 +827,9 @@ contract PackagesTest is BaseTest {
         _openDisputed(id);
         vm.warp(block.timestamp + 7200);
         escrow.forceDisputeTimeout(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.ABANDONED));
+        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
         assertEq(token.balanceOf(sink), 0);
+        assertEq(token.balanceOf(address(0xBADD1)), 0, "the swapped-in sink gets nothing either");
         assertTrue(driftVault.lockOf(SUB_H, id) != 0);
         assertEq(escrow.postPending(id), 0, "drifted vault abandoned, not left pending");
     }

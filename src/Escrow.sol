@@ -290,34 +290,39 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         d.disputedAt = block.timestamp;
     }
 
-    /// @dev The Controller opened a fight and let it expire without settling it or escalating it.
-    ///      That is the answer: abandoning a dispute loses it, and the principal goes to the Provider
-    ///      in full, exactly as if the freeze had never happened.
+    /// @dev A dispute that ran out its clock. What it means depends on whether the parties gave
+    ///      themselves a tribunal (Parte IV, 2026-09-24, over 2026-09-22):
     ///
-    ///      This used to be a 50/50 stalemate, which made `openDisputed` a free option on half of the
-    ///      counterparty's principal -- the Holder side could freeze a trade it had lost and walk away
-    ///      with half of it, and the Provider, who cannot open a fight or escalate one, had no answer
-    ///      better than taking that half. `STALEMATE` keeps its meaning for the two terminals where
-    ///      nobody abandoned anything: the tribunal refused, or the tribunal never answered.
+    ///      * With ARBITRATION selected, the Controller who opened the fight had a court and did not use
+    ///        it. Abandoning a fight you could have escalated is losing it: `ABANDONED`, the principal to
+    ///        the Provider in full, the locks back (assumed fault, not a verdict), +5 to the opener.
     ///
-    ///      The locks unlock. Abandonment is assumed fault, not proven fault, and II.6 only moves the
-    ///      bond on a verdict; the principal already carries the consequence.
+    ///      * Without it, nobody asked anyone to decide — the two parties signed a deal with no tribunal,
+    ///        and neither gave way before the clock. The kernel does not pretend to know who was right: a
+    ///        deadlock. `STALEMATE`, the principal split, both locks burned to the sink and a `Deadlock`
+    ///        close (+10) on both sides. A reasonable detriment to each, whose whole purpose is to make an
+    ///        agreement inside the window — split, cancel, co-signed release — better than the clock. The
+    ///        locks go to the sink, never to the counterparty: nobody may profit from letting it run out.
     function forceDisputeTimeout(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.DISPUTED) revert WrongStatus();
         Clocks.requireDue(d.disputedAt, d.terms.disputeDuration);
-        _close(
-            dealId,
-            d,
-            d.terms.principal,
-            Outcome(
-                Status.ABANDONED,
-                ALL,
-                IReputation.Close.Stalemate, // the opener's side: +5, assumed fault
-                IReputation.Close.Peaceful, // the Provider closed a trade, as in CLAIMED
-                BondAction.Unlock
-            )
-        );
+        if ((d.pkgs & Packages.ARB) != 0) {
+            _close(
+                dealId,
+                d,
+                d.terms.principal,
+                Outcome(
+                    Status.ABANDONED,
+                    ALL,
+                    IReputation.Close.Stalemate, // the opener's side: +5, assumed fault
+                    IReputation.Close.Peaceful, // the Provider closed a trade, as in CLAIMED
+                    BondAction.Unlock
+                )
+            );
+        } else {
+            _close(dealId, d, d.terms.principal, _stalemate(BondAction.Burn, IReputation.Close.Deadlock));
+        }
     }
 
     function mutualCancel(

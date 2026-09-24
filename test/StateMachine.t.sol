@@ -156,9 +156,9 @@ contract StateMachineTest is BaseTest {
         _openDisputed(id);
         vm.prank(address(0xDEAD));
         escrow.forceDisputeTimeout(id);
-        assertEq(uint8(escrow.status(id)), uint8(Status.ABANDONED));
-        assertEq(token.balanceOf(holder), 0);
-        assertEq(token.balanceOf(provider), PRINCIPAL);
+        assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
+        assertEq(token.balanceOf(holder), PRINCIPAL / 2);
+        assertEq(token.balanceOf(provider), PRINCIPAL - PRINCIPAL / 2);
     }
 
     function test_CASE_CORE_16_unilateralRejectedWhileDisputed() public {

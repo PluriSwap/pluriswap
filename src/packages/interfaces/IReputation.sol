@@ -10,7 +10,8 @@ interface IReputation {
         Silent,
         Stalemate,
         ArbWin,
-        ArbLoss
+        ArbLoss,
+        Deadlock // a dispute in a deal with no tribunal, left to its clock by both sides
     }
 
     function packageId() external view returns (bytes32);

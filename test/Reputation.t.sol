@@ -179,6 +179,18 @@ contract ReputationTest is Test {
         assertEq(reputation.score(SUBJECT_H, address(token)), 0);
     }
 
+    /// A dispute nobody gave a tribunal and nobody settled (Parte IV, 2026-09-24): +10 to each side, between
+    /// a tribunal's refusal (+5) and a proven loss (+15).
+    function test_notifyDeadlock_penaltyTen() public {
+        reputation.admit(holder, _dealTag(), address(token), UNIT, address(0));
+        reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT, IReputation.Close.Deadlock);
+        (uint32 count, uint32 penalty, uint256 volume) = reputation.stats(SUBJECT_H, address(token));
+        assertEq(penalty, 10);
+        assertEq(count, 0, "a deadlock closed no trade");
+        assertEq(volume, 0);
+        assertEq(reputation.inFlight(SUBJECT_H, address(token)), 0, "the flight is released like any terminal");
+    }
+
     function test_notifyArb_winNoVolume_lossPenaltyFifteen() public {
         reputation.admit(holder, _dealTag(), address(token), UNIT / 2, address(0));
         reputation.notifyTerminal(SUBJECT_H, _cpTag(), address(token), UNIT / 2, IReputation.Close.ArbWin);
