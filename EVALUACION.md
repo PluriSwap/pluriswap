@@ -343,7 +343,11 @@ calendario ajeno. `KLEROS_POLICY.md` está listo para pinear. Empezar el trámit
 `VerifierMock` acepta cualquier `abi.encode(dealId, nullifier)`. Once circuitos Noir construidos,
 ninguno es el *payment proof*. No es una tarea: es la decisión de prioridad de la discusión B.
 
-**Estado:** abierto.
+**Estado:** abierto. **Precondición cerrada (2026-09-24):** los términos no firmaban la pata fiat, así
+que ningún circuito real habría tenido contra qué verificar el pago — el Provider podía probar *un* pago
+cualquiera. Ahora `DealTerms.fiatCommit` la firma oculta (§3.13), `Packages.resolve` rechaza un deal ZK
+sin ella, y el preimage canónico vive en `pluri_commitments` con vectores. Lo que queda es el circuito
+del rail y el módulo real que reemplace a `ZkMock`.
 
 ### LHF-8 — Warts menores
 
@@ -453,6 +457,12 @@ attestations; cero para probar un pago fiat. La razón es entendible (zkEmail / 
 que cambian es lo más difícil del stack), pero la consecuencia estratégica es dura: **el esfuerzo de
 privacidad se invirtió en ocultar la reputación, que es el activo menos valioso, mientras el
 mecanismo que elimina la disputa sigue en mock.**
+
+**Avance (2026-09-24): la pata fiat, firmada.** El primer paso hacia el circuito no era el circuito: era
+que el deal dijera qué pago se acordó. `DealTerms.fiatCommit = Poseidon(TAG_FIAT, rail, currency, amount,
+payee, salt)`, oculto; dominio EIP-712 a `version "2"`. Lo que sigue abierto es la decisión de rail y
+tecnología (zkEmail, zkTLS, Open Finance), la política de claves de confianza del verifier, y medir las
+gates antes de construir.
 
 ### C. La raíz anti-sybil contradice el motivo del protocolo
 
