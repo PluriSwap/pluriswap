@@ -283,9 +283,12 @@ contract PrivateBondVault is IBondVault, EIP712 {
     ///      these inputs were proven in this transaction and then does what is its own: burn the
     ///      source note, insert the change, record the earmark the kernel's `reserve` will read.
     ///      `lockCommit == 0` is a deal without bonds and has no business here.
-    function prepare(IBundleVerifier.BundleInputs calldata inputs, address wallet, uint256 deadline, bytes calldata walletSig)
-        external
-    {
+    function prepare(
+        IBundleVerifier.BundleInputs calldata inputs,
+        address wallet,
+        uint256 deadline,
+        bytes calldata walletSig
+    ) external {
         _openPrepare(inputs, deadline);
         _prepareSide(inputs, wallet, deadline, walletSig);
         notesTree.insert(inputs.changeNote);
@@ -303,7 +306,8 @@ contract PrivateBondVault is IBondVault, EIP712 {
         bytes calldata providerSig,
         uint256 deadline
     ) external {
-        if (holder.dealId != provider.dealId || holder.bondRoot != provider.bondRoot || holder.token != provider.token) {
+        if (holder.dealId != provider.dealId || holder.bondRoot != provider.bondRoot || holder.token != provider.token)
+        {
             revert SidesDisagree();
         }
         _openPrepare(holder, deadline);

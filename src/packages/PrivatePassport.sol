@@ -59,11 +59,9 @@ contract PrivatePassport is IPrivatePassport, IPassport, EIP712 {
     error PassportProofFailed();
     error InvalidWalletSignature();
 
-    constructor(
-        PoseidonTree accountTree_,
-        IHumanityVerifier humanityVerifier_,
-        IBundleVerifier bundleVerifier_
-    ) EIP712("PluriSwap", "1") {
+    constructor(PoseidonTree accountTree_, IHumanityVerifier humanityVerifier_, IBundleVerifier bundleVerifier_)
+        EIP712("PluriSwap", "1")
+    {
         if (
             address(accountTree_) == address(0) || address(humanityVerifier_) == address(0)
                 || address(bundleVerifier_) == address(0)

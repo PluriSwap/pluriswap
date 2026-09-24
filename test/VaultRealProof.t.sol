@@ -43,7 +43,6 @@ import {IBundleVerifier} from "../src/packages/interfaces/IBundleVerifier.sol";
 ///      token pub is that address, and its `decimals()` answers 6 for the admission
 ///      adapter's live read.
 contract VaultRealProofTest is Test {
-
     /// One side as the merged `prepare_side` proof carries it (§3.15.4). This suite drives the whole
     /// private lifecycle with the committed fixtures, so every field is the one the circuit committed
     /// to — the bonded shape, because the sample deal carries a bond.
@@ -73,7 +72,6 @@ contract VaultRealProofTest is Test {
     function _proveSide() internal {
         require(bundle.verify(side(), proofSideBlob()), "the committed side proof must verify");
     }
-
 
     /// @dev The §3.14.7 pair tag. With a mock verifier nothing checks its VALUE — what these tests
     ///      exercise is that both sides of one activation carry the SAME one, which is what the module
@@ -366,12 +364,7 @@ contract VaultRealProofTest is Test {
         // One proof for the whole side, verified once; the three modules read the ticket (§3.15.4).
         _proveSide();
         passport.prepare(side(), wallet, deadline, _walletSig(address(passport)));
-        vault.prepare(
-            side(),
-            wallet,
-            deadline,
-            _walletSig(address(vault))
-        );
+        vault.prepare(side(), wallet, deadline, _walletSig(address(vault)));
         reputation.prepare(
             PrivateReputation.Side({inputs: side(), wallet: wallet, walletSig: _walletSig(address(reputation))}),
             deadline
@@ -427,12 +420,7 @@ contract VaultRealProofTest is Test {
     function test_vault_prepare_replayDiesOnTheNullifier() public {
         vault.deposit(token, depositAmount, depositNote, proofDepositBlob());
         _proveSide();
-        vault.prepare(
-            side(),
-            wallet,
-            deadline,
-            _walletSig(address(vault))
-        );
+        vault.prepare(side(), wallet, deadline, _walletSig(address(vault)));
         // The proof is valid forever and its ticket is still good in this transaction, but the
         // source note's nullifier is spent: the split cannot be replayed — the tree rejects before it
         // can grow.
@@ -471,12 +459,7 @@ contract VaultRealProofTest is Test {
         // One proof for the whole side, verified once; the three modules read the ticket (§3.15.4).
         _proveSide();
         passport.prepare(side(), wallet, deadline, _walletSig(address(passport)));
-        vault.prepare(
-            side(),
-            wallet,
-            deadline,
-            _walletSig(address(vault))
-        );
+        vault.prepare(side(), wallet, deadline, _walletSig(address(vault)));
         reputation.prepare(
             PrivateReputation.Side({inputs: side(), wallet: wallet, walletSig: _walletSig(address(reputation))}),
             deadline
@@ -507,12 +490,7 @@ contract VaultRealProofTest is Test {
         // One proof for the whole side, verified once; the three modules read the ticket (§3.15.4).
         _proveSide();
         passport.prepare(side(), wallet, deadline, _walletSig(address(passport)));
-        vault.prepare(
-            side(),
-            wallet,
-            deadline,
-            _walletSig(address(vault))
-        );
+        vault.prepare(side(), wallet, deadline, _walletSig(address(vault)));
         vm.prank(operator);
         vm.expectRevert(PrivateBondVault.PrepareMismatch.selector);
         vault.reserve(dealSubject, token, dealId, principal + 1); // a different principal
@@ -529,7 +507,6 @@ contract VaultRealProofTest is Test {
         assertFalse(depositVerifier.verifyDeposit(token, wrongAmount, depositNote, proofDepositBlob()));
         assertFalse(depositVerifier.verifyDeposit(token, depositAmount, wrongNote, proofDepositBlob()));
     }
-
 
     function test_claim_rejectsWrongArgs() public view {
         bytes32 wrongDeal = bytes32(uint256(keccak256("other-deal")));
@@ -952,8 +929,12 @@ contract VaultRealProofTest is Test {
     /// the kernel's own work, all in one atomic tx (§3.15.4). The verification half is measured here;
     /// the calldata half is the proofs themselves, and on Arbitrum that is the part that reaches L1.
     function test_privateDeal_costModel() public {
-        uint256 passportBytes = vm.parseJsonBytes(vm.readFile("test/fixtures/proofs/prepare_passport.json"), ".proof_with_public_inputs").length;
-        uint256 admitBytes = vm.parseJsonBytes(vm.readFile("test/fixtures/proofs/prepare_admit.json"), ".proof_with_public_inputs").length;
+        uint256 passportBytes =
+            vm.parseJsonBytes(vm.readFile("test/fixtures/proofs/prepare_passport.json"), ".proof_with_public_inputs")
+        .length;
+        uint256 admitBytes =
+            vm.parseJsonBytes(vm.readFile("test/fixtures/proofs/prepare_admit.json"), ".proof_with_public_inputs")
+        .length;
         uint256 bondBytes = proofBondBlob().length;
         uint256 bundleBytes = 2 * passportBytes + 2 * admitBytes + 2 * bondBytes;
 

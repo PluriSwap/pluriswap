@@ -158,18 +158,7 @@ contract PrivateRegisterTest is Test {
     function test_reputation_zeroConstructorArgs() public {
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
         new PrivateReputation(
-            IPassport(address(0)),
-            tree,
-            account,
-            bundle,
-            claimProof,
-            FEE_TO,
-            0,
-            0,
-            0,
-            0,
-            address(this),
-            address(this)
+            IPassport(address(0)), tree, account, bundle, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(this)
         );
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
         new PrivateReputation(

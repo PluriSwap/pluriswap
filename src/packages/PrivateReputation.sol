@@ -232,8 +232,7 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
         // §3.14.7 agreement — but the others are what make the shared values safe to read from either.
         if (
             holder.inputs.dealId != provider.inputs.dealId || holder.inputs.repRoot != provider.inputs.repRoot
-                || holder.inputs.token != provider.inputs.token
-                || holder.inputs.principal != provider.inputs.principal
+                || holder.inputs.token != provider.inputs.token || holder.inputs.principal != provider.inputs.principal
                 || holder.inputs.pairTag != provider.inputs.pairTag
         ) {
             revert SidesDisagree();
@@ -277,7 +276,9 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
         // will consume all come out of the inputs that were proven, never from anywhere else.
         if (!bundleVerifier.wasProven(side.inputs)) revert AdmitProofFailed();
         bytes32 digest = _hashTypedDataV4(
-            keccak256(abi.encode(PREPARE_TYPEHASH, side.inputs.dealId, side.inputs.dealSubject, address(this), deadline))
+            keccak256(
+                abi.encode(PREPARE_TYPEHASH, side.inputs.dealId, side.inputs.dealSubject, address(this), deadline)
+            )
         );
         if (!SignatureChecker.isValidSignatureNow(side.wallet, digest, side.walletSig)) {
             revert InvalidWalletSignature();
@@ -285,8 +286,9 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
         // Burn the version nullifier before inserting: concurrent prepares against the same account
         // serialize here, and a replayed transition dies before it can grow the tree.
         accountTree.spend(side.inputs.nullRep);
-        preparedAdmit[side.wallet] =
-            PreparedAdmit(side.inputs.dealSubject, side.inputs.token, side.inputs.principal, deadline, side.inputs.pairTag);
+        preparedAdmit[side.wallet] = PreparedAdmit(
+            side.inputs.dealSubject, side.inputs.token, side.inputs.principal, deadline, side.inputs.pairTag
+        );
         emit ReputationPrepared(side.wallet, side.inputs.dealSubject, side.inputs.newLeaf, deadline);
     }
 

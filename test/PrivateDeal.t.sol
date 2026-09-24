@@ -43,7 +43,6 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      is hoisted to a local BEFORE `vm.expectRevert` — the expectation is consumed by the next
 ///      call, whatever it is.
 contract PrivateDealTest is BaseTest {
-
     /// @dev One side's public inputs, as the merged `prepare_side` proof would carry them
     ///      (§3.15.4). With a mock verifier nothing checks their internal consistency — what these
     ///      tests exercise is the MODULES: that each one reads its own half out of a side that was
@@ -370,8 +369,22 @@ contract PrivateDealTest is BaseTest {
             bondHa.deadline
         );
         return relayer.activatePrivate(
-            escrow, passport, reputation, vault, bondHa, hs, bondPa, ps, ca, "", bondMods, bondDealId, sideH, sideP,
-            PAIR_TAG, bundle
+            escrow,
+            passport,
+            reputation,
+            vault,
+            bondHa,
+            hs,
+            bondPa,
+            ps,
+            ca,
+            "",
+            bondMods,
+            bondDealId,
+            sideH,
+            sideP,
+            PAIR_TAG,
+            bundle
         );
     }
 
@@ -552,7 +565,9 @@ contract PrivateDealTest is BaseTest {
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
         passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), root, dealId), holder, ha.deadline, passportSig);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig
+            }),
             ha.deadline
         );
         vm.expectEmit(true, true, true, true, address(reputation));
@@ -568,7 +583,9 @@ contract PrivateDealTest is BaseTest {
         bytes32 root = tree.root();
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig
+            }),
             ha.deadline
         );
         vm.prank(address(escrow));
@@ -592,7 +609,9 @@ contract PrivateDealTest is BaseTest {
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, otherSubject, ha.deadline);
         passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), root, dealId), holder, ha.deadline, passportSig);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(otherSubject, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            PrivateReputation.Side({
+                inputs: _in(otherSubject, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig
+            }),
             ha.deadline
         );
         vm.prank(address(escrow));
@@ -604,7 +623,9 @@ contract PrivateDealTest is BaseTest {
         bytes32 root = tree.root();
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig
+            }),
             ha.deadline
         );
         vm.warp(ha.deadline + 1);
@@ -729,7 +750,9 @@ contract PrivateDealTest is BaseTest {
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
         passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), root, dealId), holder, ha.deadline, passportSig);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig
+            }),
             ha.deadline
         );
         vm.prank(address(escrow));
@@ -743,7 +766,9 @@ contract PrivateDealTest is BaseTest {
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
         passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), root, dealId), holder, ha.deadline, passportSig);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig
+            }),
             ha.deadline
         );
         // A counterparty signs a BONDS deal trusting that the lock exists: a foreign vault under
@@ -809,8 +834,22 @@ contract PrivateDealTest is BaseTest {
         );
         vm.expectRevert(Escrow.InvalidProviderSignature.selector);
         relayer.activatePrivate(
-            escrow, passport, reputation, vault, bondHa, hs, bondPa, ps, ca, "", bondMods, bondDealId, sideH, sideP,
-            PAIR_TAG, bundle
+            escrow,
+            passport,
+            reputation,
+            vault,
+            bondHa,
+            hs,
+            bondPa,
+            ps,
+            ca,
+            "",
+            bondMods,
+            bondDealId,
+            sideH,
+            sideP,
+            PAIR_TAG,
+            bundle
         );
         // The deposits predate the bundle and survive it; the splits did not land.
         assertEq(vault.notesTree().nextIndex(), 2);
@@ -938,8 +977,22 @@ contract PrivateDealTest is BaseTest {
             courtPa.deadline
         );
         bytes32 id = relayer.activatePrivate(
-            escrow, passport, reputation, vault, courtHa, hs, courtPa, ps, ca, "", courtMods, courtDealId, sideH, sideP,
-            PAIR_TAG, bundle
+            escrow,
+            passport,
+            reputation,
+            vault,
+            courtHa,
+            hs,
+            courtPa,
+            ps,
+            ca,
+            "",
+            courtMods,
+            courtDealId,
+            sideH,
+            sideP,
+            PAIR_TAG,
+            bundle
         );
         assertEq(id, courtDealId);
 

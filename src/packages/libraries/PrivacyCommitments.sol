@@ -28,8 +28,7 @@ library PrivacyCommitments {
     uint256 internal constant TAG_PAIR = 7;
     /// @dev The BN254 scalar field: `pairId` mixes its two inputs with field arithmetic, so the sum
     ///      and the product have to reduce exactly as they do in the circuit.
-    uint256 internal constant BN254_P =
-        21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    uint256 internal constant BN254_P = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
     uint256 internal constant TAG_CP = 8;
 
     /// @dev PoseidonT2 — one input, capacity 0. The width of `S = Poseidon(sk_id)`.

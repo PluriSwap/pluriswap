@@ -82,18 +82,7 @@ contract RegisterRealProofTest is Test {
         accountTree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
         passport = new PrivatePassport(accountTree, humanityVerifier, bundle);
         reputation = new PrivateReputation(
-            passport,
-            accountTree,
-            accountVerifier,
-            bundle,
-            claimProof,
-            FEE_TO,
-            0,
-            0,
-            0,
-            0,
-            address(this),
-            address(0)
+            passport, accountTree, accountVerifier, bundle, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
         );
         assertEq(address(reputation), predictedRep, "predicted tree owner drifted");
     }

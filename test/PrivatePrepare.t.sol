@@ -23,7 +23,6 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      hoisted to a local BEFORE `vm.expectRevert` — the expectation is consumed by the next
 ///      call, whatever it is.
 contract PrivatePrepareTest is Test {
-
     /// @dev One side's public inputs, as the merged `prepare_side` proof would carry them
     ///      (§3.15.4). With a mock verifier nothing checks their internal consistency — what these
     ///      tests exercise is the MODULES: that each one reads its own half out of a side that was
@@ -157,7 +156,12 @@ contract PrivatePrepareTest is Test {
         vm.prank(other); // the relayer is anyone; the proof and the signature are the authority
         vm.expectEmit(true, true, true, true, address(passport));
         emit PrivatePassport.PassportPrepared(holder, SUBJECT_H, deadline);
-        passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), tree.root(), DEAL_ID), holder, deadline, _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline));
+        passport.prepare(
+            _in(SUBJECT_H, bytes32(0), bytes32(0), tree.root(), DEAL_ID),
+            holder,
+            deadline,
+            _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline)
+        );
         (bytes32 buffered, uint256 bufferedDeadline) = passport.preparedPassport(holder);
         assertEq(buffered, SUBJECT_H);
         assertEq(bufferedDeadline, deadline);
@@ -178,14 +182,24 @@ contract PrivatePrepareTest is Test {
 
     function test_passport_prepare_unknownRoot() public {
         vm.expectRevert(PrivatePassport.UnknownRoot.selector);
-        passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), FAKE_ROOT, DEAL_ID), holder, deadline, _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline));
+        passport.prepare(
+            _in(SUBJECT_H, bytes32(0), bytes32(0), FAKE_ROOT, DEAL_ID),
+            holder,
+            deadline,
+            _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline)
+        );
     }
 
     function test_passport_prepare_expired() public {
         vm.warp(deadline + 1);
         bytes32 root = tree.root();
         vm.expectRevert(PrivatePassport.PrepareExpired.selector);
-        passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), root, DEAL_ID), holder, deadline, _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline));
+        passport.prepare(
+            _in(SUBJECT_H, bytes32(0), bytes32(0), root, DEAL_ID),
+            holder,
+            deadline,
+            _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline)
+        );
     }
 
     function test_passport_prepare_wrongWalletKey() public {
@@ -198,15 +212,30 @@ contract PrivatePrepareTest is Test {
     }
 
     function test_passport_prepare_latestWins() public {
-        passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), tree.root(), DEAL_ID), holder, deadline, _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline));
-        passport.prepare(_in(SUBJECT_X, bytes32(0), bytes32(0), tree.root(), DEAL_ID), holder, deadline, _sig(address(passport), holderPk, DEAL_ID, SUBJECT_X, deadline));
+        passport.prepare(
+            _in(SUBJECT_H, bytes32(0), bytes32(0), tree.root(), DEAL_ID),
+            holder,
+            deadline,
+            _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline)
+        );
+        passport.prepare(
+            _in(SUBJECT_X, bytes32(0), bytes32(0), tree.root(), DEAL_ID),
+            holder,
+            deadline,
+            _sig(address(passport), holderPk, DEAL_ID, SUBJECT_X, deadline)
+        );
         assertEq(passport.identify(holder), SUBJECT_X);
     }
 
     // ---------------------------------------------------------------- PrivatePassport.identify
 
     function test_passport_identify_answersPrepared() public {
-        passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), tree.root(), DEAL_ID), holder, deadline, _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline));
+        passport.prepare(
+            _in(SUBJECT_H, bytes32(0), bytes32(0), tree.root(), DEAL_ID),
+            holder,
+            deadline,
+            _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline)
+        );
         assertEq(passport.identify(holder), SUBJECT_H);
     }
 
@@ -216,7 +245,12 @@ contract PrivatePrepareTest is Test {
     }
 
     function test_passport_identify_failsClosedAfterExpiry() public {
-        passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), tree.root(), DEAL_ID), holder, deadline, _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline));
+        passport.prepare(
+            _in(SUBJECT_H, bytes32(0), bytes32(0), tree.root(), DEAL_ID),
+            holder,
+            deadline,
+            _sig(address(passport), holderPk, DEAL_ID, SUBJECT_H, deadline)
+        );
         vm.warp(deadline + 1);
         vm.expectRevert(IPassport.NoPassport.selector);
         passport.identify(holder);
@@ -228,7 +262,11 @@ contract PrivatePrepareTest is Test {
         vm.expectEmit(true, true, true, true, address(reputation));
         emit PrivateReputation.ReputationPrepared(holder, SUBJECT_H, NEW_LEAF_H, deadline);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, tree.root(), DEAL_ID), wallet: holder, walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, tree.root(), DEAL_ID),
+                wallet: holder,
+                walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
+            }),
             deadline
         );
         assertTrue(tree.isSpent(NULLREP_H), "version nullifier not burned");
@@ -244,7 +282,11 @@ contract PrivatePrepareTest is Test {
 
     function test_reputation_prepare_serializesByNullifier() public {
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, tree.root(), DEAL_ID), wallet: holder, walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, tree.root(), DEAL_ID),
+                wallet: holder,
+                walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
+            }),
             deadline
         );
         // A second prepare against the same account version burns the same nullRep: replay.
@@ -252,7 +294,9 @@ contract PrivatePrepareTest is Test {
         bytes memory sig = _sig(address(reputation), holderPk, DEAL_ID_2, SUBJECT_H, deadline);
         vm.expectRevert(PoseidonTree.NullifierUsed.selector);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, NEW_LEAF_X, NULLREP_H, root, DEAL_ID_2), wallet: holder, walletSig: sig}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, NEW_LEAF_X, NULLREP_H, root, DEAL_ID_2), wallet: holder, walletSig: sig
+            }),
             deadline
         );
         assertEq(tree.nextIndex(), 1);
@@ -262,9 +306,7 @@ contract PrivatePrepareTest is Test {
         bytes32 root = tree.root();
         bytes memory sig = _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline);
         PrivateReputation.Side memory unproven = PrivateReputation.Side({
-            inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, root, DEAL_ID),
-            wallet: holder,
-            walletSig: sig
+            inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, root, DEAL_ID), wallet: holder, walletSig: sig
         });
         bundle.setAnswer(false);
         vm.expectRevert(PrivateReputation.AdmitProofFailed.selector);
@@ -278,7 +320,11 @@ contract PrivatePrepareTest is Test {
     function test_reputation_prepare_unknownRoot() public {
         vm.expectRevert(PrivateReputation.UnknownRoot.selector);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, FAKE_ROOT, DEAL_ID), wallet: holder, walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, FAKE_ROOT, DEAL_ID),
+                wallet: holder,
+                walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
+            }),
             deadline
         );
     }
@@ -288,7 +334,11 @@ contract PrivatePrepareTest is Test {
         bytes32 root = tree.root();
         vm.expectRevert(PrivateReputation.PrepareExpired.selector);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, root, DEAL_ID), wallet: holder, walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, root, DEAL_ID),
+                wallet: holder,
+                walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
+            }),
             deadline
         );
     }
@@ -298,12 +348,15 @@ contract PrivatePrepareTest is Test {
         bytes memory sig = _sig(address(reputation), otherPk, DEAL_ID, SUBJECT_H, deadline);
         vm.expectRevert(PrivateReputation.InvalidWalletSignature.selector);
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, root, DEAL_ID), wallet: holder, walletSig: sig}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, root, DEAL_ID), wallet: holder, walletSig: sig
+            }),
             deadline
         );
         assertFalse(tree.isSpent(NULLREP_H));
         assertEq(tree.nextIndex(), 0);
     }
+
     // ---------------------------------------------------------------- the two-sided prepare
 
     /// @dev The consent is bound to the module that will read it (its address is in the EIP-712
@@ -350,13 +403,21 @@ contract PrivatePrepareTest is Test {
 
         // Path A: the two calls, on this tree.
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, root, DEAL_ID), wallet: holder, walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, root, DEAL_ID),
+                wallet: holder,
+                walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
+            }),
             deadline
         );
         // The second side proves against the root the first insert produced: that sequencing is what
         // `prepareBoth` removes.
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), tree.root(), DEAL_ID), wallet: other, walletSig: _sig(address(reputation), otherPk, DEAL_ID, SUBJECT_X, deadline)}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), tree.root(), DEAL_ID),
+                wallet: other,
+                walletSig: _sig(address(reputation), otherPk, DEAL_ID, SUBJECT_X, deadline)
+            }),
             deadline
         );
         bytes32 rootAfterTwo = tree.root();
@@ -367,8 +428,28 @@ contract PrivatePrepareTest is Test {
         bytes32 root2 = tree2.root();
         assertEq(root2, root, "both stacks start from the same empty tree");
         rep2.prepareBoth(
-            _sideOf(address(rep2), rep2.accountTree().root(), DEAL_ID, holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline),
-            _sideOf(address(rep2), rep2.accountTree().root(), DEAL_ID, other, otherPk, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), deadline),
+            _sideOf(
+                address(rep2),
+                rep2.accountTree().root(),
+                DEAL_ID,
+                holder,
+                holderPk,
+                SUBJECT_H,
+                NEW_LEAF_H,
+                NULLREP_H,
+                deadline
+            ),
+            _sideOf(
+                address(rep2),
+                rep2.accountTree().root(),
+                DEAL_ID,
+                other,
+                otherPk,
+                SUBJECT_X,
+                NEW_LEAF_X,
+                keccak256("nullrep-x-1"),
+                deadline
+            ),
             deadline
         );
 
@@ -394,35 +475,85 @@ contract PrivatePrepareTest is Test {
         (PrivateReputation rep2,) = _freshModule();
         // Every argument built BEFORE the expectation: an external call in the argument list is a
         // call, and forge matches the expectation against the next one it sees.
-        PrivateReputation.Side memory sameH = _sideOf(address(rep2), rep2.accountTree().root(), DEAL_ID, holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline_);
-        PrivateReputation.Side memory sameP = _sideOf(address(rep2), rep2.accountTree().root(), DEAL_ID, other, otherPk, SUBJECT_X, NEW_LEAF_X, NULLREP_H, deadline_);
-        bytes32 root2 = rep2.accountTree().root();
-        vm.expectRevert(PoseidonTree.NullifierUsed.selector);
-        rep2.prepareBoth(
-            sameH,
-            sameP,
+        PrivateReputation.Side memory sameH = _sideOf(
+            address(rep2),
+            rep2.accountTree().root(),
+            DEAL_ID,
+            holder,
+            holderPk,
+            SUBJECT_H,
+            NEW_LEAF_H,
+            NULLREP_H,
             deadline_
         );
+        PrivateReputation.Side memory sameP = _sideOf(
+            address(rep2),
+            rep2.accountTree().root(),
+            DEAL_ID,
+            other,
+            otherPk,
+            SUBJECT_X,
+            NEW_LEAF_X,
+            NULLREP_H,
+            deadline_
+        );
+        bytes32 root2 = rep2.accountTree().root();
+        vm.expectRevert(PoseidonTree.NullifierUsed.selector);
+        rep2.prepareBoth(sameH, sameP, deadline_);
 
         // Two activations of the same account racing: whoever lands first spends the version, and the
         // second dies on the nullifier rather than double-spending the cap.
         (PrivateReputation rep3,) = _freshModule();
         rep3.prepareBoth(
-            _sideOf(address(rep3), rep3.accountTree().root(), DEAL_ID, holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline_),
-            _sideOf(address(rep3), rep3.accountTree().root(), DEAL_ID, other, otherPk, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), deadline_),
+            _sideOf(
+                address(rep3),
+                rep3.accountTree().root(),
+                DEAL_ID,
+                holder,
+                holderPk,
+                SUBJECT_H,
+                NEW_LEAF_H,
+                NULLREP_H,
+                deadline_
+            ),
+            _sideOf(
+                address(rep3),
+                rep3.accountTree().root(),
+                DEAL_ID,
+                other,
+                otherPk,
+                SUBJECT_X,
+                NEW_LEAF_X,
+                keccak256("nullrep-x-1"),
+                deadline_
+            ),
             deadline_
         );
         bytes32 movedRoot = rep3.accountTree().root();
-        PrivateReputation.Side memory againH =
-            _sideOf(address(rep3), rep3.accountTree().root(), DEAL_ID_2, holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline_);
-        PrivateReputation.Side memory freshP =
-            _sideOf(address(rep3), rep3.accountTree().root(), DEAL_ID_2, other, otherPk, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-2"), deadline_);
-        vm.expectRevert(PoseidonTree.NullifierUsed.selector);
-        rep3.prepareBoth(
-            againH,
-            freshP,
+        PrivateReputation.Side memory againH = _sideOf(
+            address(rep3),
+            rep3.accountTree().root(),
+            DEAL_ID_2,
+            holder,
+            holderPk,
+            SUBJECT_H,
+            NEW_LEAF_H,
+            NULLREP_H,
             deadline_
         );
+        PrivateReputation.Side memory freshP = _sideOf(
+            address(rep3),
+            rep3.accountTree().root(),
+            DEAL_ID_2,
+            other,
+            otherPk,
+            SUBJECT_X,
+            NEW_LEAF_X,
+            keccak256("nullrep-x-2"),
+            deadline_
+        );
+        vm.expectRevert(PoseidonTree.NullifierUsed.selector);
+        rep3.prepareBoth(againH, freshP, deadline_);
     }
 
     /// The root moving under a proof is not a race at all: a prepare that landed first advances the
@@ -436,8 +567,28 @@ contract PrivatePrepareTest is Test {
 
         // Somebody else's activation lands first and moves the root.
         rep2.prepareBoth(
-            _sideOf(address(rep2), rep2.accountTree().root(), DEAL_ID, holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline_),
-            _sideOf(address(rep2), rep2.accountTree().root(), DEAL_ID, other, otherPk, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), deadline_),
+            _sideOf(
+                address(rep2),
+                rep2.accountTree().root(),
+                DEAL_ID,
+                holder,
+                holderPk,
+                SUBJECT_H,
+                NEW_LEAF_H,
+                NULLREP_H,
+                deadline_
+            ),
+            _sideOf(
+                address(rep2),
+                rep2.accountTree().root(),
+                DEAL_ID,
+                other,
+                otherPk,
+                SUBJECT_X,
+                NEW_LEAF_X,
+                keccak256("nullrep-x-1"),
+                deadline_
+            ),
             deadline_
         );
         assertTrue(tree2.root() != rootBefore, "the root moved");
@@ -449,25 +600,49 @@ contract PrivatePrepareTest is Test {
         bytes32 root = tree.root();
         uint256 before = gasleft();
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, root, DEAL_ID), wallet: holder, walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_H, NEW_LEAF_H, NULLREP_H, root, DEAL_ID),
+                wallet: holder,
+                walletSig: _sig(address(reputation), holderPk, DEAL_ID, SUBJECT_H, deadline)
+            }),
             deadline
         );
         reputation.prepare(
-            PrivateReputation.Side({inputs: _in(SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), tree.root(), DEAL_ID), wallet: other, walletSig: _sig(address(reputation), otherPk, DEAL_ID, SUBJECT_X, deadline)}),
+            PrivateReputation.Side({
+                inputs: _in(SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), tree.root(), DEAL_ID),
+                wallet: other,
+                walletSig: _sig(address(reputation), otherPk, DEAL_ID, SUBJECT_X, deadline)
+            }),
             deadline
         );
         uint256 separate = before - gasleft();
 
         (PrivateReputation rep2,) = _freshModule();
-        PrivateReputation.Side memory h = _sideOf(address(rep2), rep2.accountTree().root(), DEAL_ID, holder, holderPk, SUBJECT_H, NEW_LEAF_H, NULLREP_H, deadline);
-        PrivateReputation.Side memory p = _sideOf(address(rep2), rep2.accountTree().root(), DEAL_ID, other, otherPk, SUBJECT_X, NEW_LEAF_X, keccak256("nullrep-x-1"), deadline);
-        bytes32 root2 = rep2.accountTree().root();
-        before = gasleft();
-        rep2.prepareBoth(
-            h,
-            p,
+        PrivateReputation.Side memory h = _sideOf(
+            address(rep2),
+            rep2.accountTree().root(),
+            DEAL_ID,
+            holder,
+            holderPk,
+            SUBJECT_H,
+            NEW_LEAF_H,
+            NULLREP_H,
             deadline
         );
+        PrivateReputation.Side memory p = _sideOf(
+            address(rep2),
+            rep2.accountTree().root(),
+            DEAL_ID,
+            other,
+            otherPk,
+            SUBJECT_X,
+            NEW_LEAF_X,
+            keccak256("nullrep-x-1"),
+            deadline
+        );
+        bytes32 root2 = rep2.accountTree().root();
+        before = gasleft();
+        rep2.prepareBoth(h, p, deadline);
         uint256 together = before - gasleft();
 
         emit log_named_uint("two prepares, separately", separate);
@@ -475,5 +650,4 @@ contract PrivatePrepareTest is Test {
         emit log_named_uint("saved", separate - together);
         assertLt(together, separate, "batching the insert has to pay for the extra entrypoint");
     }
-
 }

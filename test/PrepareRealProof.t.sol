@@ -28,7 +28,6 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      whose mock is gone. The claim side (IClaimVerifier) and the vault side remain mocks
 ///      until V3, and are marked as such.
 contract PrepareRealProofTest is Test {
-
     /// @dev The §3.14.7 pair tag. With a mock verifier nothing checks its VALUE — what these tests
     ///      exercise is that both sides of one activation carry the SAME one, which is what the module
     ///      compares. The real value is pinned by the fixture tests and by the circuit itself.
@@ -141,18 +140,7 @@ contract PrepareRealProofTest is Test {
         accountTree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
         passport = new PrivatePassport(accountTree, humanityVerifier, bundle);
         reputation = new PrivateReputation(
-            passport,
-            accountTree,
-            accountVerifier,
-            bundle,
-            claimProof,
-            FEE_TO,
-            0,
-            0,
-            0,
-            0,
-            address(this),
-            address(0)
+            passport, accountTree, accountVerifier, bundle, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
         );
         assertEq(address(reputation), predictedRep, "predicted tree owner drifted");
 
@@ -290,14 +278,6 @@ contract PrepareRealProofTest is Test {
 
     // ---------------------------------------------------------------- adapter negatives
 
-
-
-
-
-
-
-
-
     function test_prepare_rejectsForeignRoot() public {
         // The modules gate the root against their own tree's ring buffer BEFORE asking the shared
         // verifier anything: an unknown root never reaches a ticket lookup, let alone a verification.
@@ -323,8 +303,7 @@ contract PrepareRealProofTest is Test {
         IBundleVerifier.BundleInputs memory edited = side();
         edited.newLeaf = keccak256("a leaf nobody proved");
         bytes memory rSig = _walletSig(address(reputation));
-        PrivateReputation.Side memory bad =
-            PrivateReputation.Side({inputs: edited, wallet: wallet, walletSig: rSig});
+        PrivateReputation.Side memory bad = PrivateReputation.Side({inputs: edited, wallet: wallet, walletSig: rSig});
         vm.expectRevert(PrivateReputation.AdmitProofFailed.selector);
         reputation.prepare(bad, deadline);
     }

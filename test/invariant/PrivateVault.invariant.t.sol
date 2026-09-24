@@ -33,7 +33,6 @@ import {IBundleVerifier} from "../../src/packages/interfaces/IBundleVerifier.sol
 ///      Every verb guards its full precondition and is a no-op otherwise (`fail_on_revert = true`:
 ///      any revert in a campaign is a vault finding, not handler noise).
 contract PrivateVaultHandler is Test {
-
     /// @dev One side's bundle inputs as the vault reads them (§3.15.4). The reputation half is zero
     ///      here: these suites drive the vault directly, and a module only ever reads its own fields
     ///      — which is the property the shared verifier was designed to keep.

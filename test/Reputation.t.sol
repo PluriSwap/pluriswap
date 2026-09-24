@@ -11,7 +11,6 @@ import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {IReputation} from "../src/packages/interfaces/IReputation.sol";
 
 contract ReputationTest is Test {
-
     /// @dev A fresh deal id / counterparty per call: these tests predate the 2026-09-23 rule that credit
     ///      is once per counterparty, and they all mean "another deal with somebody new". The ones that
     ///      mean "the same somebody again" say so by passing a fixed tag.
@@ -240,7 +239,12 @@ contract TerminalHarness {
     function releaseThenNotify(Reputation r, address wallet, address token, uint256 principal) external {
         status = Status.RELEASED;
         try r.notifyTerminal(
-            bytes32(uint256(uint160(wallet))), keccak256("harness-counterparty"), token, principal, IReputation.Close.Peaceful
-        ) {} catch {}
+            bytes32(uint256(uint160(wallet))),
+            keccak256("harness-counterparty"),
+            token,
+            principal,
+            IReputation.Close.Peaceful
+        ) {}
+            catch {}
     }
 }

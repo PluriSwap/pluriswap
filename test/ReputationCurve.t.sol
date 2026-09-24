@@ -18,7 +18,6 @@ import {TestToken} from "../mocks/TestToken.sol";
 ///      exactly the score's unit of volume (+1 for closing, +1 for the volume). So the climb
 ///      accelerates on its own — a higher cap means more volume per deal.
 contract ReputationCurveTest is Test {
-
     /// @dev A fresh deal id / counterparty per call: these tests predate the 2026-09-23 rule that credit
     ///      is once per counterparty, and they all mean "another deal with somebody new". The ones that
     ///      mean "the same somebody again" say so by passing a fixed tag.
@@ -164,6 +163,7 @@ contract ReputationCurveTest is Test {
         _closeAtCap(IReputation.Close.ArbWin);
         assertEq(_score(), mid, "a win moves nothing: the volume is not credited either");
     }
+
     /// The farm, priced. Twenty-one deals with ONE counterparty — the two-identity cluster that used
     /// to buy the whole ladder for the cost of fees — now buys exactly one deal's worth of credit.
     function test_aClosedPairSaturatesAtOneDeal() public {
@@ -230,5 +230,4 @@ contract ReputationCurveTest is Test {
         (uint32 after_,,) = rep.stats(SUBJECT, address(token));
         assertEq(after_, 17, "the window reopened");
     }
-
 }

@@ -29,7 +29,6 @@ import {IBundleVerifier} from "../src/packages/interfaces/IBundleVerifier.sol";
 ///      is hoisted to a local BEFORE `vm.expectRevert` — the expectation is consumed by the next
 ///      call, whatever it is.
 contract PrivateVaultTest is Test {
-
     /// @dev One side's bundle inputs as the vault reads them (§3.15.4). The reputation half is zero
     ///      here: these suites drive the vault directly, and a module only ever reads its own fields
     ///      — which is the property the shared verifier was designed to keep.
@@ -218,9 +217,7 @@ contract PrivateVaultTest is Test {
             deadPassport, gating, address(0), address(this), depositProof, bundle, reabsorbProof, withdrawProof
         );
         vm.expectRevert(PrivateBondVault.ZeroAddress.selector);
-        new PrivateBondVault(
-            deadPassport, gating, SINK, address(0), depositProof, bundle, reabsorbProof, withdrawProof
-        );
+        new PrivateBondVault(deadPassport, gating, SINK, address(0), depositProof, bundle, reabsorbProof, withdrawProof);
         vm.expectRevert(PrivateBondVault.ZeroAddress.selector);
         new PrivateBondVault(
             deadPassport,

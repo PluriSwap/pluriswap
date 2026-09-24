@@ -177,9 +177,7 @@ contract PrivacyCommitmentsTest is Test {
 
         // The deposit: the one note with no parent, seeded by the account's deposit index.
         bytes32 depositSalt = PrivacyCommitments.noteSalt(skId, bytes32(_in(".deposit.index")));
-        assertEq(
-            PrivacyCommitments.noteBond(skId, token, _in(".deposit.amount"), depositSalt), _out(".deposit.note")
-        );
+        assertEq(PrivacyCommitments.noteBond(skId, token, _in(".deposit.amount"), depositSalt), _out(".deposit.note"));
 
         // The split: the earmark from the deal it belongs to, the change from the parent's burn.
         bytes32 lockSalt = PrivacyCommitments.lockSalt(skId, bytes32(_in(".bond.deal_id")));

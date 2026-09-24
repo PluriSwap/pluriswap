@@ -192,9 +192,8 @@ contract BundleVerifierTest is Test {
         IBundleVerifier.BundleInputs memory side = _side();
         assertFalse(bundle.verify(side, ""), "empty");
         assertFalse(bundle.verify(side, hex"0011"), "two bytes");
-        bytes memory foreign = vm.parseJsonBytes(
-            vm.readFile("test/fixtures/proofs/claim.json"), ".proof_with_public_inputs"
-        );
+        bytes memory foreign =
+            vm.parseJsonBytes(vm.readFile("test/fixtures/proofs/claim.json"), ".proof_with_public_inputs");
         assertFalse(bundle.verify(side, foreign), "another circuit's proof");
         assertFalse(bundle.wasProven(side), "and still no ticket");
     }

@@ -116,11 +116,7 @@ contract PoseidonTree {
     ///      Only the FINAL root is remembered. The intermediate roots a sequential run would have
     ///      published never existed, so no proof can reference one; the window simply holds fewer,
     ///      further-apart roots, which makes it last longer.
-    function insertMany(bytes32[] calldata leaves)
-        external
-        onlyOwner
-        returns (uint256 firstIndex, bytes32 newRoot)
-    {
+    function insertMany(bytes32[] calldata leaves) external onlyOwner returns (uint256 firstIndex, bytes32 newRoot) {
         uint256 k = leaves.length;
         if (k == 0) revert EmptyBatch();
         firstIndex = nextIndex;

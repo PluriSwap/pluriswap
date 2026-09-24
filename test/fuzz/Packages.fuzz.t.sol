@@ -28,7 +28,6 @@ import {IReputation} from "../../src/packages/interfaces/IReputation.sol";
 /// @dev Property tests over the extension surface: KERNEL-04 (fees never block a terminal), fee arithmetic,
 ///      Reputation score/cap formulas, BondVault lock/slash/burn rules, and packageId binding.
 contract PackagesFuzzTest is Test {
-
     /// @dev A fresh deal id / counterparty per call: these tests predate the 2026-09-23 rule that credit
     ///      is once per counterparty, and they all mean "another deal with somebody new". The ones that
     ///      mean "the same somebody again" say so by passing a fixed tag.
