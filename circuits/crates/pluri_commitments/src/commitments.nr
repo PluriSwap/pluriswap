@@ -18,6 +18,7 @@ pub global TAG_NOTE: Field = 5;
 pub global TAG_LOCK: Field = 6;
 pub global TAG_PAIR: Field = 7;
 pub global TAG_CP: Field = 8;
+pub global TAG_FIAT: Field = 9;
 
 /// Depth of an account's own COUNTERPARTY tree (§3.14.7 anti-farming). 32 levels of sparse slots,
 /// addressed by `cp_path`: with a few hundred counterparties the odds of two landing on the same
@@ -175,6 +176,29 @@ pub fn lock_commit(sk_id: Field, deal_id: Field, lock_amount: Field, salt: Field
     chain([sk_id, deal_id, lock_amount, salt])
 }
 
+/// `fiatCommit = Poseidon("fiat", rail, currency, amount, payee, salt)` — the fiat leg of a deal, the
+/// one field of `DealTerms` the kernel signs and never reads (§3.13).
+///
+///   rail      which payment network — `keccak("pluri:rail:<name>") mod p`, the pinned rule for ids
+///   currency  ISO 4217 numeric code (986 BRL, 32 ARS, 840 USD)
+///   amount    in the currency's minor units (ISO 4217 exponent): what the Holder must RECEIVE
+///   payee     the Holder's account on that rail, in the rail's canonical encoding — the rail's
+///             payment circuit fixes the normalization, so two spellings of one account are one payee
+///   salt      uniformly random, chosen by the Holder and handed to the Provider off-chain
+///
+/// Hidden on purpose: the terms are public forever, the payee is a bank account, and a visible currency
+/// would partition the anonymity set of §3.15.8 by country. The salt is what makes it hiding — amount
+/// and currency are low entropy, and without it a table of plausible trades would open the commitment.
+/// Unlike every other salt in this library it is NOT derived: it has to be shared with a counterparty,
+/// and deriving it from anything the counterparty may know would hand them the Holder's other deals.
+///
+/// Tag first, like `pair_id`: there is no secret in the preimage to separate the domain, so the tag does.
+/// The fold's width has nothing to do with the rail — a payment circuit proves the payment it saw opens
+/// THIS commitment, whatever network carried it.
+pub fn fiat_commit(rail: Field, currency: Field, amount: Field, payee: Field, salt: Field) -> Field {
+    chain([TAG_FIAT, rail, currency, amount, payee, salt])
+}
+
 /// `leafRep = Poseidon(S, count, volume, penalty, inFlight, token, salt, version)` — the account leaf.
 pub fn leaf_rep(
     s: Field,
@@ -231,6 +255,11 @@ fn builders_match_vectors() {
     assert(handle_commit(vectors::SK_ID, vectors::HANDLE_SALT) == vectors::EXPECTED_HANDLE_COMMIT, "handleCommit");
     assert(note_bond(vectors::SK_ID, vectors::TOKEN_ID, vectors::AMOUNT, vectors::NOTE_SALT) == vectors::EXPECTED_NOTE_BOND, "noteBond");
     assert(lock_commit(vectors::SK_ID, vectors::DEAL_ID, vectors::LOCK_AMOUNT, vectors::LOCK_SALT) == vectors::EXPECTED_LOCK_COMMIT, "lockCommit");
+    assert(
+        fiat_commit(vectors::FIAT_RAIL, vectors::FIAT_CURRENCY, vectors::FIAT_AMOUNT, vectors::FIAT_PAYEE, vectors::FIAT_SALT)
+            == vectors::EXPECTED_FIAT_COMMIT,
+        "fiatCommit",
+    );
     assert(
         leaf_rep(
             s,
@@ -318,4 +347,26 @@ fn a_counterparty_cannot_choose_its_own_slot() {
     }
     assert(same_as_itself, "derived, not chosen");
     assert(differs_somewhere, "two accounts do not share a slot");
+}
+
+#[test]
+fn the_fiat_tag_is_its_own_domain() {
+    // `fiat_commit` is the only tag-first fold without a secret behind it, so its tag is the whole of its
+    // domain separation: it must not be any tag the account-side builders use.
+    let tags = [TAG_REP, TAG_BOND, TAG_HANDLE, TAG_LEAF, TAG_NOTE, TAG_LOCK, TAG_PAIR, TAG_CP];
+    for i in 0..8 {
+        assert(tags[i] != TAG_FIAT);
+    }
+}
+
+#[test]
+fn every_field_of_the_fiat_leg_binds() {
+    // One field changed, one commitment changed: a Provider cannot prove a payment that differs from the
+    // signed one in rail, currency, amount or payee — and the salt is what hides the rest.
+    let base = fiat_commit(1, 986, 150000, 7, 11);
+    assert(fiat_commit(2, 986, 150000, 7, 11) != base, "rail");
+    assert(fiat_commit(1, 32, 150000, 7, 11) != base, "currency");
+    assert(fiat_commit(1, 986, 149999, 7, 11) != base, "amount");
+    assert(fiat_commit(1, 986, 150000, 8, 11) != base, "payee");
+    assert(fiat_commit(1, 986, 150000, 7, 12) != base, "salt");
 }

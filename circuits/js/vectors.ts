@@ -59,6 +59,12 @@ const VOLUME = 750_000_000_000n;
 const PENALTY = 0n;
 const IN_FLIGHT = 100_000_000n;
 const VERSION = 1n;
+// The fiat leg (§3.13): 1,500.00 BRL over a sample rail, to a sample payee, under a sample salt.
+const FIAT_RAIL = c.railId("sample");
+const FIAT_CURRENCY = 986n; // ISO 4217 BRL
+const FIAT_AMOUNT = 150_000n; // centavos
+const FIAT_PAYEE = BigInt(keccak("pluri:payee:1")) % P;
+const FIAT_SALT = BigInt(keccak("pluri:fiat-salt:1")) % P;
 
 const TREE_DEPTH = 8;
 
@@ -197,6 +203,14 @@ async function main() {
       lock_amount: dec(LOCK_AMOUNT),
       salt: dec(LOCK_SALT),
       output: dec(await c.lockCommit(SK_ID, DEAL_ID, LOCK_AMOUNT, LOCK_SALT)),
+    },
+    fiat_commit: {
+      rail: dec(FIAT_RAIL),
+      currency: dec(FIAT_CURRENCY),
+      amount: dec(FIAT_AMOUNT),
+      payee: dec(FIAT_PAYEE),
+      salt: dec(FIAT_SALT),
+      output: dec(await c.fiatCommit(FIAT_RAIL, FIAT_CURRENCY, FIAT_AMOUNT, FIAT_PAYEE, FIAT_SALT)),
     },
     leaf_rep: {
       s: dec(s),
@@ -1185,6 +1199,12 @@ function renderNoirVectors(
   nr.push(`pub global PAIR_S_A: Field = ${b.pair_id.s_a};`);
   nr.push(`pub global PAIR_S_B: Field = ${b.pair_id.s_b};`);
   nr.push(`pub global EXPECTED_PAIR_TAG: Field = ${b.pair_tag.output};`);
+  nr.push(`pub global FIAT_RAIL: Field = ${b.fiat_commit.rail};`);
+  nr.push(`pub global FIAT_CURRENCY: Field = ${b.fiat_commit.currency};`);
+  nr.push(`pub global FIAT_AMOUNT: Field = ${b.fiat_commit.amount};`);
+  nr.push(`pub global FIAT_PAYEE: Field = ${b.fiat_commit.payee};`);
+  nr.push(`pub global FIAT_SALT: Field = ${b.fiat_commit.salt};`);
+  nr.push(`pub global EXPECTED_FIAT_COMMIT: Field = ${b.fiat_commit.output};`);
   nr.push(`pub global LEAF_CP_ROOT: Field = ${dec(field(b.leaf_rep.cp_root))};`);
   nr.push(`pub global LEAF_EPOCH: Field = ${b.leaf_rep.epoch};`);
   nr.push(`pub global LEAF_EPOCH_CREDITS: Field = ${b.leaf_rep.epoch_credits};`);

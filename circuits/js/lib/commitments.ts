@@ -11,6 +11,7 @@
 // Nullifier tags are pinned field constants (not string hashes): they live inside the
 // Poseidon domain of this protocol only, which the canonical library owns end to end.
 
+import { keccak, P } from "./fields.ts";
 import { chain, poseidon1, poseidon2 } from "./poseidon.ts";
 
 export const TAG_REP = 1n;
@@ -21,6 +22,7 @@ export const TAG_NOTE = 5n;
 export const TAG_LOCK = 6n;
 export const TAG_PAIR = 7n;
 export const TAG_CP = 8n;
+export const TAG_FIAT = 9n;
 
 /** `S = Poseidon(sk_id)` — the account; never on-chain in the clear (lives inside leafRep). */
 export async function accountCommitment(skId: bigint): Promise<bigint> {
@@ -111,6 +113,35 @@ export async function noteBond(skId: bigint, token: bigint, amount: bigint, salt
  *  The fold's first step is exactly `dealSubject`: the lock is bound to the deal pseudonym. */
 export async function lockCommit(skId: bigint, dealId: bigint, lockAmount: bigint, salt: bigint): Promise<bigint> {
   return chain([skId, dealId, lockAmount, salt]);
+}
+
+/**
+ * `fiatCommit = Poseidon("fiat", rail, currency, amount, payee, salt)` — the fiat leg of a deal, the one
+ * field of `DealTerms` the kernel signs and never reads (§3.13).
+ *
+ *   rail      `railId(name)`: `keccak("pluri:rail:<name>") mod p`
+ *   currency  ISO 4217 numeric code (986 BRL, 32 ARS, 840 USD)
+ *   amount    minor units of that currency: what the Holder must RECEIVE
+ *   payee     the Holder's account on that rail, in the rail's canonical encoding
+ *   salt      uniformly random, chosen by the Holder, handed to the Provider off-chain — NOT derived:
+ *             it is shared with a counterparty, and a derivation they could follow would open the
+ *             Holder's other deals
+ *
+ * Tag first, like `pairId`: nothing secret in the preimage separates the domain, so the tag does.
+ */
+export async function fiatCommit(
+  rail: bigint,
+  currency: bigint,
+  amount: bigint,
+  payee: bigint,
+  salt: bigint,
+): Promise<bigint> {
+  return chain([TAG_FIAT, rail, currency, amount, payee, salt]);
+}
+
+/** A rail's id: `keccak("pluri:rail:<name>") mod p`, the pinned rule for keccak-derived ids. */
+export function railId(name: string): bigint {
+  return BigInt(keccak(`pluri:rail:${name}`)) % P;
 }
 
 /** Depth of an account's own counterparty tree (§3.14.7 anti-farming). */
