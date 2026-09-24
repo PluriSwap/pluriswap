@@ -254,7 +254,7 @@ contract ReputationLadder is Script {
         t.fiatDuration = fiatD;
         t.releaseDuration = releaseD;
         t.disputeDuration = disputeD;
-        t.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
+        t.fiatCommit = bytes32(uint256(keccak256("fiat leg")) >> 8); // opaque to the kernel; a field element, as any Poseidon output is
         t.packageIds = _sorted2(passport.packageId(), rep.packageId());
 
         uint256 n = nonce++;

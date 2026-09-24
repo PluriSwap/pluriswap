@@ -11,8 +11,9 @@ import {TestToken} from "../../mocks/TestToken.sol";
 import {PassportMock} from "../../mocks/PassportMock.sol";
 import {Reputation} from "../../src/packages/Reputation.sol";
 import {BondVault} from "../../src/packages/BondVault.sol";
-import {ZkMock} from "../../mocks/ZkMock.sol";
-import {VerifierMock} from "../../mocks/VerifierMock.sol";
+import {PaymentProof} from "../../src/packages/PaymentProof.sol";
+import {IPaymentVerifier} from "../../src/packages/interfaces/IPaymentVerifier.sol";
+import {PaymentVerifierMock} from "../../mocks/PaymentVerifierMock.sol";
 import {KlerosAdapter} from "../../src/packages/KlerosAdapter.sol";
 import {MockArbitratorV2} from "../../mocks/MockArbitratorV2.sol";
 import {IPassport} from "../../src/packages/interfaces/IPassport.sol";
@@ -101,7 +102,7 @@ contract PackagesHandler is HandlerBase {
     Reputation public reputationHuge;
     DriftingReputation public reputationDrift;
     BondVault public vault;
-    ZkMock public zk;
+    PaymentProof public zk;
     MockArbitratorV2 public arbitrator;
     KlerosAdapter public court;
 
@@ -118,7 +119,7 @@ contract PackagesHandler is HandlerBase {
         reputationHuge = new Reputation(passport, FEE_RECIPIENT, 0, HUGE_FEE, 0, 0, address(escrow_));
         reputationDrift = new DriftingReputation(passport, FEE_RECIPIENT, COMP_FEE, address(escrow_));
         vault = new BondVault(address(escrow_), SINK, passport);
-        zk = new ZkMock(new VerifierMock(), FEE_RECIPIENT, ZK_FEE, address(escrow_));
+        zk = new PaymentProof(address(escrow_), new PaymentVerifierMock(), FEE_RECIPIENT, ZK_FEE);
         arbitrator = new MockArbitratorV2(COURT_ETH);
         court = new KlerosAdapter(
             address(arbitrator),
@@ -262,8 +263,15 @@ contract PackagesHandler is HandlerBase {
         (bytes32 id, bool ok) = _pickIf(seed, _canVerifyProof);
         if (!ok) return;
         bytes32 nullifier = keccak256(abi.encode("rail-receipt", ++nullifierSeed));
+        // Built before the prank: the claim reads the escrow, and a prank binds the NEXT external call.
+        bytes memory proof = abi.encode(
+            IPaymentVerifier.PaymentClaim({
+                dealId: id, fiatCommit: escrow.terms(id).fiatCommit, notBefore: uint64(escrow.clocks(id).activatedAt)
+            }),
+            nullifier
+        );
         vm.prank(relayer);
-        escrow.verifyProof(id, abi.encode(id, nullifier));
+        escrow.verifyProof(id, proof);
         _recordTerminal(id);
     }
 

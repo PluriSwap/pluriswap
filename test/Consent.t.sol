@@ -53,7 +53,7 @@ contract ConsentTest is Test {
         t.fiatDuration = 3600;
         t.releaseDuration = 1800;
         t.disputeDuration = 7200;
-        t.fiatCommit = keccak256("fiat leg");
+        t.fiatCommit = bytes32(uint256(keccak256("fiat leg")) >> 8);
         t.packageIds = new bytes32[](0);
     }
 

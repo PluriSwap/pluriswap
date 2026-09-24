@@ -17,15 +17,16 @@ import {TestToken} from "../mocks/TestToken.sol";
 import {PassportMock} from "../mocks/PassportMock.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
-import {ZkMock} from "../mocks/ZkMock.sol";
-import {VerifierMock} from "../mocks/VerifierMock.sol";
+import {PaymentProof} from "../src/packages/PaymentProof.sol";
+import {PaymentVerifierMock} from "../mocks/PaymentVerifierMock.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 import {MockArbitratorV2} from "../mocks/MockArbitratorV2.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {IBondVault} from "../src/packages/interfaces/IBondVault.sol";
 import {IReputation} from "../src/packages/interfaces/IReputation.sol";
 import {IPaymentProof} from "../src/packages/interfaces/IPaymentProof.sol";
-import {IVerifier} from "../src/packages/interfaces/IVerifier.sol";
+import {IPaymentVerifier} from "../src/packages/interfaces/IPaymentVerifier.sol";
+import {IEscrow} from "../src/interfaces/IEscrow.sol";
 import {PackageId} from "../src/libraries/PackageId.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {BaseTest} from "./Base.t.sol";
@@ -44,7 +45,7 @@ contract PackagesTest is BaseTest {
     PassportMock internal passport;
     Reputation internal reputation;
     BondVault internal vault;
-    ZkMock internal zkMod;
+    PaymentProof internal zkMod;
     MockArbitratorV2 internal arbitrator;
     KlerosAdapter internal court;
     address internal feeRecipient = address(0xFEE);
@@ -64,8 +65,8 @@ contract PackagesTest is BaseTest {
         uint64 n = vm.getNonce(address(this));
         address predicted = vm.computeCreateAddress(address(this), n + 6);
         reputation = new Reputation(passport, feeRecipient, ACT_FEE, COMP_FEE, CONTEST_BPS, CONTEST_FLOOR, predicted);
-        VerifierMock verifier = new VerifierMock();
-        zkMod = new ZkMock(verifier, feeRecipient, ZK_FEE, predicted);
+        PaymentVerifierMock verifier = new PaymentVerifierMock();
+        zkMod = new PaymentProof(predicted, verifier, feeRecipient, ZK_FEE);
         arbitrator = new MockArbitratorV2(COURT_ETH);
         vault = new BondVault(predicted, sink, passport);
         court = new KlerosAdapter(
@@ -74,7 +75,7 @@ contract PackagesTest is BaseTest {
         escrow = new Escrow();
         assertEq(address(escrow), predicted);
         assertEq(reputation.operator(), address(escrow));
-        assertEq(zkMod.operator(), address(escrow));
+        assertEq(zkMod.escrow(), address(escrow));
 
         passport.setHuman(holder, SUB_H);
         passport.setHuman(provider, SUB_P);
@@ -487,7 +488,7 @@ contract PackagesTest is BaseTest {
         bytes32 id = _activateWith(terms, _zkMods(), 1, 1);
         vm.expectRevert(Escrow.EdgeOff.selector);
         _markFiat(id);
-        escrow.verifyProof(id, abi.encode(id, keccak256("receipt")));
+        escrow.verifyProof(id, _paymentProof(id, keccak256("receipt")));
         assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
         assertEq(token.balanceOf(provider), BOND + PRINCIPAL - ZK_FEE);
         assertEq(token.balanceOf(feeRecipient), ZK_FEE);
@@ -800,15 +801,16 @@ contract PackagesTest is BaseTest {
     }
 
     function test_zkVerifierDrift_verifyProofReverts() public {
-        DriftZk drift = new DriftZk(new VerifierMock(), feeRecipient, ZK_FEE, address(escrow));
+        DriftZk drift = new DriftZk(new PaymentVerifierMock(), feeRecipient, ZK_FEE, address(escrow));
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _one(drift.packageId());
         PackageMods memory mods;
         mods.zk = address(drift);
         bytes32 id = _activateWith(terms, mods, 1, 1);
-        drift.setVerifier(new VerifierMock());
+        drift.setVerifier(new PaymentVerifierMock());
+        bytes memory proof = _paymentProof(id, keccak256("receipt"));
         vm.expectRevert(Packages.PackageDrift.selector);
-        escrow.verifyProof(id, abi.encode(id, keccak256("receipt")));
+        escrow.verifyProof(id, proof);
         assertEq(uint8(escrow.status(id)), uint8(Status.FUNDED));
     }
 
@@ -1259,9 +1261,9 @@ contract PackagesTest is BaseTest {
     }
 
     function test_zkWrapperSwap_unknownPackage() public {
-        VerifierMock v = new VerifierMock();
-        ZkMock official = new ZkMock(v, feeRecipient, ZK_FEE, address(escrow));
-        ZkMock decoy = new ZkMock(v, feeRecipient, ZK_FEE, address(escrow));
+        PaymentVerifierMock v = new PaymentVerifierMock();
+        PaymentProof official = new PaymentProof(address(escrow), v, feeRecipient, ZK_FEE);
+        PaymentProof decoy = new PaymentProof(address(escrow), v, feeRecipient, ZK_FEE);
         assertTrue(official.packageId() != decoy.packageId());
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _one(official.packageId());
@@ -1293,13 +1295,13 @@ contract PackagesTest is BaseTest {
     }
 
     function test_zkFeeExceedsPrincipal_verifyStillReleases() public {
-        ZkMock fat = new ZkMock(new VerifierMock(), feeRecipient, PRINCIPAL + 1, address(escrow));
+        PaymentProof fat = new PaymentProof(address(escrow), new PaymentVerifierMock(), feeRecipient, PRINCIPAL + 1);
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _one(fat.packageId());
         PackageMods memory mods;
         mods.zk = address(fat);
         bytes32 id = _activateWith(terms, mods, 1, 1);
-        escrow.verifyProof(id, abi.encode(id, keccak256("receipt-fat")));
+        escrow.verifyProof(id, _paymentProof(id, keccak256("receipt-fat")));
         assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
         assertEq(token.balanceOf(feeRecipient), 0);
         assertEq(token.balanceOf(provider), BOND + PRINCIPAL);
@@ -1307,7 +1309,7 @@ contract PackagesTest is BaseTest {
 
     function test_zkFitsCompletionDoesNot_chargesOnlyZk() public {
         Reputation fat = new Reputation(passport, feeRecipient, 0, PRINCIPAL, 0, 0, address(escrow));
-        ZkMock zk = new ZkMock(new VerifierMock(), feeRecipient, ZK_FEE, address(escrow));
+        PaymentProof zk = new PaymentProof(address(escrow), new PaymentVerifierMock(), feeRecipient, ZK_FEE);
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted3(passport.packageId(), fat.packageId(), zk.packageId());
         PackageMods memory mods;
@@ -1315,7 +1317,7 @@ contract PackagesTest is BaseTest {
         mods.reputation = address(fat);
         mods.zk = address(zk);
         bytes32 id = _activateWith(terms, mods, 1, 1);
-        escrow.verifyProof(id, abi.encode(id, keccak256("receipt-stack")));
+        escrow.verifyProof(id, _paymentProof(id, keccak256("receipt-stack")));
         assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
         assertEq(token.balanceOf(feeRecipient), ZK_FEE);
         assertEq(token.balanceOf(provider), BOND + PRINCIPAL - ZK_FEE);
@@ -1442,12 +1444,12 @@ contract DriftReputation is IReputation {
 }
 
 contract DriftZk is IPaymentProof {
-    /// @dev Mutable verifier: simulates a proxy that swaps circuit V mid-deal.
+    /// @dev Mutable verifier: simulates a proxy that swaps the rail's verifier mid-deal.
     error Unauthorized();
-    error WrongDealId();
+    error InvalidProof();
     error NullifierUsed();
 
-    IVerifier public verifier;
+    IPaymentVerifier public verifier;
     address public immutable operator;
     address public immutable feeRecipient;
     uint256 public immutable verifyFee;
@@ -1455,7 +1457,7 @@ contract DriftZk is IPaymentProof {
 
     mapping(bytes32 paymentNullifier => bool) public used;
 
-    constructor(IVerifier verifier_, address feeRecipient_, uint256 verifyFee_, address operator_) {
+    constructor(IPaymentVerifier verifier_, address feeRecipient_, uint256 verifyFee_, address operator_) {
         verifier = verifier_;
         feeRecipient = feeRecipient_;
         verifyFee = verifyFee_;
@@ -1463,7 +1465,7 @@ contract DriftZk is IPaymentProof {
         packageId = PackageId.zk(address(this), address(verifier_), feeRecipient_, verifyFee_);
     }
 
-    function setVerifier(IVerifier v) external {
+    function setVerifier(IPaymentVerifier v) external {
         verifier = v;
         packageId = PackageId.zk(address(this), address(v), feeRecipient, verifyFee);
     }
@@ -1474,9 +1476,14 @@ contract DriftZk is IPaymentProof {
 
     function verifyProof(bytes32 dealId, bytes calldata proof) external returns (bytes32 paymentNullifier) {
         if (msg.sender != operator) revert Unauthorized();
-        bytes32 proofDealId;
-        (proofDealId, paymentNullifier) = verifier.verify(proof);
-        if (proofDealId != dealId) revert WrongDealId();
+        IPaymentVerifier.PaymentClaim memory claim = IPaymentVerifier.PaymentClaim({
+            dealId: dealId,
+            fiatCommit: IEscrow(operator).terms(dealId).fiatCommit,
+            notBefore: uint64(IEscrow(operator).clocks(dealId).activatedAt)
+        });
+        bool ok;
+        (ok, paymentNullifier) = verifier.verify(claim, proof);
+        if (!ok) revert InvalidProof();
         if (used[paymentNullifier]) revert NullifierUsed();
         used[paymentNullifier] = true;
     }

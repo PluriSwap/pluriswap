@@ -235,7 +235,7 @@ contract ArbitrationPaths is Script {
         t.fiatDuration = fiatD;
         t.releaseDuration = releaseD;
         t.disputeDuration = disputeD;
-        t.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
+        t.fiatCommit = bytes32(uint256(keccak256("fiat leg")) >> 8); // opaque to the kernel; a field element, as any Poseidon output is
         t.arbitrationDuration = arbD;
         t.packageIds = _sorted4(passport.packageId(), rep.packageId(), vault.packageId(), court.packageId());
     }

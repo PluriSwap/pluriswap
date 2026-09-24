@@ -187,7 +187,7 @@ contract Paths is Script {
         t.fiatDuration = fiat;
         t.releaseDuration = release;
         t.disputeDuration = dispute;
-        t.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
+        t.fiatCommit = bytes32(uint256(keccak256("fiat leg")) >> 8); // opaque to the kernel; a field element, as any Poseidon output is
         t.packageIds = new bytes32[](0);
     }
 

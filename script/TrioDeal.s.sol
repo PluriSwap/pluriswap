@@ -97,7 +97,7 @@ contract TrioDeal is Script {
         terms.fiatDuration = 3600;
         terms.releaseDuration = 1800;
         terms.disputeDuration = 7200;
-        terms.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
+        terms.fiatCommit = bytes32(uint256(keccak256("fiat leg")) >> 8); // opaque to the kernel; a field element, as any Poseidon output is
         terms.packageIds = _sorted3(passport.packageId(), reputation.packageId(), vault.packageId());
 
         HolderAuthorization memory ha =

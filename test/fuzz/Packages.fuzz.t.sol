@@ -21,8 +21,9 @@ import {TestToken} from "../../mocks/TestToken.sol";
 import {PassportMock} from "../../mocks/PassportMock.sol";
 import {Reputation} from "../../src/packages/Reputation.sol";
 import {BondVault} from "../../src/packages/BondVault.sol";
-import {ZkMock} from "../../mocks/ZkMock.sol";
-import {VerifierMock} from "../../mocks/VerifierMock.sol";
+import {PaymentProof} from "../../src/packages/PaymentProof.sol";
+import {IPaymentVerifier} from "../../src/packages/interfaces/IPaymentVerifier.sol";
+import {PaymentVerifierMock} from "../../mocks/PaymentVerifierMock.sol";
 import {IReputation} from "../../src/packages/interfaces/IReputation.sol";
 
 /// @dev Property tests over the extension surface: KERNEL-04 (fees never block a terminal), fee arithmetic,
@@ -122,7 +123,7 @@ contract PackagesFuzzTest is Test {
         verifyFee = bound(verifyFee, 0, type(uint256).max >> 1);
         completionFee = bound(completionFee, 0, type(uint256).max >> 1);
         Reputation rep = new Reputation(passport, FEE_RECIPIENT, 0, completionFee, 0, 0, address(escrow));
-        ZkMock zk = new ZkMock(new VerifierMock(), FEE_RECIPIENT, verifyFee, address(escrow));
+        PaymentProof zk = new PaymentProof(address(escrow), new PaymentVerifierMock(), FEE_RECIPIENT, verifyFee);
 
         DealTerms memory t = _terms(principal);
         t.packageIds = _sorted3(passport.packageId(), rep.packageId(), zk.packageId());
@@ -133,7 +134,15 @@ contract PackagesFuzzTest is Test {
         token.mint(holder, principal);
         bytes32 id = _activate(t, mods);
 
-        escrow.verifyProof(id, abi.encode(id, keccak256("receipt")));
+        escrow.verifyProof(
+            id,
+            abi.encode(
+                IPaymentVerifier.PaymentClaim({
+                    dealId: id, fiatCommit: t.fiatCommit, notBefore: uint64(escrow.clocks(id).activatedAt)
+                }),
+                keccak256("receipt")
+            )
+        );
 
         // Mirrors `_invoice`, which skips at `fee >= left`: a fee equal to the remaining pot does not fit and
         // is not collected, so the winner keeps it all. The comparison here must stay strict in lockstep.
@@ -405,7 +414,7 @@ contract PackagesFuzzTest is Test {
         t.fiatDuration = 3600;
         t.releaseDuration = 1800;
         t.disputeDuration = 7200;
-        t.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
+        t.fiatCommit = bytes32(uint256(keccak256("fiat leg")) >> 8); // opaque to the kernel; a field element, as any Poseidon output is
         t.arbitrationDuration = 7200;
     }
 

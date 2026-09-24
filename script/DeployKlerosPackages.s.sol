@@ -10,16 +10,17 @@ import {PassportPicker} from "./PassportPicker.s.sol";
 import {KlerosConfig} from "./KlerosConfig.s.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
-import {ZkMock} from "../mocks/ZkMock.sol";
-import {VerifierMock} from "../mocks/VerifierMock.sol";
+import {PaymentProof} from "../src/packages/PaymentProof.sol";
+import {PaymentVerifierMock} from "../mocks/PaymentVerifierMock.sol";
 import {KlerosAdapter} from "../src/packages/KlerosAdapter.sol";
 
 /// @dev Packaged escrow whose only court is Kleros V2. Does not overwrite sepolia-packages.json.
 ///      Kleros wiring comes from `KlerosConfig` (chain defaults + `KLEROS_*` env). On Arbitrum One the adapter
 ///      still needs Kleros governance to whitelist it before `openCourt` works; the script logs the status.
-///      Test chains only for now: the ZK slot is still `VerifierMock`/`ZkMock`, whose `verify` accepts any
-///      64 bytes, so publishing that `zkId` on a value-bearing chain would make every ZK deal drainable.
-///      Replace the two mock CREATEs with a real verifier picker before relaxing `_requireMockChain`.
+///      Test chains only for now: the ZK module is the real `PaymentProof`, but its rail verifier is still
+///      `PaymentVerifierMock`, which believes any blob naming the right claim — so publishing that `zkId` on
+///      a value-bearing chain would make every ZK deal drainable. Replace the verifier CREATE with a real
+///      rail adapter before relaxing `_requireMockChain`.
 contract DeployKlerosPackages is PassportPicker, KlerosConfig {
     using stdJson for string;
 
@@ -53,8 +54,8 @@ contract DeployKlerosPackages is PassportPicker, KlerosConfig {
         (IPassport passport, address decoder) = _deployPassport();
         Reputation reputation =
             new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE, CONTEST_BPS, CONTEST_FLOOR, predicted);
-        VerifierMock verifier = new VerifierMock();
-        ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE, predicted);
+        PaymentVerifierMock verifier = new PaymentVerifierMock();
+        PaymentProof zk = new PaymentProof(predicted, verifier, FEE_RECIPIENT, ZK_FEE);
         BondVault vault = new BondVault(predicted, SINK, passport);
         KlerosAdapter court = new KlerosAdapter(
             k.core, k.extraData, 0, "", predicted, k.registry, k.policyUri, COURT_CONTEST, FEE_RECIPIENT
@@ -64,7 +65,7 @@ contract DeployKlerosPackages is PassportPicker, KlerosConfig {
 
         require(address(escrow) == predicted, "escrow prediction");
         require(reputation.operator() == address(escrow), "rep operator");
-        require(zk.operator() == address(escrow), "zk operator");
+        require(zk.escrow() == address(escrow), "zk escrow");
         require(vault.operator() == address(escrow), "vault operator");
         require(court.kernel() == address(escrow), "court kernel");
         require(court.templateId() != 0, "template");

@@ -9,8 +9,8 @@ import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {PassportPicker} from "./PassportPicker.s.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BondVault} from "../src/packages/BondVault.sol";
-import {ZkMock} from "../mocks/ZkMock.sol";
-import {VerifierMock} from "../mocks/VerifierMock.sol";
+import {PaymentProof} from "../src/packages/PaymentProof.sol";
+import {PaymentVerifierMock} from "../mocks/PaymentVerifierMock.sol";
 import {ArbitrationMock} from "../mocks/ArbitrationMock.sol";
 
 /// @dev New Sepolia escrow with the full verb list. Does not overwrite deployments/sepolia.json.
@@ -49,8 +49,8 @@ contract DeployPackages is PassportPicker {
         (IPassport passport, address decoder) = _deployPassport();
         Reputation reputation =
             new Reputation(passport, FEE_RECIPIENT, ACT_FEE, COMP_FEE, CONTEST_BPS, CONTEST_FLOOR, predicted);
-        VerifierMock verifier = new VerifierMock();
-        ZkMock zk = new ZkMock(verifier, FEE_RECIPIENT, ZK_FEE, predicted);
+        PaymentVerifierMock verifier = new PaymentVerifierMock();
+        PaymentProof zk = new PaymentProof(predicted, verifier, FEE_RECIPIENT, ZK_FEE);
         BondVault vault = new BondVault(predicted, SINK, passport);
         ArbitrationMock arb =
             new ArbitrationMock(TRIBUNAL, address(token), COURT_FEE, 1 days, predicted, COURT_CONTEST, FEE_RECIPIENT);
@@ -59,7 +59,7 @@ contract DeployPackages is PassportPicker {
 
         require(address(escrow) == predicted, "escrow prediction");
         require(reputation.operator() == address(escrow), "rep operator");
-        require(zk.operator() == address(escrow), "zk operator");
+        require(zk.escrow() == address(escrow), "zk escrow");
         require(vault.operator() == address(escrow), "vault operator");
         require(arb.operator() == address(escrow), "arb operator");
 
@@ -68,7 +68,7 @@ contract DeployPackages is PassportPicker {
         console.log("Passport", address(passport));
         console.log("Reputation", address(reputation));
         console.log("BondVault", address(vault));
-        console.log("ZkMock", address(zk));
+        console.log("PaymentProof", address(zk));
         console.log("ArbitrationMock", address(arb));
         console.log("Escrow", address(escrow));
 

@@ -22,7 +22,6 @@ contract CatalogDeals is Script {
     using stdJson for string;
 
     uint256 internal constant PRINCIPAL = 1_000_000;
-    uint256 internal constant ZK_FEE = 10_000;
     uint256 internal constant COURT_FEE = 1_000_000;
     /// @dev Mirrors `DeployPackages`: the two contest-open invoices a fight costs in this stack.
     uint256 internal constant CONTEST_FLOOR = 2_000_000;
@@ -51,8 +50,6 @@ contract CatalogDeals is Script {
             vm.stopBroadcast();
         }
 
-        uint256 feesBefore = token.balanceOf(feeRecipient);
-
         vm.startBroadcast(holderPk);
         // Two deals, the court fee, and the contest-open invoices of BOTH packages: the reputation
         // floor and the court's own (PLURISWAP.md §3.14.6). Opening a fight costs each of them.
@@ -74,12 +71,10 @@ contract CatalogDeals is Script {
             0,
             _zkMods(zkMod)
         );
+        // Left FUNDED on purpose: the proof names the deal's on-chain activation clock, which a script
+        // cannot know until the activation is MINED — the same order a real Provider follows (pay after
+        // funding, prove after paying). `ZkRelease` proves it in the next run.
         require(escrow.status(zkId) == Status.FUNDED, "zk funded");
-        vm.startBroadcast(holderPk);
-        escrow.verifyProof(zkId, abi.encode(zkId, keccak256("sepolia-zk-receipt")));
-        vm.stopBroadcast();
-        require(escrow.status(zkId) == Status.RELEASED, "zk released");
-        require(token.balanceOf(feeRecipient) >= feesBefore + ZK_FEE, "zk fee");
 
         bytes32 arbDeal = _activate(
             escrow,
@@ -140,7 +135,7 @@ contract CatalogDeals is Script {
         terms.fiatDuration = 3600;
         terms.releaseDuration = 1800;
         terms.disputeDuration = 7200;
-        terms.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
+        terms.fiatCommit = bytes32(uint256(keccak256("fiat leg")) >> 8); // opaque to the kernel; a field element, as any Poseidon output is
         terms.arbitrationDuration = arbitrationDuration;
         terms.packageIds = packageIds;
 

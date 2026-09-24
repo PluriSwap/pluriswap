@@ -139,7 +139,7 @@ contract PoolDeal is Script {
         t.fiatDuration = 3600;
         t.releaseDuration = 1800;
         t.disputeDuration = 7200;
-        t.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
+        t.fiatCommit = bytes32(uint256(keccak256("fiat leg")) >> 8); // opaque to the kernel; a field element, as any Poseidon output is
         t.packageIds = new bytes32[](0);
     }
 

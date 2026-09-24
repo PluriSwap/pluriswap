@@ -53,6 +53,9 @@ STEPS=(
   "script/DeployPackages.s.sol:DeployPackages"
   "script/TrioDeal.s.sol:TrioDeal"
   "script/CatalogDeals.s.sol:CatalogDeals"
+  # CASE-PAY-01: the ZK deal CatalogDeals left FUNDED, proven in its own run — the claim names the
+  # activation clock, which only exists once the activation is mined.
+  "script/ZkRelease.s.sol:ZkRelease"
   "script/DeployPoolFactory.s.sol:DeployPoolFactory"
   "script/PoolDeal.s.sol:PoolDeal"
   "script/DeployPrivate.s.sol:DeployPrivate"

@@ -14,14 +14,16 @@ import {
     PackageMods
 } from "../src/libraries/Types.sol";
 import {Consent} from "../src/libraries/Consent.sol";
+import {IPaymentVerifier} from "../src/packages/interfaces/IPaymentVerifier.sol";
 import {Escrow} from "../src/Escrow.sol";
 import {TestToken} from "../mocks/TestToken.sol";
 
 contract BaseTest is Test {
     uint256 internal constant PRINCIPAL = 1_000_000;
-    /// Stand-in for `Poseidon(TAG_FIAT, rail, currency, amount, payee, salt)`: the kernel treats it as
-    /// opaque, so any non-zero value is a declared fiat leg.
-    bytes32 internal constant FIAT_COMMIT = keccak256("fiat leg");
+    /// Stand-in for `Poseidon(TAG_FIAT, rail, currency, amount, payee, salt)`. The kernel treats it as
+    /// opaque, but `PaymentProof` rejects anything a circuit could not take, so it is a field element
+    /// (shifted under 2^248 < p), as every real Poseidon output is.
+    bytes32 internal constant FIAT_COMMIT = bytes32(uint256(keccak256("fiat leg")) >> 8);
 
     uint256 internal holderPk = 0xA11CE;
     uint256 internal providerPk = 0xB0B;
@@ -65,6 +67,17 @@ contract BaseTest is Test {
     function _mods(address passport_, address reputation_) internal pure returns (PackageMods memory m) {
         m.passport = passport_;
         m.reputation = reputation_;
+    }
+
+    /// A `PaymentVerifierMock` blob naming exactly the claim `PaymentProof` builds for this deal: its id,
+    /// its signed fiat leg, its activation clock.
+    function _paymentProof(bytes32 id, bytes32 nullifier) internal view returns (bytes memory) {
+        return abi.encode(
+            IPaymentVerifier.PaymentClaim({
+                dealId: id, fiatCommit: escrow.terms(id).fiatCommit, notBefore: uint64(escrow.clocks(id).activatedAt)
+            }),
+            nullifier
+        );
     }
 
     function _typed(bytes32 structHash) internal view returns (bytes32) {
