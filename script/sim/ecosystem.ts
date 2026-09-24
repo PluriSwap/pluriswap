@@ -167,6 +167,8 @@ export interface Scenario {
   tribunal: boolean;
   stubborn: boolean; // does a cheater hold out once disputed?
   victimYields: boolean; // does a victim hand a stubborn cheater everything to avoid the burn?
+  court?: Address; // a market's own tribunal (tribunal.ts deploys one per accuracy); default: the deployed mock
+  courtId?: Hex;
 }
 
 const SCENARIOS: Scenario[] = [
@@ -193,7 +195,7 @@ export async function newIdentity(scn: Scenario, a: Agent): Promise<Identity> {
   await send(admin, dep.passport, PASSPORT, "setHuman", [account.address, subject]);
   await mint(a, account.address, T(20_000));
   await send(account, token, TOKEN, "approve", [escrow, maxUint256]);
-  await send(account, token, TOKEN, "approve", [dep.arbitration, maxUint256]);
+  await send(account, token, TOKEN, "approve", [scn.court ?? dep.arbitration, maxUint256]);
   if (scn.packaged) {
     await send(account, token, TOKEN, "approve", [dep.bondVault, maxUint256]);
     await send(account, dep.bondVault, VAULT, "deposit", [subject, token, BOND_DEPOSIT]);
@@ -282,7 +284,7 @@ export function packages(scn: Scenario): { ids: Hex[]; mods: Record<string, Addr
   if (!scn.packaged) {
     return { ids: [], mods: { passport: zeroAddress, reputation: zeroAddress, bonds: zeroAddress, zk: zeroAddress, court: zeroAddress } };
   }
-  const ids = [dep.passportId, dep.reputationId, dep.bondsId, ...(scn.tribunal ? [dep.arbId] : [])] as Hex[];
+  const ids = [dep.passportId, dep.reputationId, dep.bondsId, ...(scn.tribunal ? [scn.courtId ?? dep.arbId] : [])] as Hex[];
   ids.sort((x, y) => (BigInt(x) < BigInt(y) ? -1 : 1));
   return {
     ids,
@@ -291,7 +293,7 @@ export function packages(scn: Scenario): { ids: Hex[]; mods: Record<string, Addr
       reputation: dep.reputation,
       bonds: dep.bondVault,
       zk: zeroAddress,
-      court: scn.tribunal ? dep.arbitration : zeroAddress,
+      court: scn.tribunal ? (scn.court ?? dep.arbitration) : zeroAddress,
     },
   };
 }

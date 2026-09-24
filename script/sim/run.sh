@@ -4,6 +4,7 @@
 #
 #   script/sim/run.sh [port]              default 8546, so it never collides with an e2e run on 8545
 #   script/sim/run.sh [port] --longrun    the evolutionary long run (script/sim/longrun.ts)
+#   script/sim/run.sh [port] --tribunal   an imperfect tribunal in the long run (script/sim/tribunal.ts)
 #
 # Everything the agents do goes through the deployed contracts; the only off-chain piece is the fiat
 # leg, which is a ledger (the protocol never sees fiat, and neither should its simulation).
@@ -29,6 +30,8 @@ done
 
 if [ "${2:-}" = "--longrun" ]; then
   RPC="$RPC" bun script/sim/longrun.ts
+elif [ "${2:-}" = "--tribunal" ]; then
+  RPC="$RPC" bun script/sim/tribunal.ts
 else
   RPC="$RPC" bun script/sim/ecosystem.ts "${@:2}"
 fi
