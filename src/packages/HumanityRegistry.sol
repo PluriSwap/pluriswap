@@ -26,7 +26,7 @@ import {PrivacyCommitments} from "./libraries/PrivacyCommitments.sol";
 contract HumanityRegistry {
     /// @dev Enrollment tree depth (1M anchors), §3.15.9. The `register_humanity` witness is
     ///      exactly this long.
-    uint256 public constant TREE_DEPTH = 20;
+    uint8 public constant TREE_DEPTH = 20;
 
     IGitcoinPassportDecoder public immutable decoder;
     /// @dev Same policy shape as `HumanPassport`: `minScore == 0` defers to the decoder's own
@@ -51,7 +51,7 @@ contract HumanityRegistry {
         decoder = decoder_;
         minScore = minScore_;
         registryId = registryId_;
-        tree = new PoseidonTree(uint8(TREE_DEPTH), DEFAULT_ROOT_HISTORY, address(this));
+        tree = new PoseidonTree(TREE_DEPTH, DEFAULT_ROOT_HISTORY, address(this));
     }
 
     /// @notice Enrolls one identity commitment for the calling anchor, gated by the Passport
