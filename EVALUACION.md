@@ -347,7 +347,8 @@ ninguno es el *payment proof*. No es una tarea: es la decisión de prioridad de 
 que ningún circuito real habría tenido contra qué verificar el pago — el Provider podía probar *un* pago
 cualquiera. Ahora `DealTerms.fiatCommit` la firma oculta (§3.13), `Packages.resolve` rechaza un deal ZK
 sin ella, y el preimage canónico vive en `pluri_commitments` con vectores. Lo que queda es el circuito
-del rail y el módulo real que reemplace a `ZkMock`.
+del rail. **El módulo real existe (2026-09-24):** `PaymentProof` arma el claim desde el kernel y consume
+el nullifier; `IPaymentVerifier` es la frontera del rail. El único mock que queda es el verifier del rail.
 
 ### LHF-8 — Warts menores
 

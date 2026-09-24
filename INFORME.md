@@ -110,7 +110,8 @@ Dicho explícitamente, porque un informe que sólo lista lo verde es propaganda.
   exige desde el 2026-09-23, así que una cuenta se recupera desde `sk_id` solo — está demostrado
   contra una chain, no afirmado. Los notes del vault no: un bond todavía se recupera desde el
   estado local del cliente. Mismo arreglo, circuitos distintos.
-- **El slot ZK del kernel usa `VerifierMock`.** Acepta cualquier `abi.encode(dealId, nullifier)`. No
+- **El verifier del rail del slot ZK es un mock.** El módulo es real (`PaymentProof`, 2026-09-24) y
+  arma el claim desde el kernel; `PaymentVerifierMock` cree cualquier blob que nombre ese claim. No
   hay circuito de payment proof todavía; es el próximo trabajo grande.
 - **Kleros en Arbitrum One** necesita que la gobernanza liste el adapter (`openCourt` revierte hasta
   entonces) y que `KLEROS_POLICY.md` esté pineado a IPFS. Calendario ajeno.
