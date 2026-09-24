@@ -93,14 +93,15 @@ lee igual en cualquier token y a cualquier escala.
 
 El cupo de T5 es **sin límite sólo con bond**: sin él la escalera topea en 5.000.
 
-**Castigo** — los cortes son *eventos*: un stalemate o una disputa abandonada suma 5, una derrota en
-tribunal suma 15 (§3.14.7).
+**Castigo** — los cortes son *eventos*: un stalemate del tribunal o una disputa abandonada suma 5, un
+deadlock (una disputa sin tribunal que nadie resolvió) suma 10 a cada parte, una derrota en tribunal
+suma 15 (§3.14.7).
 
 | Band | Puntos | Qué significa |
 | --- | --- | --- |
 | 0 | 0 | nunca pasó nada |
 | 1 | 1–5 | un stalemate o una disputa abandonada |
-| 2 | 6–15 | varios de esos, o una derrota probada en tribunal |
+| 2 | 6–15 | varios de esos, un deadlock, o una derrota probada en tribunal |
 | 3 | 16+ | más de una derrota |
 
 Un band y no la cifra porque **un número crudo en una pantalla pública es una huella digital**:
@@ -133,9 +134,9 @@ también se la haya ganado.
 Es un mecanismo, no un premio. El cap mide cuánto acepta el protocolo dejar expuesto por lo que
 alguien **demostró**, y un historial informa pero no responde por nada. El bond sí: es capital propio
 trabado, en riesgo del mismo veredicto que castigaría a su dueño. Se pierde exactamente cuando un
-tribunal falla en contra —el lock del perdedor va a la address del ganador— y vuelve entero en todo lo
-demás: cierre pacífico, tribunal que rehúsa, timeout de arbitraje, disputa abandonada, deal ZK. El
-dinero sólo se mueve con culpa probada.
+tribunal falla en contra —el lock del perdedor va a la address del ganador— o cuando su dueño deja una
+disputa sin tribunal en deadlock —va al sink, no a nadie—, y vuelve entero en todo lo demás: cierre
+pacífico, tribunal que rehúsa, timeout de arbitraje, disputa abandonada, deal ZK.
 
 El ratio es 10% del principal, **por deal y acumulativo**: la suma de locks cubre el 10% de todo lo
 que tengas en vuelo, así que el cupo con bond no se recicla entre posiciones abiertas.

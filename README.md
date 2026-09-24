@@ -33,7 +33,8 @@ stateDiagram-v2
     FIAT_SENT --> DISPUTED: Controller congela, antes del reloj
     FIAT_SENT --> ARBITRATION_ACTIVE: Controller abre corte
 
-    DISPUTED --> ABANDONED: cualquiera, pasado el dispute deadline
+    DISPUTED --> STALEMATE: cualquiera, pasado el dispute deadline, sin tribunal
+    DISPUTED --> ABANDONED: cualquiera, pasado el dispute deadline, con tribunal
     DISPUTED --> ARBITRATION_ACTIVE: Controller abre corte, antes del reloj
 
     ARBITRATION_ACTIVE --> RESOLVED_BY_ARBITRATION: ruling Holder o Provider
@@ -69,7 +70,8 @@ Tres reglas que explican casi todo el dibujo:
 | `CANCELLED` fiat timeout | cualquiera | pasado el fiat deadline | 100% / 0 | no | vuelven | nadie |
 | `CANCELLED` mutual | dual-sign | cualquier estado vivo | 100% / 0 | no | vuelven | nadie |
 | `RESOLVED_SPLIT` | dual-sign | cualquier estado vivo | bps firmados | sí | vuelven | ambos limpios |
-| `ABANDONED` | cualquiera | pasado el dispute deadline | 0 / 100% | sí | vuelven | **el que abrió −5**, el otro limpio |
+| `STALEMATE` deadlock | cualquiera | pasado el dispute deadline, **sin** tribunal | 50% / 50% | no | **al sink, los dos** | **ambos −10** |
+| `ABANDONED` | cualquiera | pasado el dispute deadline, **con** tribunal | 0 / 100% | sí | vuelven | **el que abrió −5**, el otro limpio |
 | `RESOLVED_BY_ARBITRATION` holder | cualquiera, tras el ruling | `ARBITRATION_ACTIVE` | 100% / 0 | no | **slash al Holder** | perdedor **−15** |
 | `RESOLVED_BY_ARBITRATION` provider | cualquiera, tras el ruling | `ARBITRATION_ACTIVE` | 0 / 100% | sí | **slash al Provider** | perdedor **−15** |
 | `STALEMATE` tribunal rehúsa | cualquiera, tras el ruling | `ARBITRATION_ACTIVE` | 50% / 50% | no | vuelven | **ambos −5** |
@@ -78,10 +80,12 @@ Tres reglas que explican casi todo el dibujo:
 Dos asimetrías que conviene tener presentes, porque son decisiones y no accidentes:
 
 - **Un refund no es un trade**, así que no paga completion fee. Un payout sí, gane como gane.
-- **Abrir una pelea y no sostenerla es perderla.** El timeout de `DISPUTED` no reparte: el principal
-  va entero a la contraparte. Antes era un 50/50, que le regalaba media custodia al que congelaba
-  (Parte IV, 2026-09-22). Los bonds igual vuelven: el abandono es culpa *asumida*, y el bond sólo se
-  mueve con veredicto.
+- **Un desacuerdo sin tribunal cuesta a los dos; con tribunal, lo pierde quien no escaló.** Si las
+  partes firmaron sin ARBITRATION y nadie cede antes del reloj, el deal cierra en stalemate: mitad y
+  mitad, los bonds de ambos al sink y −10 a cada uno. Existe para que acordar siempre convenga. Si
+  firmaron con tribunal, el Controller que abrió la pelea y no la escaló la pierde: el principal va
+  entero a la contraparte, y los bonds vuelven porque el abandono es culpa *asumida*
+  (Parte IV, 2026-09-24).
 
 ### La reputación, medida
 
@@ -97,7 +101,8 @@ cerrado al tope vale 2 puntos, porque el cap de T1 *es* la unidad de volumen del
 | 21 | 104 | 5.000 | sin límite |
 
 Veintiún deals limpios de T1 a T5, acelerando solo — a cap más alto, más volumen por deal. Un
-abandono o un stalemate resta 5 y **baja de tier en el acto**. Lento de ganar, rápido de perder.
+abandono o un stalemate del tribunal resta 5, un deadlock resta 10, y cualquiera de los dos **baja de
+tier en el acto**. Lento de ganar, rápido de perder.
 
 Esa curva es la del sujeto en aislamiento. En un mercado son **21 contrapartes distintas** (el crédito
 es una vez por contraparte, §3.14.7) y el cap que ata es el más chico de los dos lados: contra novatos

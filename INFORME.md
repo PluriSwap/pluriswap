@@ -9,7 +9,7 @@ Los números salen de corridas reales, no de la spec. Donde algo no está cubier
 
 ## 1. Cobertura de terminales
 
-El kernel tiene ocho estados terminales y trece outcomes económicos (§3.6, §3.11). **Los trece se
+El kernel tiene ocho estados terminales y catorce outcomes económicos (§3.6, §3.11). **Los catorce se
 ejercitan on-chain**, no sólo en tests.
 
 | Outcome | Estado | Reparto | Cubierto por |
@@ -26,7 +26,8 @@ ejercitan on-chain**, no sólo en tests.
 | OUT-10 Arb provider win | `RESOLVED_BY_ARBITRATION` | 100% Provider | `ArbitrationPaths`, `CatalogDeals` |
 | OUT-11 Tribunal rehúsa | `STALEMATE` | 50/50 | `ArbitrationPaths` |
 | OUT-12 Arbitration timeout | `STALEMATE` | 50/50 | `ArbitrationPaths` |
-| OUT-14 Dispute abandonado | `ABANDONED` | 100% Provider | `Paths` 15 (Core), `ArbitrationPaths` (con bonds) |
+| OUT-13 Deadlock (2026-09-24) | `STALEMATE` | 50/50, bonds al sink | `Paths` 15 (Core), `ReputationLadder` |
+| OUT-14 Dispute abandonado | `ABANDONED` | 100% Provider | `ArbitrationPaths` (con tribunal y bonds) |
 
 Además, cada corrida de `e2e.sh` lee los eventos `Settled` que aterrizaron y verifica que los doce
 terminales Core estén ahí y que **cada uno conserve el principal exactamente**.

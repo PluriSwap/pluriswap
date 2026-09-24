@@ -448,6 +448,12 @@ mitad corregía. El `ICourt` declara ahora su propio `contestFee` y `feeRecipien
 `resolve`) porque eso arrastraría un Passport a todo deal que sólo quería tribunal, y la identidad no
 debería ser el precio de poder ir a corte.
 
+**Reabierta y re-decidida (2026-09-24).** El forfeit dejaba a Core sin defensa frente a un Provider que
+nunca pagó: se llevaba el 100%. La crítica original al 50/50 (el Provider no tiene cómo escalar) no
+aplica donde **ninguno** puede escalar porque las partes firmaron no tener tribunal. Ahora el timeout de
+`DISPUTED` depende de ARBITRATION: sin tribunal es un deadlock que cuesta a los dos (50/50, locks de ambos
+al sink, `+10` a cada uno); con tribunal sigue siendo abandono. Parte IV, 2026-09-24.
+
 ### B. El único cuadrante limpio es el que no está construido
 
 `PAYMENT_PROOF` (§3.12.1) es el único perfil sin 50/50: proof → `RELEASED`, sin proof → `CANCELLED`.
