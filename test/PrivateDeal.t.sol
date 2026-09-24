@@ -414,6 +414,47 @@ contract PrivateDealTest is BaseTest {
 
     // ---------------------------------------------------------------- activation bundle
 
+    /// What a two-sided private activation costs end to end, and the last gap in EVALUACION.md's
+    /// LHF-5. The verifier is mocked here — this suite is about the modules — so the number below is
+    /// everything EXCEPT the two proof verifications, and the composition is stated rather than
+    /// hidden: add 2 x 745,269 (measured against the committed `prepare_side` fixture in
+    /// `BundleVerifier.t.sol`) for the real thing.
+    function test_privateActivation_costModel() public {
+        ControllerAcceptance memory ca;
+        bytes memory hs = _signHolder(ha);
+        bytes memory ps = _signProvider(pa);
+        RelayerMock.Side memory sideH =
+            _side(holder, holderPk, SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, dealId, ha.deadline);
+        RelayerMock.Side memory sideP =
+            _side(provider, providerPk, SUBJECT_P, ADMIT_LEAF_P, NULLREP_P1, dealId, ha.deadline);
+
+        uint256 before = gasleft();
+        relayer.activatePrivate(
+            escrow,
+            passport,
+            reputation,
+            PrivateBondVault(address(0)),
+            ha,
+            hs,
+            pa,
+            ps,
+            ca,
+            "",
+            mods,
+            dealId,
+            sideH,
+            sideP,
+            PAIR_TAG,
+            bundle
+        );
+        uint256 everythingElse = before - gasleft();
+
+        emit log_named_uint("two-sided activation, minus verification", everythingElse);
+        emit log_named_uint("two real verifications", 2 * 745_269);
+        emit log_named_uint("two-sided private activation, composed", everythingElse + 2 * 745_269);
+        emit log_named_uint("a Core deal, for comparison", 434_823);
+    }
+
     function test_activate_fullBundle() public {
         bytes32 id = _activate();
 

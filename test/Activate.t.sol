@@ -33,6 +33,21 @@ contract ActivateTest is BaseTest {
         assertTrue(escrow.used(provider, pa.nonce));
     }
 
+    /// The kernel's own half of an activation, measured clean: consent, the deal id, the pull and the
+    /// storage — no packages, no proofs. It is the baseline the private path is compared against in
+    /// EVALUACION.md's LHF-5, and the last piece of that decomposition that was missing.
+    function test_activate_coreGas() public {
+        HolderAuthorization memory ha = _holderAuth(_p2pTerms(), 1);
+        ProviderAgreement memory pa = _providerAuth(_p2pTerms(), 1);
+        ControllerAcceptance memory ca;
+        bytes memory hs = _signHolder(ha);
+        bytes memory ps = _signProvider(pa);
+
+        uint256 before = gasleft();
+        escrow.activate(ha, hs, pa, ps, ca, "");
+        emit log_named_uint("Core activate (no packages)", before - gasleft());
+    }
+
     function test_activate_emitsActivated() public {
         DealTerms memory terms = _p2pTerms();
         HolderAuthorization memory ha = _holderAuth(terms, 1);

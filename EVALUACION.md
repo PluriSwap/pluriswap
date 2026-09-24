@@ -305,8 +305,31 @@ sus tres mocks y sus tres verifiers generados. Los circuitos `prepare_passport`,
 `prepare_bond` siguen existiendo con sus tests —la afirmación de cada uno sigue siendo cierta y vale
 tenerla pineada— pero ya no se verifica ninguno on-chain.
 
-**Sigue abierto**: el `activate` del kernel no está descompuesto, y los precios de arriba son supuestos
-(ETH, gwei, blob) sobre gases medidos — el número firme sale de una chain real.
+**Cerrado (2026-09-23): el número completo.** Con el kernel medido (`activate` de un deal Core, sin
+paquetes: **434.823**) y la activación privada de dos lados compuesta —todo menos la verificación,
+medido con mocks, más las dos verificaciones reales medidas contra el fixture comprometido:
+
+| | gas |
+| --- | ---: |
+| kernel + módulos + árboles (dos lados) | 2.066.946 |
+| dos verificaciones reales | 1.490.538 |
+| **activación privada de dos lados** | **3.557.484** |
+| un deal Core, para comparar | 434.823 |
+
+O sea: **la privacidad cuesta ~8x un deal común**, y el número que esta discusión abrió como "~15M" es
+**3,56M**. En plata, con los dos ejes:
+
+| | quieto | cargado |
+| --- | ---: | ---: |
+| L2 (3,56M) | $0,13 | $1,25 |
+| L1 (19.200 B por blob) | $0,07 | $6,72 |
+| **total** | **$0,19** | **$7,97** |
+
+Contra los $0,34 / $20,35 con los que empezó la medición. Un deal Core, en la misma escala: $0,015 a
+$0,15.
+
+**Lo único que queda es el precio real**, que depende de ETH, del gas de L2 y del blob, y sale de una
+chain, no de una tabla de supuestos. El desglose de gas ya no tiene huecos.
 
 ### LHF-6 — Kleros: whitelist y pineado son camino crítico y son externos
 

@@ -781,6 +781,8 @@ sequenceDiagram
 | gas de verificación | 4,36M | **~1,50M** |
 | tiempo de prueba por lado | ~839 ms | **~554 ms** |
 
+Medido de punta a punta después de integrarlo: una activación privada de dos lados son **3.557.484 de gas** (2.066.946 de kernel, módulos y árboles, más 1.490.538 de las dos verificaciones), contra **434.823** de un deal Core sin paquetes. La privacidad cuesta unas ocho veces un deal común, no las quince que esta discusión supuso antes de medir.
+
 Baja el eje que domina el costo en un rollup (los bytes que llegan a L1) y encima el usuario espera menos. Descarta la otra forma de llegar acá: **una sola** verificación recursiva adentro de un circuito son 681k gates, cinco veces este circuito entero.
 
 **El verifier de bundle compartido.** Un proof fusionado rompe, si no se tiene cuidado, la propiedad de que cada paquete verifica su propio statement. El diseño que la conserva: un `BundleVerifier` bindeado por `packageId` como cualquier otro adapter, que verifica **una vez** y deja constancia en **storage transitorio** (Cancun) bajo el hash de los inputs; cada módulo recibe los mismos inputs, pregunta "¿esto se probó en esta tx?" y después **exige lo suyo** de esos inputs — el passport que el subject sea el que identifica, la reputación que `newLeaf`/`nullRep`/cap sean los que va a escribir, el vault que el `lockCommit`/`changeNote` sean los que va a guardar. Ningún módulo confía en otro; los tres confían en un verifier que las partes firmaron en sus `packageId`.
