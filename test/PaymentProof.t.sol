@@ -11,6 +11,7 @@ import {
     PackageMods
 } from "../src/libraries/Types.sol";
 import {PackageId} from "../src/libraries/PackageId.sol";
+import {Escrow} from "../src/Escrow.sol";
 import {PaymentProof} from "../src/packages/PaymentProof.sol";
 import {IPaymentVerifier} from "../src/packages/interfaces/IPaymentVerifier.sol";
 import {PaymentVerifierMock} from "../mocks/PaymentVerifierMock.sol";
@@ -131,6 +132,42 @@ contract PaymentProofTest is BaseTest {
         vm.expectRevert(PaymentProof.NullifierUsed.selector);
         escrow.verifyProof(b, replay);
         assertEq(uint8(escrow.status(b)), uint8(Status.FUNDED));
+    }
+
+    // --- a late proof (Parte IV, 2026-09-24) -------------------------------------------------------------
+
+    /// `fiatDeadline` does not close a ZK deal; `timeoutFiat` does. Until somebody calls it, a proof of the
+    /// signed payment still releases — the Provider paid, the evidence is authentic, and the Holder has
+    /// lost nothing by waiting. After the deadline it is a race, and the race is the catalog's (§3.10).
+    function test_lateProof_releasesWhileStillFunded() public {
+        bytes32 id = _activateZk(FIAT_COMMIT, 1);
+        vm.warp(block.timestamp + _p2pTerms().fiatDuration + 1 days);
+        escrow.verifyProof(id, _proof(id, NULLIFIER));
+        assertEq(uint8(escrow.status(id)), uint8(Status.RELEASED));
+        assertEq(token.balanceOf(provider), PRINCIPAL - VERIFY_FEE);
+    }
+
+    /// Once the deal is cancelled the principal is home, and no proof reopens it.
+    function test_proofAfterTimeoutCancel_isRejected() public {
+        bytes32 id = _activateZk(FIAT_COMMIT, 1);
+        vm.warp(block.timestamp + _p2pTerms().fiatDuration + 1);
+        escrow.timeoutFiat(id);
+        bytes memory proof = _proof(id, NULLIFIER);
+        vm.expectRevert(Escrow.WrongStatus.selector);
+        escrow.verifyProof(id, proof);
+        assertEq(uint8(escrow.status(id)), uint8(Status.CANCELLED));
+        assertEq(token.balanceOf(holder), 2 * PRINCIPAL);
+        assertFalse(module.used(NULLIFIER));
+    }
+
+    function test_proofAfterProviderCancel_isRejected() public {
+        bytes32 id = _activateZk(FIAT_COMMIT, 1);
+        vm.prank(provider);
+        escrow.cancelByProvider(id);
+        bytes memory proof = _proof(id, NULLIFIER);
+        vm.expectRevert(Escrow.WrongStatus.selector);
+        escrow.verifyProof(id, proof);
+        assertEq(uint8(escrow.status(id)), uint8(Status.CANCELLED));
     }
 
     // --- the commitment must be provable ------------------------------------------------------------------
