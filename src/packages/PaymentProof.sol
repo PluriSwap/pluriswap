@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {PackageId} from "../libraries/PackageId.sol";
+import {DealTerms} from "../libraries/Types.sol";
 import {IEscrow} from "../interfaces/IEscrow.sol";
 import {IPaymentProof} from "./interfaces/IPaymentProof.sol";
 import {IPaymentVerifier} from "./interfaces/IPaymentVerifier.sol";
@@ -60,13 +61,17 @@ contract PaymentProof is IPaymentProof {
     ///      anything, and the Provider could never use that payment again.
     function verifyProof(bytes32 dealId, bytes calldata proof) external returns (bytes32 paymentNullifier) {
         if (msg.sender != escrow) revert Unauthorized();
-        bytes32 fiatCommit = IEscrow(escrow).terms(dealId).fiatCommit;
+        DealTerms memory t = IEscrow(escrow).terms(dealId);
+        bytes32 fiatCommit = t.fiatCommit;
         // Not a Poseidon output, so no circuit can take it and no proof will ever open it. The kernel
         // cannot know (the field is the rail's), so the deal can only time out — say so in words.
         if (uint256(fiatCommit) >= BN254_P) revert FiatCommitNotInField();
 
         IPaymentVerifier.PaymentClaim memory claim = IPaymentVerifier.PaymentClaim({
-            dealId: dealId, fiatCommit: fiatCommit, notBefore: uint64(IEscrow(escrow).clocks(dealId).activatedAt)
+            dealId: dealId,
+            fiatCommit: fiatCommit,
+            notBefore: uint64(IEscrow(escrow).clocks(dealId).activatedAt),
+            holder: t.holder
         });
         bool ok;
         (ok, paymentNullifier) = verifier.verify(claim, proof);

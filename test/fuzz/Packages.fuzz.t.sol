@@ -138,7 +138,10 @@ contract PackagesFuzzTest is Test {
             id,
             abi.encode(
                 IPaymentVerifier.PaymentClaim({
-                    dealId: id, fiatCommit: t.fiatCommit, notBefore: uint64(escrow.clocks(id).activatedAt)
+                    dealId: id,
+                    fiatCommit: t.fiatCommit,
+                    notBefore: uint64(escrow.clocks(id).activatedAt),
+                    holder: t.holder
                 }),
                 keccak256("receipt")
             )

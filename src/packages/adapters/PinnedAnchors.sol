@@ -25,10 +25,9 @@ pragma solidity ^0.8.28;
 ///        * `MAX_WINDOW` bounds a leaked key with no governance at all: even a package nobody maintains
 ///          stops trusting a key after at most thirteen months.
 ///
-///      What this cannot fix, and the spec declares: an UNPLANNED rotation mid-deal. A payment signed by a
-///      key nobody pinned is unprovable, and the deal ends at the timeout. The mitigations are the client's
-///      (§3.12.1): refuse a deal whose fiat window outlives `sunset`, warn when the rail's live key is not
-///      pinned, keep `fiatDuration` short.
+///      These are the DEFAULTS: the keys that count with nobody doing anything. What they cannot cover — a
+///      rotation nobody pinned, including one in the middle of a live deal — `RailKeys` covers with the
+///      Holder's own approval, per deal. Adapters inherit `RailKeys`, not this contract directly.
 abstract contract PinnedAnchors {
     struct Anchor {
         bytes32 keyHash; // what the rail's circuit exposes for the key that signed the evidence

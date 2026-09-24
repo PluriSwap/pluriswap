@@ -112,6 +112,15 @@ contract PaymentProofTest is BaseTest {
         escrow.verifyProof(id, proof);
     }
 
+    /// The Holder in the claim is the one in the signed terms: it is the only party whose approval can
+    /// extend which keys count for this deal (§3.12.1), so the caller must not be able to name another.
+    function test_proofNamingAnotherHolder_isRejected() public {
+        bytes32 id = _activateZk(FIAT_COMMIT, 1);
+        bytes memory proof = verifier.proofFor(_claimFor(id, FIAT_COMMIT, _activatedAt(id), address(0xBAD)), NULLIFIER);
+        vm.expectRevert(PaymentProof.InvalidProof.selector);
+        escrow.verifyProof(id, proof);
+    }
+
     function test_verifierSaysNo_isRejected() public {
         bytes32 id = _activateZk(FIAT_COMMIT, 1);
         verifier.setAnswer(false);
@@ -203,10 +212,20 @@ contract PaymentProofTest is BaseTest {
 
     function _claim(bytes32 dealId, bytes32 fiatCommit, uint64 notBefore)
         internal
+        view
+        returns (IPaymentVerifier.PaymentClaim memory)
+    {
+        return _claimFor(dealId, fiatCommit, notBefore, holder);
+    }
+
+    function _claimFor(bytes32 dealId, bytes32 fiatCommit, uint64 notBefore, address holder_)
+        internal
         pure
         returns (IPaymentVerifier.PaymentClaim memory)
     {
-        return IPaymentVerifier.PaymentClaim({dealId: dealId, fiatCommit: fiatCommit, notBefore: notBefore});
+        return IPaymentVerifier.PaymentClaim({
+            dealId: dealId, fiatCommit: fiatCommit, notBefore: notBefore, holder: holder_
+        });
     }
 
     /// A proof of exactly the claim the module will build for this deal.

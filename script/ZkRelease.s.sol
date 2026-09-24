@@ -30,7 +30,10 @@ contract ZkRelease is Script {
         bytes32 nullifier = keccak256(abi.encode("zk-release-receipt", id));
         bytes memory proof = abi.encode(
             IPaymentVerifier.PaymentClaim({
-                dealId: id, fiatCommit: escrow.terms(id).fiatCommit, notBefore: uint64(escrow.clocks(id).activatedAt)
+                dealId: id,
+                fiatCommit: escrow.terms(id).fiatCommit,
+                notBefore: uint64(escrow.clocks(id).activatedAt),
+                holder: escrow.terms(id).holder
             }),
             nullifier
         );

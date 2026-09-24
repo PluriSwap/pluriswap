@@ -74,7 +74,10 @@ contract BaseTest is Test {
     function _paymentProof(bytes32 id, bytes32 nullifier) internal view returns (bytes memory) {
         return abi.encode(
             IPaymentVerifier.PaymentClaim({
-                dealId: id, fiatCommit: escrow.terms(id).fiatCommit, notBefore: uint64(escrow.clocks(id).activatedAt)
+                dealId: id,
+                fiatCommit: escrow.terms(id).fiatCommit,
+                notBefore: uint64(escrow.clocks(id).activatedAt),
+                holder: escrow.terms(id).holder
             }),
             nullifier
         );

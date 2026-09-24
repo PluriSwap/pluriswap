@@ -19,6 +19,9 @@ import {PoolFactory} from "../src/pools/PoolFactory.sol";
 import {PassportMock} from "../mocks/PassportMock.sol";
 import {Reputation} from "../src/packages/Reputation.sol";
 import {BaseTest} from "./Base.t.sol";
+import {RailKeysHarness} from "./RailKeys.t.sol";
+import {PinnedAnchors} from "../src/packages/adapters/PinnedAnchors.sol";
+import {IPaymentVerifier} from "../src/packages/interfaces/IPaymentVerifier.sol";
 
 contract PoolTest is BaseTest {
     PoolFactory internal factory;
@@ -922,6 +925,28 @@ contract PoolTest is BaseTest {
         vm.prank(controller);
         pool.authorize(ha, _noMods());
         return escrow.activate(ha, "", pa, _signProvider(pa), ca, _signController(ca));
+    }
+
+    /// A pool as Holder cannot vouch for a payment key (§3.12.1, RailKeys). Its EIP-1271 only answers for
+    /// the digests `authorize` registered, so a key approval fails closed — whoever signs it, the Controller
+    /// included. That is the point: a Controller able to approve keys could release the pool's principal to
+    /// a colluding Provider with a false one, and a Controller must never be able to redirect principal.
+    function test_poolHolder_cannotApproveKeys() public {
+        bytes32 id = _activatePool(1, 1, 1);
+        PinnedAnchors.Anchor[] memory a = new PinnedAnchors.Anchor[](1);
+        a[0] = PinnedAnchors.Anchor({keyHash: keccak256("pinned"), validFrom: 1, validUntil: 2});
+        RailKeysHarness rail = new RailKeysHarness(a);
+        bytes32 key = keccak256("a key the Controller would like to count");
+        IPaymentVerifier.PaymentClaim memory claim = IPaymentVerifier.PaymentClaim({
+            dealId: id, fiatCommit: FIAT_COMMIT, notBefore: uint64(escrow.clocks(id).activatedAt), holder: address(pool)
+        });
+        bytes memory byController = _sign(rail.keyApprovalDigest(id, key), controllerPk);
+        (bool ok,,) = rail.keyAllowed(claim, key, byController);
+        assertFalse(ok, "the Controller cannot vouch for the pool");
+        bytes memory bySponsor = _sign(rail.keyApprovalDigest(id, key), holderPk);
+        (ok,,) = rail.keyAllowed(claim, key, bySponsor);
+        assertFalse(ok, "nor can the Sponsor");
+        assertEq(pool.isValidSignature(rail.keyApprovalDigest(id, key), byController), bytes4(0));
     }
 
     function test_nav_dropsOnReleaseBeforeReconcile() public {

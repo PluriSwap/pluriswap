@@ -1479,7 +1479,8 @@ contract DriftZk is IPaymentProof {
         IPaymentVerifier.PaymentClaim memory claim = IPaymentVerifier.PaymentClaim({
             dealId: dealId,
             fiatCommit: IEscrow(operator).terms(dealId).fiatCommit,
-            notBefore: uint64(IEscrow(operator).clocks(dealId).activatedAt)
+            notBefore: uint64(IEscrow(operator).clocks(dealId).activatedAt),
+            holder: IEscrow(operator).terms(dealId).holder
         });
         bool ok;
         (ok, paymentNullifier) = verifier.verify(claim, proof);

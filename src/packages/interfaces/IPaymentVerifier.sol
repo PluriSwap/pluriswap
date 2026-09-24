@@ -15,8 +15,8 @@ pragma solidity ^0.8.28;
 ///      from the caller, and asks the adapter whether the proof names exactly that claim. Everything
 ///      rail-specific lives behind this interface: the circuit, its public-input layout, the mod-p
 ///      reduction of `dealId` at the boundary, and the TRUST ANCHORS — the DKIM key, the notary key, the
-///      bank's signing key. How they rotate is one policy for every rail, `PinnedAnchors`: keys fixed at
-///      deploy, each with a bounded window, rotation by publishing another package — never a registry.
+///      bank's signing key. Which keys count is one policy for every rail, `RailKeys`: the adapter's pinned
+///      defaults, plus any key the deal's Holder approved for that deal — never a registry, never an authority.
 ///
 ///      `paymentNullifier` is the circuit's public output: derived from the rail's own transaction id,
 ///      so two pieces of evidence about ONE payment (two notification mails, a mail and a statement)
@@ -29,6 +29,7 @@ interface IPaymentVerifier {
         bytes32 dealId; // raw kernel id; the adapter compares it reduced mod p
         bytes32 fiatCommit; // from the signed terms; the module has checked it is a field element
         uint64 notBefore; // the deal's activation time: a payment before the escrow existed is not for it
+        address holder; // from the signed terms: the one party whose approval may extend the keys (RailKeys)
     }
 
     function verify(PaymentClaim calldata claim, bytes calldata proof)
@@ -36,8 +37,8 @@ interface IPaymentVerifier {
         view
         returns (bool ok, bytes32 paymentNullifier);
 
-    /// @notice The last instant any of this rail's pinned keys can attest a payment (`PinnedAnchors`).
-    /// @dev What a conforming client checks before letting anyone sign: a deal whose fiat window outlives
-    ///      the sunset can end with a payment nobody is able to prove (§3.12.1, key rotation).
+    /// @notice The last instant any of this rail's pinned DEFAULT keys can attest a payment (`PinnedAnchors`).
+    /// @dev Past it, a deal still works — but only on a key its Holder approved (`RailKeys`). A conforming
+    ///      client reads it to know whether the deal it is about to sign needs that approval (§3.12.1).
     function sunset() external view returns (uint64);
 }

@@ -266,7 +266,10 @@ contract PackagesHandler is HandlerBase {
         // Built before the prank: the claim reads the escrow, and a prank binds the NEXT external call.
         bytes memory proof = abi.encode(
             IPaymentVerifier.PaymentClaim({
-                dealId: id, fiatCommit: escrow.terms(id).fiatCommit, notBefore: uint64(escrow.clocks(id).activatedAt)
+                dealId: id,
+                fiatCommit: escrow.terms(id).fiatCommit,
+                notBefore: uint64(escrow.clocks(id).activatedAt),
+                holder: escrow.terms(id).holder
             }),
             nullifier
         );
