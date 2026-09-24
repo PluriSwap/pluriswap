@@ -1295,6 +1295,7 @@ JSON bajo `deployments/` (ver `deployments/README.md`): un archivo por script de
 ### 5.8 Artefactos operativos
 
 - **`KLEROS_POLICY.md`** — policy que leen los jurados (versión 1.0). Se pinea a IPFS; el multiaddr es `KLEROS_POLICY_URI` al deployear `KlerosAdapter`. Contenido: qué se decide (quién recibe el escrowed amount; opciones Holder/Provider/Refuse; sin award parcial), partes e identificadores, standard de decisión (balance of probabilities; carga del Provider), guía (montos y recipientes sí, formato no; late ≠ absent; reversals; pagos parciales; wrong recipient; silencio; promesas off-platform), cuándo rehusar, post-ruling, y manejo de evidencia (pública y permanente; redactar datos personales innecesarios).
+- **`UX_PAGOS.md`** — la experiencia de un deal con `PAYMENT_PROOF`, **aspiracional**: qué ve cada parte, cómo viajan las firmas de §3.12.1 dentro de flujos existentes, el semáforo del Provider y la regla anti-phishing. No normativo; lo normativo es la obligación de cliente de §3.12.1.
 - **Skills** — `deploy-pool` (factory on-chain, `cast send`, sin forge, sin POST a backend).
 
 ### 5.9 Apéndice A — Mapa de citas legacy
