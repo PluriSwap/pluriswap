@@ -679,36 +679,41 @@ pub global CLAIM_SIBLINGS: [Field; 32] = [
 ];
 pub global CLAIM_INDICES: [u8; 32] = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-pub global DELTA_COUNT: u32 = 5;
-pub global DELTA_KINDS: [Field; 5] = [
+pub global DELTA_COUNT: u32 = 6;
+pub global DELTA_KINDS: [Field; 6] = [
     0,
     1,
     2,
     3,
     4,
+    5,
 ];
-pub global DELTA_NEW_COUNTS: [Field; 5] = [
+pub global DELTA_NEW_COUNTS: [Field; 6] = [
     1,
     0,
     0,
     0,
     0,
+    0,
 ];
-pub global DELTA_NEW_VOLUMES: [Field; 5] = [
+pub global DELTA_NEW_VOLUMES: [Field; 6] = [
     100000000,
     0,
     0,
     0,
     0,
+    0,
 ];
-pub global DELTA_NEW_PENALTIES: [Field; 5] = [
+pub global DELTA_NEW_PENALTIES: [Field; 6] = [
     0,
     0,
     5,
     0,
     15,
+    10,
 ];
-pub global DELTA_NEW_IN_FLIGHTS: [Field; 5] = [
+pub global DELTA_NEW_IN_FLIGHTS: [Field; 6] = [
+    0,
     0,
     0,
     0,

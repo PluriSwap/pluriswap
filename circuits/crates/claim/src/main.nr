@@ -17,6 +17,7 @@
 //     Stalemate  penalty+5
 //     ArbWin     —
 //     ArbLoss    penalty+15
+//     Deadlock   penalty+10   (a dispute nobody settled, in a deal nobody gave a tribunal — 2026-09-24)
 //     every kind inFlight−principal
 use pluri_commitments::commitments::{
     CP_DEPTH, account_commitment, cp_path, deal_subject, leaf_rep, leaf_salt, null_rep,
@@ -69,11 +70,11 @@ fn main(
     indices: [u8; 32],
 ) {
     assert(token != 0, "zero token");
-    // `kind` is a Close enum (0..4) — the adapter passes `pending.kind`; anything else
+    // `kind` is a Close enum (0..5) — the adapter passes `pending.kind`; anything else
     // cannot name a delta (checked here too, so a proof with a foreign kind cannot exist).
     let k: u8 = kind as u8;
     assert(k as Field == kind, "kind too big");
-    assert(k <= 4, "unknown close kind");
+    assert(k <= 5, "unknown close kind");
 
     // The per-deal binding: the same pseudonym the activation bundle prepared.
     assert(deal_subject(sk_id, deal_id) == subject, "deal subject mismatch");
@@ -149,10 +150,11 @@ fn main(
     let is_peaceful = (k == 0) as Field;
     let is_stalemate = (k == 2) as Field;
     let is_arbloss = (k == 4) as Field;
+    let is_deadlock = (k == 5) as Field;
     let credits = is_peaceful * is_fresh * has_room;
     let new_count = count + credits;
     let new_volume = volume + credits * principal;
-    let new_penalty = penalty + is_stalemate * 5 + is_arbloss * 15;
+    let new_penalty = penalty + is_stalemate * 5 + is_arbloss * 15 + is_deadlock * 10;
     let new_in_flight = in_flight - principal;
     // The moved stats stay canonical (a delta cannot push a stat past the u128 domain the
     // account's later proofs read it in).
@@ -417,11 +419,11 @@ fn a_penalty_is_never_deduplicated() {
 
 #[test]
 fn every_close_kind_matches_the_table() {
-    // §3.15.5's table, all five rows, against a FRESH counterparty — the case the table was always
-    // describing. Silent and ArbWin release only the flight; Stalemate/ArbLoss punish; Peaceful
-    // completes, and only Peaceful takes the counterparty's slot and a credit from the window.
-    assert(v::DELTA_COUNT == 5, "five close kinds");
-    for i in 0..5 {
+    // §3.15.5's table, all six rows, against a FRESH counterparty — the case the table was always
+    // describing. Silent and ArbWin release only the flight; Stalemate/ArbLoss/Deadlock punish;
+    // Peaceful completes, and only Peaceful takes the counterparty's slot and a credit from the window.
+    assert(v::DELTA_COUNT == 6, "six close kinds");
+    for i in 0..6 {
         let kind = v::DELTA_KINDS[i];
         let credits = (kind == 0) as Field;
         let expected = sample_leaf(
@@ -436,9 +438,10 @@ fn every_close_kind_matches_the_table() {
         let is_peaceful = (kind == 0) as Field;
         let is_stalemate = (kind == 2) as Field;
         let is_arbloss = (kind == 4) as Field;
+        let is_deadlock = (kind == 5) as Field;
         let new_count = v::CLAIM_COUNT + is_peaceful;
         let new_volume = v::CLAIM_VOLUME + is_peaceful * v::CLAIM_PRINCIPAL;
-        let new_penalty = v::CLAIM_PENALTY + is_stalemate * 5 + is_arbloss * 15;
+        let new_penalty = v::CLAIM_PENALTY + is_stalemate * 5 + is_arbloss * 15 + is_deadlock * 10;
         let new_in_flight = v::CLAIM_IN_FLIGHT - v::CLAIM_PRINCIPAL;
         assert(new_count == v::DELTA_NEW_COUNTS[i], "row count");
         assert(new_volume == v::DELTA_NEW_VOLUMES[i], "row volume");

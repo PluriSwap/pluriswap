@@ -461,12 +461,13 @@ async function main() {
   const claimNullRep = await c.nullRep(SK_ID, 1n);
   // The §3.15.5 delta table (the same arithmetic `Reputation`'s public twin applies):
   // Peaceful completes the deal (+1 count, +principal volume), Silent and ArbWin only
-  // release the inFlight, Stalemate punishes +5, ArbLoss +15 — every kind releases
-  // inFlight by the principal.
+  // release the inFlight, Stalemate punishes +5, ArbLoss +15, Deadlock +10 (Parte IV,
+  // 2026-09-24) — every kind releases inFlight by the principal.
   const deltaOf = (kind: bigint): { count: bigint; volume: bigint; penalty: bigint; inFlight: bigint } => {
     if (kind === 0n) return { count: 1n, volume: PREPARE_PRINCIPAL, penalty: 0n, inFlight: 0n };
     if (kind === 2n) return { count: 0n, volume: 0n, penalty: 5n, inFlight: 0n };
     if (kind === 4n) return { count: 0n, volume: 0n, penalty: 15n, inFlight: 0n };
+    if (kind === 5n) return { count: 0n, volume: 0n, penalty: 10n, inFlight: 0n };
     return { count: 0n, volume: 0n, penalty: 0n, inFlight: 0n };
   };
   // The terminal that CREDITS (§3.14.7, 2026-09-23). The counterparty is fresh — the account's tree is
@@ -628,9 +629,9 @@ async function main() {
 
   // The §3.15.5 delta table as rows (the tiers pattern): one row per Close kind over the
   // same current leaf, the JS twin computing each delta leaf. The claim proof commits the
-  // Peaceful row; the circuit's tests prove all five against these rows, and the Solidity
+  // Peaceful row; the circuit's tests prove all six against these rows, and the Solidity
   // mirror walks the same table.
-  const deltaRows = [0n, 1n, 2n, 3n, 4n].map((kind) => {
+  const deltaRows = [0n, 1n, 2n, 3n, 4n, 5n].map((kind) => {
     const d = deltaOf(kind);
     return {
       kind: dec(kind),

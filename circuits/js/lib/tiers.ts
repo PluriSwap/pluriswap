@@ -82,8 +82,9 @@ export function volumeBandFloor(band: number): bigint | null {
  * belongs to the advanced reveal. A listing is read by everyone, and a raw counter is a
  * fingerprint; a band informs without identifying.
  *
- * The cuts are events, not round numbers: a stalemate or an abandoned dispute is +5, an arbitration
- * loss is +15. So 0 is clean, 1 is one bad clock, 2 is several or one proven loss, 3 is more.
+ * The cuts are events, not round numbers: a tribunal's stalemate or an abandoned dispute is +5, a
+ * deadlock is +10, an arbitration loss is +15. So 0 is clean, 1 is one bad clock, 2 is several, one
+ * deadlock or one proven loss, 3 is more.
  *
  * It is what makes the tier readable. The tier nets penalty into the score, so a punished T2 falls
  * to T1 and looks exactly like an honest newcomer — the one distinction a counterparty needs most.

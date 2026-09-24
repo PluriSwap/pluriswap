@@ -801,9 +801,22 @@
       "new_volume": "0",
       "new_penalty": "15",
       "new_in_flight": "0"
+    },
+    {
+      "kind": "5",
+      "count": "0",
+      "volume": "0",
+      "penalty": "0",
+      "in_flight": "100000000",
+      "token": "97433442488726861213578988847752201310395502865",
+      "principal": "100000000",
+      "new_count": "0",
+      "new_volume": "0",
+      "new_penalty": "10",
+      "new_in_flight": "0"
     }
   ],
-  "deltas_rows": "5",
+  "deltas_rows": "6",
   "prepare": {
     "depth": 32,
     "cp_root": "21443572485391568159800782191812935835534334817699172242223315142338162256601",

@@ -21,7 +21,7 @@ contract DeltaParityTest is Test {
 
     /// @dev The §3.15.5 delta's count/volume/penalty columns: Peaceful completes the deal
     ///      (+1 count, +principal volume), Silent and ArbWin move neither, Stalemate
-    ///      punishes +5, ArbLoss +15. The inFlight column is the caller's — it is the
+    ///      punishes +5, ArbLoss +15, Deadlock +10 (Parte IV, 2026-09-24). The inFlight column is the caller's — it is the
     ///      satSub twin (inFlight − principal, saturating), shared by every kind.
     function _delta(uint8 kind, uint256 count, uint256 volume, uint256 penalty, uint256 principal)
         internal
@@ -30,7 +30,7 @@ contract DeltaParityTest is Test {
     {
         newCount = kind == 0 ? count + 1 : count;
         newVolume = kind == 0 ? volume + principal : volume;
-        newPenalty = penalty + (kind == 2 ? 5 : 0) + (kind == 4 ? 15 : 0);
+        newPenalty = penalty + (kind == 2 ? 5 : 0) + (kind == 4 ? 15 : 0) + (kind == 5 ? 10 : 0);
     }
 
     function test_deltaRows_matchTheTable() public view {
@@ -38,6 +38,7 @@ contract DeltaParityTest is Test {
         // column — this forge cannot lift a whole column out of an array of objects, and
         // has no working array-length cheatcode, so the generator also names the count.
         uint256 rows = vm.parseJsonUint(vectors, ".deltas_rows");
+        assertEq(rows, 6, "one row per Close kind, Deadlock included");
         for (uint256 i = 0; i < rows; i++) {
             string memory row = string.concat(".deltas[", vm.toString(i), "]");
             uint8 kind = uint8(vm.parseJsonUint(vectors, string.concat(row, ".kind")));
@@ -58,7 +59,7 @@ contract DeltaParityTest is Test {
         }
     }
 
-    function test_theFiveCloses() public pure {
+    function test_theSixCloses() public pure {
         // The table by hand, as §3.15.5 reads it — over the sample leaf (count 0, the
         // principal in flight): each kind's exact move, and the atomicity's edge (the
         // penalty applies WITH the release, never instead of it).
@@ -79,5 +80,9 @@ contract DeltaParityTest is Test {
         (nc, nv, np) = _delta(4, 0, 0, 0, 100_000_000);
         assertEq(np, 15, "ArbLoss punishes 15");
         assertEq(nc, 0, "ArbLoss does not count");
+        (nc, nv, np) = _delta(5, 0, 0, 0, 100_000_000);
+        assertEq(np, 10, "Deadlock punishes 10: between a tribunal's refusal and a proven loss");
+        assertEq(nc, 0, "Deadlock does not count: no trade closed");
+        assertEq(nv, 0, "Deadlock does not volume");
     }
 }

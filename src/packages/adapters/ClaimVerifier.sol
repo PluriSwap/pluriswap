@@ -20,7 +20,7 @@ import {IReputation} from "../interfaces/IReputation.sol";
 ///      The proof blob is `proof || public_inputs` (bb's layout): the trailing 256 bytes are
 ///      the eight public inputs in circuit order — `dealId`, `dealSubject`, `newLeaf`,
 ///      `nullRep`, `kind`, `token`, `principal`, `repRoot`. The first seven must match the
-///      interface args exactly — `kind` is the pending record's Close enum (0..4, compared
+///      interface args exactly — `kind` is the pending record's Close enum (0..5, compared
 ///      as `uint8`), `token` as the numeric cast (right-aligned field element), `principal`
 ///      raw — and `repRoot` is the live root the module gated. The delta arithmetic is the
 ///      circuit's own; the adapter only binds the proof to the record the kernel wrote. The
@@ -76,7 +76,7 @@ contract ClaimVerifier is IClaimVerifier {
         if (pubs[1] != dealSubject) return false; // the subject the kernel snapshotted
         if (pubs[2] != newLeaf) return false; // the delta leaf the module will insert
         if (pubs[3] != nullRep) return false; // the version nullifier the module will burn
-        if (pubs[4] != bytes32(uint256(uint8(kind)))) return false; // pending's Close, 0..4
+        if (pubs[4] != bytes32(uint256(uint8(kind)))) return false; // pending's Close, 0..5
         // The numeric cast, not a raw bytes20 cast: the proof's field element is the
         // address as an integer (right-aligned), while bytes32(bytes20) would left-align.
         if (pubs[5] != bytes32(uint256(uint160(token)))) return false; // raw address < p always

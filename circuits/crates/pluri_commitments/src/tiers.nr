@@ -169,12 +169,13 @@ pub fn volume_band(volume: Field, decimals: Field) -> u8 {
 /// A listing is read by everyone, so a raw counter is a fingerprint — "47 deals, 12,350 of volume"
 /// identifies a person more than it informs a counterparty. A band informs and does not identify.
 ///
-/// The cuts are events, not round numbers. A stalemate or an abandoned dispute is +5 and an
-/// arbitration loss is +15 (§3.14.7), so:
+/// The cuts are events, not round numbers. A tribunal's stalemate or an abandoned dispute is +5, a
+/// deadlock (a dispute nobody settled, in a deal with no tribunal) is +10 and an arbitration loss is
+/// +15 (§3.14.7), so:
 ///
 ///   0  clean          nothing has ever gone wrong
 ///   1  1..5           one stalemate or one abandoned dispute
-///   2  6..15          several of those, or one proven loss at a tribunal
+///   2  6..15          several of those, one deadlock, or one proven loss at a tribunal
 ///   3  16+            more than one proven loss
 ///
 /// The band is what makes the tier readable. A tier nets the penalty into the score, so a punished

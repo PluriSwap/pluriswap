@@ -30,7 +30,9 @@
 // are byte-deterministic across runs; the PROOF itself is not (fresh ZK blinding per
 // prove — each run's fixture is a different valid proof of the same statement).
 //
-// Run: bun circuits:prove
+// Run: bun circuits:prove            (every circuit)
+//      bun circuits:prove claim      (only the named circuits — the others' fixtures stay as they
+//                                     are, instead of each being re-proven with fresh blinding)
 
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -574,9 +576,14 @@ function hex(bytes: Buffer): string {
 function main() {
   const vectors = JSON.parse(readFileSync(join(REPO, "test/fixtures/vectors.json"), "utf8")) as Vectors;
 
+  const only = process.argv.slice(2);
+  const unknown = only.filter((n) => !CIRCUIT_LIST.some((c) => c.name === n));
+  if (unknown.length > 0) throw new Error(`unknown circuit(s): ${unknown.join(", ")}`);
+  const selected = CIRCUIT_LIST.filter((c) => only.length === 0 || only.includes(c.name));
+
   console.log("compiling circuits...");
   sh(CIRCUITS, "nargo compile");
-  for (const circuit of CIRCUIT_LIST) {
+  for (const circuit of selected) {
     console.log(`=== ${circuit.name} ===`);
     writeFileSync(join(CIRCUITS, "crates", circuit.name, "Prover.toml"), circuit.proverToml(vectors));
     sh(join(CIRCUITS, "crates", circuit.name), "nargo execute");
@@ -643,7 +650,7 @@ function main() {
   sh(join(REPO, "verifiers"), "forge build");
   const initcodeDir = join(REPO, "test/fixtures/verifiers");
   mkdirSync(initcodeDir, { recursive: true });
-  for (const circuit of CIRCUIT_LIST) {
+  for (const circuit of selected) {
     if (circuit.offchain || !circuit.contract) continue; // off-chain: no initcode to extract
     const artifact = join(
       REPO,
