@@ -336,10 +336,9 @@ const CIRCUIT_LIST: Circuit[] = [
   },
   {
     // The merged side (§3.15.4, 2026-09-23): the three per-module statements of one side in one
-    // proof. `offchain` only until its adapter exists — the fixture is generated now so the circuit
-    // is pinned and its proof measured, which is what the decision to wire it rests on.
+    // proof, verified once by the shared `BundleVerifier`.
     name: "prepare_side",
-    offchain: true,
+    contract: "PrepareSideVerifier",
     pubs: 14,
     proverToml: (v) =>
       toml([
