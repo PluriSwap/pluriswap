@@ -13,11 +13,9 @@ import {PrivateBondVault} from "../src/packages/PrivateBondVault.sol";
 import {IGitcoinPassportDecoder} from "../src/packages/interfaces/IGitcoinPassportDecoder.sol";
 import {RegistryHumanityVerifier} from "../src/packages/adapters/RegistryHumanityVerifier.sol";
 import {RegistryAccountVerifier} from "../src/packages/adapters/RegistryAccountVerifier.sol";
-import {PreparePassportVerifier} from "../src/packages/adapters/PreparePassportVerifier.sol";
-import {PrepareAdmitVerifier} from "../src/packages/adapters/PrepareAdmitVerifier.sol";
+import {BundleVerifier} from "../src/packages/adapters/BundleVerifier.sol";
 import {ClaimVerifier} from "../src/packages/adapters/ClaimVerifier.sol";
 import {DepositVerifier} from "../src/packages/adapters/DepositVerifier.sol";
-import {PrepareBondVerifier} from "../src/packages/adapters/PrepareBondVerifier.sol";
 import {ReabsorbVerifier} from "../src/packages/adapters/ReabsorbVerifier.sol";
 import {WithdrawVerifier} from "../src/packages/adapters/WithdrawVerifier.sol";
 import {PassportDecoderMock} from "../mocks/PassportDecoderMock.sol";
@@ -63,11 +61,11 @@ contract DeployPrivate is PoseidonEnsurer, ChainIds {
     struct Verifiers {
         RegistryHumanityVerifier humanity;
         RegistryAccountVerifier account;
-        PreparePassportVerifier passport;
-        PrepareAdmitVerifier admit;
+        /// @dev One verifier for the whole side since 2026-09-23 (§3.15.4): the passport, admission
+        ///      and split of one side are one proof, checked once and read by the three modules.
+        BundleVerifier bundle;
         ClaimVerifier claim;
         DepositVerifier deposit;
-        PrepareBondVerifier bond;
         ReabsorbVerifier reabsorb;
         WithdrawVerifier withdraw;
     }
@@ -117,12 +115,12 @@ contract DeployPrivate is PoseidonEnsurer, ChainIds {
         address predictedVault = vm.computeCreateAddress(deployer, n + 3);
 
         s.accountTree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
-        s.passport = new PrivatePassport(s.accountTree, v.humanity, v.passport);
+        s.passport = new PrivatePassport(s.accountTree, v.humanity, v.bundle);
         s.reputation = new PrivateReputation(
             s.passport,
             s.accountTree,
             v.account,
-            v.admit,
+            v.bundle,
             v.claim,
             FEE_RECIPIENT,
             ACT_FEE,
@@ -133,7 +131,7 @@ contract DeployPrivate is PoseidonEnsurer, ChainIds {
             predictedVault
         );
         s.vault =
-            new PrivateBondVault(s.passport, s.reputation, SINK, escrow, v.deposit, v.bond, v.reabsorb, v.withdraw);
+            new PrivateBondVault(s.passport, s.reputation, SINK, escrow, v.deposit, v.bundle, v.reabsorb, v.withdraw);
 
         require(address(s.reputation) == predictedRep, "reputation prediction drifted");
         require(address(s.vault) == predictedVault, "vault prediction drifted");
@@ -147,11 +145,9 @@ contract DeployPrivate is PoseidonEnsurer, ChainIds {
     function _deployVerifiers(HumanityRegistry registry) internal returns (Verifiers memory v) {
         v.humanity = new RegistryHumanityVerifier(registry, _initcode("register_humanity"));
         v.account = new RegistryAccountVerifier(registry, _initcode("register_account"));
-        v.passport = new PreparePassportVerifier(_initcode("prepare_passport"));
-        v.admit = new PrepareAdmitVerifier(_initcode("prepare_admit"));
+        v.bundle = new BundleVerifier(_initcode("prepare_side"));
         v.claim = new ClaimVerifier(_initcode("claim"));
         v.deposit = new DepositVerifier(_initcode("deposit"));
-        v.bond = new PrepareBondVerifier(_initcode("prepare_bond"));
         v.reabsorb = new ReabsorbVerifier(_initcode("reabsorb"));
         v.withdraw = new WithdrawVerifier(_initcode("withdraw"));
     }
@@ -231,11 +227,9 @@ contract DeployPrivate is PoseidonEnsurer, ChainIds {
         vm.serializeBytes32(obj, "bondsId", s.vault.packageId());
         vm.serializeAddress(obj, "humanityVerifier", address(v.humanity));
         vm.serializeAddress(obj, "accountVerifier", address(v.account));
-        vm.serializeAddress(obj, "passportVerifier", address(v.passport));
-        vm.serializeAddress(obj, "admitVerifier", address(v.admit));
+        vm.serializeAddress(obj, "bundleVerifier", address(v.bundle));
         vm.serializeAddress(obj, "claimVerifier", address(v.claim));
         vm.serializeAddress(obj, "depositVerifier", address(v.deposit));
-        vm.serializeAddress(obj, "bondVerifier", address(v.bond));
         vm.serializeAddress(obj, "reabsorbVerifier", address(v.reabsorb));
         string memory json = vm.serializeAddress(obj, "withdrawVerifier", address(v.withdraw));
         vm.writeJson(json, _out());

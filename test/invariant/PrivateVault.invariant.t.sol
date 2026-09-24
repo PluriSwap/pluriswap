@@ -7,12 +7,13 @@ import {TestToken} from "../../mocks/TestToken.sol";
 import {DeadPassportMock} from "../../mocks/DeadPassportMock.sol";
 import {GatingMock} from "../../mocks/GatingMock.sol";
 import {DepositVerifierMock} from "../../mocks/DepositVerifierMock.sol";
-import {PrepareBondVerifierMock} from "../../mocks/PrepareBondVerifierMock.sol";
+import {BundleVerifierMock} from "../../mocks/BundleVerifierMock.sol";
 import {ReabsorbVerifierMock} from "../../mocks/ReabsorbVerifierMock.sol";
 import {WithdrawVerifierMock} from "../../mocks/WithdrawVerifierMock.sol";
 import {PoseidonTree} from "../../src/packages/PoseidonTree.sol";
 import {PrivateBondVault} from "../../src/packages/PrivateBondVault.sol";
 import {PoseidonSingletons} from "../PoseidonSingletons.sol";
+import {IBundleVerifier} from "../../src/packages/interfaces/IBundleVerifier.sol";
 
 /// @title Private vault invariant handler (F3 closure, PLURISWAP.md §3.15.6)
 /// @dev The vault is explored directly: the handler plays the prover side (deposits, splits,
@@ -32,6 +33,37 @@ import {PoseidonSingletons} from "../PoseidonSingletons.sol";
 ///      Every verb guards its full precondition and is a no-op otherwise (`fail_on_revert = true`:
 ///      any revert in a campaign is a vault finding, not handler noise).
 contract PrivateVaultHandler is Test {
+
+    /// @dev One side's bundle inputs as the vault reads them (§3.15.4). The reputation half is zero
+    ///      here: these suites drive the vault directly, and a module only ever reads its own fields
+    ///      — which is the property the shared verifier was designed to keep.
+    function _bondIn(
+        bytes32 subject,
+        bytes32 forDealId,
+        address tok,
+        uint256 lockAmount,
+        bytes32 lockCommit,
+        bytes32 changeNote,
+        bytes32 nullBond,
+        bytes32 bondRoot_
+    ) internal pure returns (IBundleVerifier.BundleInputs memory) {
+        return IBundleVerifier.BundleInputs({
+            dealSubject: subject,
+            dealId: forDealId,
+            token: tok,
+            principal: 0,
+            repRoot: bytes32(0),
+            newLeaf: bytes32(0),
+            nullRep: bytes32(0),
+            pairTag: bytes32(0),
+            lockCommit: lockCommit,
+            lockAmount: lockAmount,
+            changeNote: changeNote,
+            nullBond: nullBond,
+            bondRoot: bondRoot_
+        });
+    }
+    BundleVerifierMock internal bundle;
     bytes32 internal constant PREPARE_TYPEHASH =
         keccak256("PrivatePrepare(bytes32 dealId,bytes32 dealSubject,address module,uint256 deadline)");
 
@@ -85,13 +117,14 @@ contract PrivateVaultHandler is Test {
     constructor() {
         token = new TestToken();
         gating = new GatingMock();
+        bundle = new BundleVerifierMock();
         vault = new PrivateBondVault(
             new DeadPassportMock(),
             gating,
             address(0xDEAD),
             address(this), // the handler is the kernel here: the operator side of the edge
             new DepositVerifierMock(),
-            new PrepareBondVerifierMock(),
+            bundle,
             new ReabsorbVerifierMock(),
             new WithdrawVerifierMock()
         );
@@ -161,17 +194,11 @@ contract PrivateVaultHandler is Test {
         uint256 deadline = block.timestamp + 365 days;
         bytes32 changeNote = _fresh();
         vault.prepare(
+            // `_fresh()` stands in for the lock commitment (an opaque value for the books) and for
+            // the source note's nullifier (which the burn consumes).
+            _bondIn(subject, dealId, address(token), lockAmount, _fresh(), changeNote, _fresh(), vault.bondRoot()),
             wallet,
-            dealId,
-            subject,
-            address(token),
-            lockAmount,
-            _fresh(), // lockCommit: an opaque commitment for the books
-            changeNote,
-            _fresh(), // nullBond: burns the source note
-            vault.bondRoot(),
             deadline,
-            _ok(),
             _sig(pks[who], dealId, subject, deadline)
         );
         // Honest-circuit conservation: the source note becomes change + buffer.

@@ -4,17 +4,15 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {HumanityVerifierMock} from "../mocks/HumanityVerifierMock.sol";
 import {AccountVerifierMock} from "../mocks/AccountVerifierMock.sol";
-import {PreparePassportVerifierMock} from "../mocks/PreparePassportVerifierMock.sol";
-import {PrepareAdmitVerifierMock} from "../mocks/PrepareAdmitVerifierMock.sol";
+import {BundleVerifierMock} from "../mocks/BundleVerifierMock.sol";
 import {ClaimVerifierMock} from "../mocks/ClaimVerifierMock.sol";
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
+import {IBundleVerifier} from "../src/packages/interfaces/IBundleVerifier.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
 import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
 import {IAccountVerifier} from "../src/packages/interfaces/IAccountVerifier.sol";
 import {IClaimVerifier} from "../src/packages/interfaces/IClaimVerifier.sol";
 import {IHumanityVerifier} from "../src/packages/interfaces/IHumanityVerifier.sol";
-import {IPrepareAdmitVerifier} from "../src/packages/interfaces/IPrepareAdmitVerifier.sol";
-import {IPreparePassportVerifier} from "../src/packages/interfaces/IPreparePassportVerifier.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {PackageId} from "../src/libraries/PackageId.sol";
 import {PoseidonSingletons} from "./PoseidonSingletons.sol";
@@ -24,6 +22,7 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      on-chain: reputation only trusts an hn the passport has already burned in this tx.
 ///      Verifier mocks decode the proof as a bool: a passing mock is not privacy.
 contract PrivateRegisterTest is Test {
+    BundleVerifierMock internal bundle;
     bytes32 internal constant HN_A = keccak256("human-a");
     bytes32 internal constant HN_B = keccak256("human-b");
     bytes32 internal constant LEAF_A = bytes32(uint256(0xA));
@@ -32,30 +31,27 @@ contract PrivateRegisterTest is Test {
 
     HumanityVerifierMock internal humanity;
     AccountVerifierMock internal account;
-    PreparePassportVerifierMock internal passportProof;
-    PrepareAdmitVerifierMock internal admitProof;
     ClaimVerifierMock internal claimProof;
     PoseidonTree internal tree;
     PrivatePassport internal passport;
     PrivateReputation internal reputation;
 
     function setUp() public {
+        bundle = new BundleVerifierMock();
         // The private layer hashes through the pinned poseidon-solidity singletons, which a test
         // EVM starts without (PLURISWAP.md §5.1).
         PoseidonSingletons.install();
         humanity = new HumanityVerifierMock();
         account = new AccountVerifierMock();
-        passportProof = new PreparePassportVerifierMock();
-        admitProof = new PrepareAdmitVerifierMock();
         claimProof = new ClaimVerifierMock();
         // The accounts tree is wired into the passport before its owner exists, so
         // PrivateReputation's CREATE address is predicted (tree, passport, then reputation
         // itself consume the next three nonces).
         address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
         tree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
-        passport = new PrivatePassport(tree, humanity, passportProof);
+        passport = new PrivatePassport(tree, humanity, bundle);
         reputation = new PrivateReputation(
-            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
+            passport, tree, account, bundle, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
         );
         assertEq(address(reputation), predictedRep, "predicted tree owner drifted");
     }
@@ -88,11 +84,11 @@ contract PrivateRegisterTest is Test {
 
     function test_humanity_zeroConstructorArgs() public {
         vm.expectRevert(PrivatePassport.ZeroAddress.selector);
-        new PrivatePassport(PoseidonTree(address(0)), humanity, passportProof);
+        new PrivatePassport(PoseidonTree(address(0)), humanity, bundle);
         vm.expectRevert(PrivatePassport.ZeroAddress.selector);
-        new PrivatePassport(tree, IHumanityVerifier(address(0)), passportProof);
+        new PrivatePassport(tree, IHumanityVerifier(address(0)), bundle);
         vm.expectRevert(PrivatePassport.ZeroAddress.selector);
-        new PrivatePassport(tree, humanity, IPreparePassportVerifier(address(0)));
+        new PrivatePassport(tree, humanity, IBundleVerifier(address(0)));
     }
 
     // ---------------------------------------------------------------- PrivateReputation.register
@@ -165,7 +161,7 @@ contract PrivateRegisterTest is Test {
             IPassport(address(0)),
             tree,
             account,
-            admitProof,
+            bundle,
             claimProof,
             FEE_TO,
             0,
@@ -180,7 +176,7 @@ contract PrivateRegisterTest is Test {
             passport,
             PoseidonTree(address(0)),
             account,
-            admitProof,
+            bundle,
             claimProof,
             FEE_TO,
             0,
@@ -195,7 +191,7 @@ contract PrivateRegisterTest is Test {
             passport,
             tree,
             IAccountVerifier(address(0)),
-            admitProof,
+            bundle,
             claimProof,
             FEE_TO,
             0,
@@ -210,7 +206,7 @@ contract PrivateRegisterTest is Test {
             passport,
             tree,
             account,
-            IPrepareAdmitVerifier(address(0)),
+            IBundleVerifier(address(0)),
             claimProof,
             FEE_TO,
             0,
@@ -225,7 +221,7 @@ contract PrivateRegisterTest is Test {
             passport,
             tree,
             account,
-            admitProof,
+            bundle,
             IClaimVerifier(address(0)),
             FEE_TO,
             0,
@@ -237,15 +233,15 @@ contract PrivateRegisterTest is Test {
         );
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
         new PrivateReputation(
-            passport, tree, account, admitProof, claimProof, address(0), 0, 0, 0, 0, address(this), address(this)
+            passport, tree, account, bundle, claimProof, address(0), 0, 0, 0, 0, address(this), address(this)
         );
         vm.expectRevert(PrivateReputation.ZeroAddress.selector);
         new PrivateReputation(
-            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(0), address(this)
+            passport, tree, account, bundle, claimProof, FEE_TO, 0, 0, 0, 0, address(0), address(this)
         );
         vm.expectRevert(PrivateReputation.BadFee.selector);
         new PrivateReputation(
-            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 10_001, 0, address(this), address(this)
+            passport, tree, account, bundle, claimProof, FEE_TO, 0, 0, 10_001, 0, address(this), address(this)
         );
     }
 
@@ -253,7 +249,7 @@ contract PrivateRegisterTest is Test {
     ///      deployment (a BONDS deal then fails closed in `admit`), not a wiring mistake.
     function test_reputation_vaultlessBindingIsLegal() public {
         PrivateReputation vaultless = new PrivateReputation(
-            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
+            passport, tree, account, bundle, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(0)
         );
         assertEq(vaultless.bondsVault(), address(0));
     }
@@ -263,7 +259,7 @@ contract PrivateRegisterTest is Test {
         PoseidonTree shallow = new PoseidonTree(20, DEFAULT_ROOT_HISTORY, address(this));
         vm.expectRevert(PrivateReputation.BadTreeDepth.selector);
         new PrivateReputation(
-            passport, shallow, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(this)
+            passport, shallow, account, bundle, claimProof, FEE_TO, 0, 0, 0, 0, address(this), address(this)
         );
     }
 }

@@ -7,8 +7,8 @@ import {ClaimVerifierMock} from "../mocks/ClaimVerifierMock.sol";
 import {HumanityRegistry} from "../src/packages/HumanityRegistry.sol";
 import {RegistryHumanityVerifier} from "../src/packages/adapters/RegistryHumanityVerifier.sol";
 import {RegistryAccountVerifier} from "../src/packages/adapters/RegistryAccountVerifier.sol";
-import {PreparePassportVerifier} from "../src/packages/adapters/PreparePassportVerifier.sol";
-import {PrepareAdmitVerifier} from "../src/packages/adapters/PrepareAdmitVerifier.sol";
+import {BundleVerifier} from "../src/packages/adapters/BundleVerifier.sol";
+import {IBundleVerifier} from "../src/packages/interfaces/IBundleVerifier.sol";
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
 import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
 import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
@@ -56,15 +56,13 @@ contract PrepareRealProofTest is Test {
     string internal vectors;
     string internal proofHumanity;
     string internal proofAccount;
-    string internal proofPassport;
-    string internal proofAdmit;
+    string internal proofSide;
 
     PassportDecoderMock internal decoder;
     HumanityRegistry internal registry;
     RegistryHumanityVerifier internal humanityVerifier;
     RegistryAccountVerifier internal accountVerifier;
-    PreparePassportVerifier internal passportVerifier;
-    PrepareAdmitVerifier internal admitVerifier;
+    BundleVerifier internal bundle;
     address internal anchor;
     address internal wallet;
 
@@ -96,8 +94,7 @@ contract PrepareRealProofTest is Test {
         vectors = vm.readFile("test/fixtures/vectors.json");
         proofHumanity = vm.readFile("test/fixtures/proofs/register_humanity.json");
         proofAccount = vm.readFile("test/fixtures/proofs/register_account.json");
-        proofPassport = vm.readFile("test/fixtures/proofs/prepare_passport.json");
-        proofAdmit = vm.readFile("test/fixtures/proofs/prepare_admit.json");
+        proofSide = vm.readFile("test/fixtures/proofs/prepare_side.json");
 
         hsk = bytes32(vm.parseJsonUint(vectors, ".registry.hsk"));
         hn = bytes32(vm.parseJsonUint(vectors, ".registry.sample_hn"));
@@ -131,11 +128,8 @@ contract PrepareRealProofTest is Test {
         accountVerifier = new RegistryAccountVerifier(
             registry, vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/register_account.json"), ".initcode")
         );
-        passportVerifier = new PreparePassportVerifier(
-            vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/prepare_passport.json"), ".initcode")
-        );
-        admitVerifier = new PrepareAdmitVerifier(
-            vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/prepare_admit.json"), ".initcode")
+        bundle = new BundleVerifier(
+            vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/prepare_side.json"), ".initcode")
         );
 
         // Every remaining mock is pre-deployed BEFORE the prediction (the tree's owner is
@@ -145,12 +139,12 @@ contract PrepareRealProofTest is Test {
 
         address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
         accountTree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
-        passport = new PrivatePassport(accountTree, humanityVerifier, passportVerifier);
+        passport = new PrivatePassport(accountTree, humanityVerifier, bundle);
         reputation = new PrivateReputation(
             passport,
             accountTree,
             accountVerifier,
-            admitVerifier,
+            bundle,
             claimProof,
             FEE_TO,
             0,
@@ -180,12 +174,34 @@ contract PrepareRealProofTest is Test {
         return vm.parseJsonBytes(proofAccount, ".proof_with_public_inputs");
     }
 
-    function proofPassportBlob() internal view returns (bytes memory) {
-        return vm.parseJsonBytes(proofPassport, ".proof_with_public_inputs");
+    /// The side as the merged circuit proved it (§3.15.4): the bonded shape, because the fixture is.
+    /// The vault is absent from this suite, so nothing here reads `bondRoot` — what the passport and
+    /// the reputation read is their own half, out of the same inputs.
+    function side() internal view returns (IBundleVerifier.BundleInputs memory) {
+        return IBundleVerifier.BundleInputs({
+            dealSubject: dealSubject,
+            dealId: dealId,
+            token: token,
+            principal: principal,
+            repRoot: repRoot,
+            newLeaf: newLeaf,
+            nullRep: nullRep,
+            pairTag: pairTag(),
+            lockCommit: bytes32(vm.parseJsonUint(vectors, ".side.lock_commit")),
+            lockAmount: vm.parseJsonUint(vectors, ".side.lock_amount"),
+            changeNote: bytes32(vm.parseJsonUint(vectors, ".side.change_note")),
+            nullBond: bytes32(vm.parseJsonUint(vectors, ".side.null_bond")),
+            bondRoot: bytes32(vm.parseJsonUint(vectors, ".side.bond_root"))
+        });
     }
 
-    function proofAdmitBlob() internal view returns (bytes memory) {
-        return vm.parseJsonBytes(proofAdmit, ".proof_with_public_inputs");
+    function proofSideBlob() internal view returns (bytes memory) {
+        return vm.parseJsonBytes(proofSide, ".proof_with_public_inputs");
+    }
+
+    /// @dev Every module reads a ticket, so every flow starts by leaving one.
+    function _prove() internal {
+        require(bundle.verify(side(), proofSideBlob()), "the committed side proof must verify");
     }
 
     /// @dev The wallet's EIP-712 consent over (dealId, dealSubject, module, deadline) —
@@ -218,23 +234,11 @@ contract PrepareRealProofTest is Test {
     /// @dev The full activation side: passport prepare, admission prepare, then the kernel's
     ///      `admit` consuming the buffer.
     function _runBundle() internal {
-        passport.prepare(
-            wallet, dealId, dealSubject, repRoot, deadline, proofPassportBlob(), _walletSig(address(passport))
-        );
+        _prove();
+        passport.prepare(side(), wallet, deadline, _walletSig(address(passport)));
         reputation.prepare(
-            wallet,
-            dealId,
-            dealSubject,
-            newLeaf,
-            nullRep,
-            token,
-            principal,
-            bytes32(0),
-            repRoot,
-            pairTag(),
-            deadline,
-            proofAdmitBlob(),
-            _walletSig(address(reputation))
+            PrivateReputation.Side({inputs: side(), wallet: wallet, walletSig: _walletSig(address(reputation))}),
+            deadline
         );
     }
 
@@ -243,28 +247,18 @@ contract PrepareRealProofTest is Test {
     function test_prepare_bundleWithRealProofs() public {
         // forge checks the whole expected-log queue at the NEXT call boundary: each
         // expectEmit must be immediately followed by the call that emits it.
+        // One proof for the whole side, verified once (§3.15.4); after this the modules only ask.
+        _prove();
+
         vm.expectEmit(true, true, true, true, address(passport));
         emit PrivatePassport.PassportPrepared(wallet, dealSubject, deadline);
-        passport.prepare(
-            wallet, dealId, dealSubject, repRoot, deadline, proofPassportBlob(), _walletSig(address(passport))
-        );
+        passport.prepare(side(), wallet, deadline, _walletSig(address(passport)));
 
         vm.expectEmit(true, true, true, true, address(reputation));
         emit PrivateReputation.ReputationPrepared(wallet, dealSubject, newLeaf, deadline);
         reputation.prepare(
-            wallet,
-            dealId,
-            dealSubject,
-            newLeaf,
-            nullRep,
-            token,
-            principal,
-            bytes32(0),
-            repRoot,
-            pairTag(),
-            deadline,
-            proofAdmitBlob(),
-            _walletSig(address(reputation))
+            PrivateReputation.Side({inputs: side(), wallet: wallet, walletSig: _walletSig(address(reputation))}),
+            deadline
         );
 
         // The nullifier of version 0 burned, the new leaf inserted (index 1), the buffers
@@ -288,281 +282,116 @@ contract PrepareRealProofTest is Test {
         _runBundle();
         // The proof itself is valid forever, but the version-0 nullifier is spent: the
         // transition cannot be replayed — the module rejects before the tree can grow.
+        PrivateReputation.Side memory again =
+            PrivateReputation.Side({inputs: side(), wallet: wallet, walletSig: _walletSig(address(reputation))});
         vm.expectRevert(PoseidonTree.NullifierUsed.selector);
-        reputation.prepare(
-            wallet,
-            dealId,
-            dealSubject,
-            newLeaf,
-            nullRep,
-            token,
-            principal,
-            bytes32(0),
-            repRoot,
-            pairTag(),
-            deadline,
-            proofAdmitBlob(),
-            _walletSig(address(reputation))
-        );
+        reputation.prepare(again, deadline);
     }
 
     // ---------------------------------------------------------------- adapter negatives
 
-    function test_verifyPassport_rejectsWrongArgs() public view {
-        bytes32 wrongSubject = bytes32(uint256(keccak256("other-subject")));
-        bytes32 wrongRoot = bytes32(uint256(keccak256("other-root")));
-        assertTrue(passportVerifier.verifyPassport(dealSubject, repRoot, proofPassportBlob()));
-        assertFalse(passportVerifier.verifyPassport(wrongSubject, repRoot, proofPassportBlob()));
-        assertFalse(passportVerifier.verifyPassport(dealSubject, wrongRoot, proofPassportBlob()));
-    }
 
-    function test_verifyAdmit_rejectsWrongArgs() public {
-        bytes32 wrongSubject = bytes32(uint256(keccak256("other-subject")));
-        bytes32 wrongLeaf = bytes32(uint256(0xBEEF));
-        bytes32 wrongNull = bytes32(uint256(keccak256("other-null")));
-        bytes32 wrongRoot = bytes32(uint256(keccak256("other-root")));
-        address wrongToken = makeAddr("not-the-token");
-        uint256 wrongPrincipal = principal + 1;
 
-        assertTrue(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
-            )
-        );
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                wrongSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
-            )
-        );
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, wrongLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
-            )
-        );
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, wrongNull, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
-            )
-        );
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, wrongToken, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
-            )
-        );
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, wrongPrincipal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
-            )
-        );
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), wrongRoot, pairTag(), proofAdmitBlob()
-            )
-        );
-    }
 
-    function test_verifyAdmit_rejectsNonZeroLockCommit() public {
-        // V2 has no vault: the bond column of §3.14.7 (the higher caps) is selected by a
-        // non-zero lockCommit, and without a vault to bind the lock it would be bought for
-        // free. The adapter amplifies the interface's "zero without bonds" into a rejection.
-        bytes32 lockCommit = bytes32(uint256(keccak256("phantom-lock")));
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, lockCommit, repRoot, pairTag(), proofAdmitBlob()
-            )
-        );
 
-        vm.expectRevert(PrivateReputation.AdmitProofFailed.selector);
-        reputation.prepare(
-            wallet,
-            dealId,
-            dealSubject,
-            newLeaf,
-            nullRep,
-            token,
-            principal,
-            lockCommit,
-            repRoot,
-            pairTag(),
-            deadline,
-            proofAdmitBlob(),
-            _walletSig(address(reputation))
-        );
-    }
 
-    function test_verifyAdmit_rejectsForeignDecimals() public {
-        // The same proof, same token address, but the SERVED token now reports 18 decimals:
-        // the tier scale the proof computed with (250 * 10^6) belongs to another token
-        // — the amplification reads the live token, not the proof's claim.
-        vm.etch(token, hex"601260005260206000f3"); // mstore(0, 18); return(0, 32)
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
-            )
-        );
-    }
 
-    function test_verifyAdmit_rejectsSilentToken() public {
-        // A token that reverts on `decimals()` (or has no code at all) reads as the
-        // sentinel: no proof can name it, admission fails closed.
-        vm.etch(token, hex"60006000fd"); // revert(0, 0)
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAdmitBlob()
-            )
-        );
-    }
 
-    function test_verify_rejectsTamperedProof() public view {
-        bytes memory blob = proofAdmitBlob();
-        blob[42] = blob[42] ^ 0xff; // one byte inside the proof body
-        assertFalse(
-            admitVerifier.verifyAdmit(dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), blob)
-        );
-
-        blob = proofPassportBlob();
-        blob[42] = blob[42] ^ 0xff;
-        assertFalse(passportVerifier.verifyPassport(dealSubject, repRoot, blob));
-    }
-
-    function test_verify_rejectsMalformedBlobs() public view {
-        // Short blobs and truncated public-input sections read as false, never revert-shaped.
-        assertFalse(passportVerifier.verifyPassport(dealSubject, repRoot, hex"0011"));
-        assertFalse(
-            admitVerifier.verifyAdmit(dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), hex"0011")
-        );
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), _truncate(proofAdmitBlob(), 64)
-            )
-        );
-    }
-
-    function test_verify_rejectsCrossCircuitProofs() public view {
-        // The passport blob carries 2 pubs, the admit blob 9: into the passport verifier the
-        // admit blob's tail splits as (repRoot, decimals) — neither arg matches; into the
-        // admit verifier the passport blob is too short to carry 9 pubs at all.
-        assertFalse(passportVerifier.verifyPassport(dealSubject, repRoot, proofAdmitBlob()));
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofPassportBlob()
-            )
-        );
-        // The register blobs are equally foreign here (3 pubs, register statements).
-        assertFalse(passportVerifier.verifyPassport(dealSubject, repRoot, proofHumanityBlob()));
-        assertFalse(
-            admitVerifier.verifyAdmit(
-                dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, pairTag(), proofAccountBlob()
-            )
-        );
-    }
 
     function test_prepare_rejectsForeignRoot() public {
-        // The module gates the root against the account tree's ring buffer before the
-        // proof: an unknown root never reaches the verifier.
-        bytes32 foreign = bytes32(uint256(keccak256("never-inserted")));
+        // The modules gate the root against their own tree's ring buffer BEFORE asking the shared
+        // verifier anything: an unknown root never reaches a ticket lookup, let alone a verification.
+        _prove();
+        IBundleVerifier.BundleInputs memory foreignSide = side();
+        foreignSide.repRoot = bytes32(uint256(keccak256("never-inserted")));
+        bytes memory pSig = _walletSig(address(passport));
+        bytes memory rSig = _walletSig(address(reputation));
+
         vm.expectRevert(PrivatePassport.UnknownRoot.selector);
-        passport.prepare(
-            wallet, dealId, dealSubject, foreign, deadline, proofPassportBlob(), _walletSig(address(passport))
-        );
+        passport.prepare(foreignSide, wallet, deadline, pSig);
+
+        PrivateReputation.Side memory foreign =
+            PrivateReputation.Side({inputs: foreignSide, wallet: wallet, walletSig: rSig});
         vm.expectRevert(PrivateReputation.UnknownRoot.selector);
-        reputation.prepare(
-            wallet,
-            dealId,
-            dealSubject,
-            newLeaf,
-            nullRep,
-            token,
-            principal,
-            bytes32(0),
-            foreign,
-            pairTag(),
-            deadline,
-            proofAdmitBlob(),
-            _walletSig(address(reputation))
-        );
+        reputation.prepare(foreign, deadline);
+    }
+
+    /// The other half of the same guard: a root the tree knows, but a side nobody proved. The ticket
+    /// is content-keyed, so an edited field is simply a side that was never verified.
+    function test_prepare_rejectsASideThatWasNotProven() public {
+        _prove();
+        IBundleVerifier.BundleInputs memory edited = side();
+        edited.newLeaf = keccak256("a leaf nobody proved");
+        bytes memory rSig = _walletSig(address(reputation));
+        PrivateReputation.Side memory bad =
+            PrivateReputation.Side({inputs: edited, wallet: wallet, walletSig: rSig});
+        vm.expectRevert(PrivateReputation.AdmitProofFailed.selector);
+        reputation.prepare(bad, deadline);
+    }
+
+    /// And without any ticket at all — the relayer forgot to verify — every module fails closed.
+    function test_prepare_withoutATicketFailsClosed() public {
+        bytes memory pSig = _walletSig(address(passport));
+        IBundleVerifier.BundleInputs memory s_ = side();
+        vm.expectRevert(PrivatePassport.PassportProofFailed.selector);
+        passport.prepare(s_, wallet, deadline, pSig);
     }
 
     function test_prepare_rejectsBadWalletSignature() public {
-        bytes memory sig = _walletSig(address(passport));
-        sig[10] = sig[10] ^ 0xff; // a broken signature cannot pin a subject under a wallet
-        vm.expectRevert(PrivatePassport.InvalidWalletSignature.selector);
-        passport.prepare(wallet, dealId, dealSubject, repRoot, deadline, proofPassportBlob(), sig);
+        // A proof says the account consents to the TRANSITION; the signature says the wallet consents
+        // to this deal under this module. Sharing the proof did not merge the consents: each module
+        // still has its own EIP-712 domain, and a broken signature stops each one on its own.
+        _prove();
+        IBundleVerifier.BundleInputs memory s_ = side();
 
-        sig = _walletSig(address(reputation));
+        bytes memory sig = _walletSig(address(passport));
         sig[10] = sig[10] ^ 0xff;
+        vm.expectRevert(PrivatePassport.InvalidWalletSignature.selector);
+        passport.prepare(s_, wallet, deadline, sig);
+
+        bytes memory rsig = _walletSig(address(reputation));
+        rsig[10] = rsig[10] ^ 0xff;
+        PrivateReputation.Side memory bad = PrivateReputation.Side({inputs: s_, wallet: wallet, walletSig: rsig});
         vm.expectRevert(PrivateReputation.InvalidWalletSignature.selector);
-        reputation.prepare(
-            wallet,
-            dealId,
-            dealSubject,
-            newLeaf,
-            nullRep,
-            token,
-            principal,
-            bytes32(0),
-            repRoot,
-            pairTag(),
-            deadline,
-            proofAdmitBlob(),
-            sig
-        );
+        reputation.prepare(bad, deadline);
     }
 
     /// LEVER 3: where a prepare's gas actually goes. The published ~7.6M for a one-sided bundle came
     /// from forge's per-test figure, which counts the cheatcodes that read fixtures off disk — the
     /// same thing that inflated the per-verify numbers by 2.6x. Measured with every input hoisted out
     /// of the window, a prepare is its verify plus its tree work plus very little else.
+    /// Where one side's gas goes, now that the three statements are one proof (§3.15.4). The
+    /// verification is paid ONCE, by whoever submits the proof; what the modules pay afterwards is a
+    /// ticket lookup and their own storage.
     function test_lever_bundleDecomposition() public {
-        bytes memory passportBlob = proofPassportBlob();
-        bytes memory admitBlob = proofAdmitBlob();
+        IBundleVerifier.BundleInputs memory s_ = side();
+        bytes memory blob = proofSideBlob();
         bytes memory passportSig = _walletSig(address(passport));
         bytes memory admitSig = _walletSig(address(reputation));
-        bytes32 tag = pairTag();
+        PrivateReputation.Side memory repSide =
+            PrivateReputation.Side({inputs: s_, wallet: wallet, walletSig: admitSig});
 
         uint256 before = gasleft();
-        passport.prepare(wallet, dealId, dealSubject, repRoot, deadline, passportBlob, passportSig);
+        bundle.verify(s_, blob);
+        uint256 verification = before - gasleft();
+
+        before = gasleft();
+        passport.prepare(s_, wallet, deadline, passportSig);
         uint256 passportPrepare = before - gasleft();
 
         before = gasleft();
-        reputation.prepare(
-            wallet, dealId, dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, tag, deadline,
-            admitBlob, admitSig
-        );
+        reputation.prepare(repSide, deadline);
         uint256 repPrepare = before - gasleft();
 
         before = gasleft();
         reputation.admit(wallet, _dealTag(), token, principal, address(0));
         uint256 admit = before - gasleft();
 
-        emit log_named_uint("passport.prepare (verify 717k + sig + storage)", passportPrepare);
-        emit log_named_uint("reputation.prepare (verify 730k + spend + insert + storage)", repPrepare);
-        emit log_named_uint("reputation.admit (no proof: buffer + identify)", admit);
-        emit log_named_uint("one side, passport+rep, total", passportPrepare + repPrepare + admit);
-        // A bonded deal adds the vault's own prepare; a two-sided deal doubles all of it. The number
-        // that matters for §3.15.4 is this one times two, plus the kernel's activation.
-    }
-
-    // ---------------------------------------------------------------- gas of the real verify
-
-    function test_verify_gas() public {
-        // Everything the call needs is read BEFORE the window. `pairTag()` parses vectors.json through
-        // a cheatcode, and a cheatcode inside the measurement is the measurement: it read as ~4M of
-        // verifier gas that the verifier never spent (2026-09-23).
-        bytes memory passportBlob = proofPassportBlob();
-        bytes memory admitBlob = proofAdmitBlob();
-        bytes32 tag = pairTag();
-
-        uint256 before = gasleft();
-        passportVerifier.verifyPassport(dealSubject, repRoot, passportBlob);
-        uint256 passportCost = before - gasleft();
-
-        before = gasleft();
-        admitVerifier.verifyAdmit(dealSubject, newLeaf, nullRep, token, principal, bytes32(0), repRoot, tag, admitBlob);
-        uint256 admitCost = before - gasleft();
-
-        emit log_named_uint("verifyPassport gas", passportCost);
-        emit log_named_uint("verifyAdmit gas", admitCost);
+        emit log_named_uint("bundle.verify (once for the whole side)", verification);
+        emit log_named_uint("passport.prepare (ticket + sig + storage)", passportPrepare);
+        emit log_named_uint("reputation.prepare (ticket + spend + insert + storage)", repPrepare);
+        emit log_named_uint("reputation.admit (buffer + identify)", admit);
+        emit log_named_uint("one side, total", verification + passportPrepare + repPrepare + admit);
     }
 
     /// @dev Solidity cannot slice memory bytes; the truncated-blob tests need copies.

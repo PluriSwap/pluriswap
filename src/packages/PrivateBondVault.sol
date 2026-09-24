@@ -11,7 +11,7 @@ import {IPassport} from "./interfaces/IPassport.sol";
 import {IBondVault} from "./interfaces/IBondVault.sol";
 import {IPrivateReputation} from "./interfaces/IPrivateReputation.sol";
 import {IDepositVerifier} from "./interfaces/IDepositVerifier.sol";
-import {IPrepareBondVerifier} from "./interfaces/IPrepareBondVerifier.sol";
+import {IBundleVerifier} from "./interfaces/IBundleVerifier.sol";
 import {IReabsorbVerifier} from "./interfaces/IReabsorbVerifier.sol";
 import {IWithdrawVerifier} from "./interfaces/IWithdrawVerifier.sol";
 import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "./PoseidonTree.sol";
@@ -98,7 +98,8 @@ contract PrivateBondVault is IBondVault, EIP712 {
     address public immutable sink;
     address public immutable operator;
     IDepositVerifier public immutable depositVerifier;
-    IPrepareBondVerifier public immutable bondVerifier;
+    /// @dev The shared verifier of §3.15.4. Immutable, and the module's address is its `packageId`.
+    IBundleVerifier public immutable bundleVerifier;
     IReabsorbVerifier public immutable reabsorbVerifier;
     IWithdrawVerifier public immutable withdrawVerifier;
     PoseidonTree public immutable notesTree;
@@ -132,6 +133,7 @@ contract PrivateBondVault is IBondVault, EIP712 {
     error BondProofFailed();
     error ReabsorbProofFailed();
     error WithdrawProofFailed();
+    error SidesDisagree();
     error InvalidWalletSignature();
     error NoPrepare();
     error PrepareMismatch();
@@ -147,14 +149,14 @@ contract PrivateBondVault is IBondVault, EIP712 {
         address sink_,
         address operator_,
         IDepositVerifier depositVerifier_,
-        IPrepareBondVerifier bondVerifier_,
+        IBundleVerifier bundleVerifier_,
         IReabsorbVerifier reabsorbVerifier_,
         IWithdrawVerifier withdrawVerifier_
     ) EIP712("PluriSwap", "1") {
         if (
             address(passport_) == address(0) || address(reputation_) == address(0) || sink_ == address(0)
                 || operator_ == address(0) || address(depositVerifier_) == address(0)
-                || address(bondVerifier_) == address(0) || address(reabsorbVerifier_) == address(0)
+                || address(bundleVerifier_) == address(0) || address(reabsorbVerifier_) == address(0)
                 || address(withdrawVerifier_) == address(0)
         ) {
             revert ZeroAddress();
@@ -164,7 +166,7 @@ contract PrivateBondVault is IBondVault, EIP712 {
         sink = sink_;
         operator = operator_;
         depositVerifier = depositVerifier_;
-        bondVerifier = bondVerifier_;
+        bundleVerifier = bundleVerifier_;
         reabsorbVerifier = reabsorbVerifier_;
         withdrawVerifier = withdrawVerifier_;
         notesTree = new PoseidonTree(NOTES_DEPTH, DEFAULT_ROOT_HISTORY, address(this));
@@ -274,36 +276,69 @@ contract PrivateBondVault is IBondVault, EIP712 {
     ///         A later split for the same (deal, subject) overwrites an earlier one — latest wins,
     ///         both were wallet-signed; the orphaned lock value is stranded in the vault
     ///         (over-collateralized, the owner's own loss, never anyone else's).
-    function prepare(
-        address wallet,
-        bytes32 dealId,
-        bytes32 dealSubject,
-        address token,
-        uint256 lockAmount,
-        bytes32 lockCommit,
-        bytes32 changeNote,
-        bytes32 nullBond,
-        bytes32 bondRoot_,
-        uint256 deadline,
-        bytes calldata proof,
-        bytes calldata walletSig
+    /// @notice Buffers one side's split for the activation bundle.
+    ///
+    /// @dev Since 2026-09-23 the split is proven inside the side's single `prepare_side` proof
+    ///      (§3.15.4), verified once by the shared `BundleVerifier`. This module asks whether exactly
+    ///      these inputs were proven in this transaction and then does what is its own: burn the
+    ///      source note, insert the change, record the earmark the kernel's `reserve` will read.
+    ///      `lockCommit == 0` is a deal without bonds and has no business here.
+    function prepare(IBundleVerifier.BundleInputs calldata inputs, address wallet, uint256 deadline, bytes calldata walletSig)
+        external
+    {
+        _openPrepare(inputs, deadline);
+        _prepareSide(inputs, wallet, deadline, walletSig);
+        notesTree.insert(inputs.changeNote);
+    }
+
+    /// @notice Both sides of one bonded activation, inserting their two change notes together.
+    /// @dev Same saving as the reputation module's (§3.14.7's `insertMany`): adjacent leaves share
+    ///      every level above their common subtree, so the notes tree is walked once instead of twice.
+    function prepareBoth(
+        IBundleVerifier.BundleInputs calldata holder,
+        address holderWallet,
+        bytes calldata holderSig,
+        IBundleVerifier.BundleInputs calldata provider,
+        address providerWallet,
+        bytes calldata providerSig,
+        uint256 deadline
     ) external {
-        if (block.timestamp > deadline) revert PrepareExpired();
-        if (!notesTree.isKnownRoot(bondRoot_)) revert UnknownRoot();
-        if (!bondVerifier.verifyBond(
-                dealSubject, dealId, token, lockAmount, lockCommit, changeNote, nullBond, bondRoot_, proof
-            )) {
-            revert BondProofFailed();
+        if (holder.dealId != provider.dealId || holder.bondRoot != provider.bondRoot || holder.token != provider.token) {
+            revert SidesDisagree();
         }
-        bytes32 digest =
-            _hashTypedDataV4(keccak256(abi.encode(PREPARE_TYPEHASH, dealId, dealSubject, address(this), deadline)));
+        _openPrepare(holder, deadline);
+        _openPrepare(provider, deadline);
+        _prepareSide(holder, holderWallet, deadline, holderSig);
+        _prepareSide(provider, providerWallet, deadline, providerSig);
+        bytes32[] memory notes = new bytes32[](2);
+        notes[0] = holder.changeNote;
+        notes[1] = provider.changeNote;
+        notesTree.insertMany(notes);
+    }
+
+    function _openPrepare(IBundleVerifier.BundleInputs calldata inputs, uint256 deadline) internal view {
+        if (block.timestamp > deadline) revert PrepareExpired();
+        if (inputs.lockCommit == bytes32(0)) revert NoLock();
+        if (!notesTree.isKnownRoot(inputs.bondRoot)) revert UnknownRoot();
+    }
+
+    function _prepareSide(
+        IBundleVerifier.BundleInputs calldata inputs,
+        address wallet,
+        uint256 deadline,
+        bytes calldata walletSig
+    ) internal {
+        if (!bundleVerifier.wasProven(inputs)) revert BondProofFailed();
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(PREPARE_TYPEHASH, inputs.dealId, inputs.dealSubject, address(this), deadline))
+        );
         if (!SignatureChecker.isValidSignatureNow(wallet, digest, walletSig)) revert InvalidWalletSignature();
         // Burn the source note before inserting the change: a replayed split dies before it can
         // grow the tree, and concurrent splits against the same note serialize here.
-        notesTree.spend(nullBond);
-        notesTree.insert(changeNote);
-        preparedBond[dealId][dealSubject] = PreparedBond(token, lockAmount, lockCommit);
-        emit BondPrepared(dealId, dealSubject, lockCommit, lockAmount, changeNote);
+        notesTree.spend(inputs.nullBond);
+        preparedBond[inputs.dealId][inputs.dealSubject] =
+            PreparedBond(inputs.token, inputs.lockAmount, inputs.lockCommit);
+        emit BondPrepared(inputs.dealId, inputs.dealSubject, inputs.lockCommit, inputs.lockAmount, inputs.changeNote);
     }
 
     /// @notice Merges a released lock back into a fresh note: the proof binds the account behind

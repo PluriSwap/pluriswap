@@ -8,7 +8,7 @@ import {IPassport} from "./interfaces/IPassport.sol";
 import {IReputation} from "./interfaces/IReputation.sol";
 import {IAccountVerifier} from "./interfaces/IAccountVerifier.sol";
 import {IClaimVerifier} from "./interfaces/IClaimVerifier.sol";
-import {IPrepareAdmitVerifier} from "./interfaces/IPrepareAdmitVerifier.sol";
+import {IBundleVerifier} from "./interfaces/IBundleVerifier.sol";
 import {IPrivatePassport} from "./interfaces/IPrivatePassport.sol";
 import {IPrivateReputation} from "./interfaces/IPrivateReputation.sol";
 import {PoseidonTree} from "./PoseidonTree.sol";
@@ -58,12 +58,10 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
     ///      Everything they share — the deal, token, principal, root, pair tag, deadline — is an
     ///      argument of its own, passed once.
     struct Side {
+        /// @dev The side as the shared verifier proved it (§3.15.4). The module reads what is its
+        ///      own out of here and never takes those values from anywhere else.
+        IBundleVerifier.BundleInputs inputs;
         address wallet;
-        bytes32 dealSubject;
-        bytes32 newLeaf;
-        bytes32 nullRep;
-        bytes32 lockCommit;
-        bytes proof;
         bytes walletSig;
     }
 
@@ -87,7 +85,9 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
     IPassport public immutable passport;
     PoseidonTree public immutable accountTree;
     IAccountVerifier public immutable accountVerifier;
-    IPrepareAdmitVerifier public immutable admitVerifier;
+    /// @dev The shared verifier of §3.15.4. Immutable, and the module's address is its `packageId`:
+    ///      consenting to the package is consenting to this verifier.
+    IBundleVerifier public immutable bundleVerifier;
     IClaimVerifier public immutable claimVerifier;
     address public immutable feeRecipient;
     uint256 public immutable activationFee;
@@ -132,6 +132,7 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
     error ClaimProofFailed();
     error PairMismatch();
     error NoPair();
+    error SidesDisagree();
     error InvalidWalletSignature();
     error NoPrepare();
     error PrepareMismatch();
@@ -145,7 +146,7 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
         IPassport passport_,
         PoseidonTree accountTree_,
         IAccountVerifier accountVerifier_,
-        IPrepareAdmitVerifier admitVerifier_,
+        IBundleVerifier bundleVerifier_,
         IClaimVerifier claimVerifier_,
         address feeRecipient_,
         uint256 activationFee_,
@@ -157,7 +158,7 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
     ) EIP712("PluriSwap", "1") {
         if (
             address(passport_) == address(0) || address(accountTree_) == address(0)
-                || address(accountVerifier_) == address(0) || address(admitVerifier_) == address(0)
+                || address(accountVerifier_) == address(0) || address(bundleVerifier_) == address(0)
                 || address(claimVerifier_) == address(0) || feeRecipient_ == address(0) || operator_ == address(0)
         ) {
             revert ZeroAddress();
@@ -167,7 +168,7 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
         passport = passport_;
         accountTree = accountTree_;
         accountVerifier = accountVerifier_;
-        admitVerifier = admitVerifier_;
+        bundleVerifier = bundleVerifier_;
         claimVerifier = claimVerifier_;
         feeRecipient = feeRecipient_;
         activationFee = activationFee_;
@@ -200,33 +201,13 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
     ///         the wallet's consent, burns `nullRep(v)` and inserts the new leaf — all in the
     ///         activation tx, so a failed `activate` reverts it whole. Permissionless: the proof and
     ///         the signature are the authority, the relayer is anyone.
-    function prepare(
-        address wallet,
-        bytes32 dealId,
-        bytes32 dealSubject,
-        bytes32 newLeaf,
-        bytes32 nullRep,
-        address token,
-        uint256 principal,
-        bytes32 lockCommit,
-        bytes32 repRoot,
-        bytes32 pairTag,
-        uint256 deadline,
-        bytes calldata proof,
-        bytes calldata walletSig
-    ) external {
-        _openPrepare(repRoot, deadline);
-        _recordPair(dealId, pairTag);
-        _prepareSide(
-            Side(wallet, dealSubject, newLeaf, nullRep, lockCommit, proof, walletSig),
-            dealId,
-            token,
-            principal,
-            repRoot,
-            pairTag,
-            deadline
-        );
-        accountTree.insert(newLeaf);
+    /// @notice One side, on its own. The bundle path is `prepareBoth`, which inserts the two leaves
+    ///         together; this is the primitive, and what a one-sided flow uses.
+    function prepare(Side calldata side, uint256 deadline) external {
+        _openPrepare(side.inputs.repRoot, deadline);
+        _recordPair(side.inputs.dealId, side.inputs.pairTag);
+        _prepareSide(side, deadline);
+        accountTree.insert(side.inputs.newLeaf);
     }
 
     /// @notice Both sides of one activation in a single call, inserting their two leaves together.
@@ -245,23 +226,25 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
     ///
     ///      Everything a two-sided activation shares is passed once: the deal, the token, the
     ///      principal, the root, the tag, the deadline. What differs is the `Side`.
-    function prepareBoth(
-        bytes32 dealId,
-        Side calldata holder,
-        Side calldata provider,
-        address token,
-        uint256 principal,
-        bytes32 repRoot,
-        bytes32 pairTag,
-        uint256 deadline
-    ) external {
-        _openPrepare(repRoot, deadline);
-        _recordPair(dealId, pairTag);
-        _prepareSide(holder, dealId, token, principal, repRoot, pairTag, deadline);
-        _prepareSide(provider, dealId, token, principal, repRoot, pairTag, deadline);
+    function prepareBoth(Side calldata holder, Side calldata provider, uint256 deadline) external {
+        // One deal, two sides: everything they share has to actually be shared, or these are two
+        // different activations wearing one call. The pair tag is the strongest of these — it is the
+        // §3.14.7 agreement — but the others are what make the shared values safe to read from either.
+        if (
+            holder.inputs.dealId != provider.inputs.dealId || holder.inputs.repRoot != provider.inputs.repRoot
+                || holder.inputs.token != provider.inputs.token
+                || holder.inputs.principal != provider.inputs.principal
+                || holder.inputs.pairTag != provider.inputs.pairTag
+        ) {
+            revert SidesDisagree();
+        }
+        _openPrepare(holder.inputs.repRoot, deadline);
+        _recordPair(holder.inputs.dealId, holder.inputs.pairTag);
+        _prepareSide(holder, deadline);
+        _prepareSide(provider, deadline);
         bytes32[] memory leaves = new bytes32[](2);
-        leaves[0] = holder.newLeaf;
-        leaves[1] = provider.newLeaf;
+        leaves[0] = holder.inputs.newLeaf;
+        leaves[1] = provider.inputs.newLeaf;
         accountTree.insertMany(leaves);
     }
 
@@ -287,41 +270,24 @@ contract PrivateReputation is IReputation, IPrivateReputation, EIP712 {
 
     /// @dev One side's proof, consent and nullifier. The INSERT is deliberately not here: it is what
     ///      the two entrypoints do differently, and batching it is the whole point of `prepareBoth`.
-    function _prepareSide(
-        Side memory side,
-        bytes32 dealId,
-        address token,
-        uint256 principal,
-        bytes32 repRoot,
-        bytes32 pairTag,
-        uint256 deadline
-    ) internal {
-        if (
-            !admitVerifier.verifyAdmit(
-                side.dealSubject,
-                side.newLeaf,
-                side.nullRep,
-                token,
-                principal,
-                side.lockCommit,
-                repRoot,
-                pairTag,
-                side.proof
-            )
-        ) {
-            revert AdmitProofFailed();
-        }
+    function _prepareSide(Side calldata side, uint256 deadline) internal {
+        // The proof is the shared verifier's now (§3.15.4). What this module still owns is the
+        // question it asks of it — "was exactly this side proven in this transaction?" — and what it
+        // does with the answer: the leaf it inserts, the nullifier it burns and the buffer `admit`
+        // will consume all come out of the inputs that were proven, never from anywhere else.
+        if (!bundleVerifier.wasProven(side.inputs)) revert AdmitProofFailed();
         bytes32 digest = _hashTypedDataV4(
-            keccak256(abi.encode(PREPARE_TYPEHASH, dealId, side.dealSubject, address(this), deadline))
+            keccak256(abi.encode(PREPARE_TYPEHASH, side.inputs.dealId, side.inputs.dealSubject, address(this), deadline))
         );
         if (!SignatureChecker.isValidSignatureNow(side.wallet, digest, side.walletSig)) {
             revert InvalidWalletSignature();
         }
         // Burn the version nullifier before inserting: concurrent prepares against the same account
         // serialize here, and a replayed transition dies before it can grow the tree.
-        accountTree.spend(side.nullRep);
-        preparedAdmit[side.wallet] = PreparedAdmit(side.dealSubject, token, principal, deadline, pairTag);
-        emit ReputationPrepared(side.wallet, side.dealSubject, side.newLeaf, deadline);
+        accountTree.spend(side.inputs.nullRep);
+        preparedAdmit[side.wallet] =
+            PreparedAdmit(side.inputs.dealSubject, side.inputs.token, side.inputs.principal, deadline, side.inputs.pairTag);
+        emit ReputationPrepared(side.wallet, side.inputs.dealSubject, side.inputs.newLeaf, deadline);
     }
 
     /// @inheritdoc IReputation

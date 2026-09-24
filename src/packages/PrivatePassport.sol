@@ -6,7 +6,7 @@ import {SignatureChecker} from "@openzeppelin/contracts/utils/cryptography/Signa
 import {PackageId} from "../libraries/PackageId.sol";
 import {IPassport} from "./interfaces/IPassport.sol";
 import {IHumanityVerifier} from "./interfaces/IHumanityVerifier.sol";
-import {IPreparePassportVerifier} from "./interfaces/IPreparePassportVerifier.sol";
+import {IBundleVerifier} from "./interfaces/IBundleVerifier.sol";
 import {IPrivatePassport} from "./interfaces/IPrivatePassport.sol";
 import {PoseidonTree} from "./PoseidonTree.sol";
 
@@ -40,7 +40,10 @@ contract PrivatePassport is IPrivatePassport, IPassport, EIP712 {
 
     PoseidonTree public immutable accountTree;
     IHumanityVerifier public immutable humanityVerifier;
-    IPreparePassportVerifier public immutable passportVerifier;
+    /// @dev The shared verifier of §3.15.4: one proof per side, read by all three modules. Immutable,
+    ///      and the module's address IS its `packageId`, so consenting to the package is consenting to
+    ///      this verifier — exactly the relationship the per-module verifier had.
+    IBundleVerifier public immutable bundleVerifier;
 
     mapping(bytes32 => bool) public spentHumanity;
     mapping(address => Prepared) public preparedPassport;
@@ -59,17 +62,17 @@ contract PrivatePassport is IPrivatePassport, IPassport, EIP712 {
     constructor(
         PoseidonTree accountTree_,
         IHumanityVerifier humanityVerifier_,
-        IPreparePassportVerifier passportVerifier_
+        IBundleVerifier bundleVerifier_
     ) EIP712("PluriSwap", "1") {
         if (
             address(accountTree_) == address(0) || address(humanityVerifier_) == address(0)
-                || address(passportVerifier_) == address(0)
+                || address(bundleVerifier_) == address(0)
         ) {
             revert ZeroAddress();
         }
         accountTree = accountTree_;
         humanityVerifier = humanityVerifier_;
-        passportVerifier = passportVerifier_;
+        bundleVerifier = bundleVerifier_;
     }
 
     // ------------------------------------------------------------------ register (F1)
@@ -111,22 +114,32 @@ contract PrivatePassport is IPrivatePassport, IPassport, EIP712 {
     ///         `Escrow.activate`, PLURISWAP.md §3.15.4). Permissionless: the relayer is anyone;
     ///         the proof and the wallet signature are the authority. A later prepare overwrites an
     ///         earlier one for the same wallet — latest wins, both were wallet-signed.
+    /// @notice Buffers one side's identification for the activation bundle.
+    ///
+    /// @dev Since 2026-09-23 the proof is not this module's own: one side of a bundle is ONE
+    ///      `prepare_side` proof covering passport, admission and split together (§3.15.4), verified
+    ///      once by the shared `BundleVerifier`. What this module does is ask whether exactly these
+    ///      inputs were proven in this transaction, and then enforce the part that is its own — that
+    ///      the subject it is about to answer `identify` with is the subject that was proven, under a
+    ///      root the tree still accepts.
+    ///
+    ///      The trust is the same in kind as before (a module has always trusted the verifier its
+    ///      `packageId` names) and narrower in scope than it looks: a ticket is keyed by the hash of
+    ///      the inputs, so it can never satisfy a call about different values.
     function prepare(
+        IBundleVerifier.BundleInputs calldata inputs,
         address wallet,
-        bytes32 dealId,
-        bytes32 dealSubject,
-        bytes32 repRoot,
         uint256 deadline,
-        bytes calldata proof,
         bytes calldata walletSig
     ) external {
         if (block.timestamp > deadline) revert PrepareExpired();
-        if (!accountTree.isKnownRoot(repRoot)) revert UnknownRoot();
-        if (!passportVerifier.verifyPassport(dealSubject, repRoot, proof)) revert PassportProofFailed();
-        bytes32 digest =
-            _hashTypedDataV4(keccak256(abi.encode(PREPARE_TYPEHASH, dealId, dealSubject, address(this), deadline)));
+        if (!accountTree.isKnownRoot(inputs.repRoot)) revert UnknownRoot();
+        if (!bundleVerifier.wasProven(inputs)) revert PassportProofFailed();
+        bytes32 digest = _hashTypedDataV4(
+            keccak256(abi.encode(PREPARE_TYPEHASH, inputs.dealId, inputs.dealSubject, address(this), deadline))
+        );
         if (!SignatureChecker.isValidSignatureNow(wallet, digest, walletSig)) revert InvalidWalletSignature();
-        preparedPassport[wallet] = Prepared(dealSubject, deadline);
-        emit PassportPrepared(wallet, dealSubject, deadline);
+        preparedPassport[wallet] = Prepared(inputs.dealSubject, deadline);
+        emit PassportPrepared(wallet, inputs.dealSubject, deadline);
     }
 }

@@ -7,19 +7,19 @@ import {TestToken} from "../mocks/TestToken.sol";
 import {DeadPassportMock} from "../mocks/DeadPassportMock.sol";
 import {GatingMock} from "../mocks/GatingMock.sol";
 import {DepositVerifierMock} from "../mocks/DepositVerifierMock.sol";
-import {PrepareBondVerifierMock} from "../mocks/PrepareBondVerifierMock.sol";
+import {BundleVerifierMock} from "../mocks/BundleVerifierMock.sol";
 import {ReabsorbVerifierMock} from "../mocks/ReabsorbVerifierMock.sol";
 import {WithdrawVerifierMock} from "../mocks/WithdrawVerifierMock.sol";
 import {PackageId} from "../src/libraries/PackageId.sol";
 import {IPassport} from "../src/packages/interfaces/IPassport.sol";
 import {IPrivateReputation} from "../src/packages/interfaces/IPrivateReputation.sol";
 import {IDepositVerifier} from "../src/packages/interfaces/IDepositVerifier.sol";
-import {IPrepareBondVerifier} from "../src/packages/interfaces/IPrepareBondVerifier.sol";
 import {IReabsorbVerifier} from "../src/packages/interfaces/IReabsorbVerifier.sol";
 import {IWithdrawVerifier} from "../src/packages/interfaces/IWithdrawVerifier.sol";
 import {PoseidonTree} from "../src/packages/PoseidonTree.sol";
 import {PrivateBondVault} from "../src/packages/PrivateBondVault.sol";
 import {PoseidonSingletons} from "./PoseidonSingletons.sol";
+import {IBundleVerifier} from "../src/packages/interfaces/IBundleVerifier.sol";
 
 /// @title Private vault tests (F3, PLURISWAP.md §3.15.6)
 /// @dev Notes in, locks out, everything fail-closed. The mock verifiers decode the proof as a
@@ -29,6 +29,37 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      is hoisted to a local BEFORE `vm.expectRevert` — the expectation is consumed by the next
 ///      call, whatever it is.
 contract PrivateVaultTest is Test {
+
+    /// @dev One side's bundle inputs as the vault reads them (§3.15.4). The reputation half is zero
+    ///      here: these suites drive the vault directly, and a module only ever reads its own fields
+    ///      — which is the property the shared verifier was designed to keep.
+    function _bondIn(
+        bytes32 subject,
+        bytes32 forDealId,
+        address tok,
+        uint256 lockAmount,
+        bytes32 lockCommit,
+        bytes32 changeNote,
+        bytes32 nullBond,
+        bytes32 bondRoot_
+    ) internal pure returns (IBundleVerifier.BundleInputs memory) {
+        return IBundleVerifier.BundleInputs({
+            dealSubject: subject,
+            dealId: forDealId,
+            token: tok,
+            principal: 0,
+            repRoot: bytes32(0),
+            newLeaf: bytes32(0),
+            nullRep: bytes32(0),
+            pairTag: bytes32(0),
+            lockCommit: lockCommit,
+            lockAmount: lockAmount,
+            changeNote: changeNote,
+            nullBond: nullBond,
+            bondRoot: bondRoot_
+        });
+    }
+    BundleVerifierMock internal bundle;
     bytes32 internal constant PREPARE_TYPEHASH =
         keccak256("PrivatePrepare(bytes32 dealId,bytes32 dealSubject,address module,uint256 deadline)");
 
@@ -63,13 +94,13 @@ contract PrivateVaultTest is Test {
     DeadPassportMock internal deadPassport;
     GatingMock internal gating;
     DepositVerifierMock internal depositProof;
-    PrepareBondVerifierMock internal bondProof;
     ReabsorbVerifierMock internal reabsorbProof;
     WithdrawVerifierMock internal withdrawProof;
     PrivateBondVault internal vault;
     uint256 internal deadline;
 
     function setUp() public {
+        bundle = new BundleVerifierMock();
         // The private layer hashes through the pinned poseidon-solidity singletons, which a test
         // EVM starts without (PLURISWAP.md §5.1).
         PoseidonSingletons.install();
@@ -81,13 +112,12 @@ contract PrivateVaultTest is Test {
         deadPassport = new DeadPassportMock();
         gating = new GatingMock();
         depositProof = new DepositVerifierMock();
-        bondProof = new PrepareBondVerifierMock();
         reabsorbProof = new ReabsorbVerifierMock();
         withdrawProof = new WithdrawVerifierMock();
         // The test contract is the operator, so reserve/unlock/slash/burn are direct calls; the
         // kernel's context is exercised end-to-end in PrivateDeal.t.sol.
         vault = new PrivateBondVault(
-            deadPassport, gating, SINK, address(this), depositProof, bondProof, reabsorbProof, withdrawProof
+            deadPassport, gating, SINK, address(this), depositProof, bundle, reabsorbProof, withdrawProof
         );
         // Generously funded: several tests split more than one whole note per side.
         token.mint(holder, PRINCIPAL * 100);
@@ -135,17 +165,9 @@ contract PrivateVaultTest is Test {
         address wallet = subject == SUBJECT_H ? holder : provider;
         uint256 pk = subject == SUBJECT_H ? holderPk : providerPk;
         vault.prepare(
+            _bondIn(subject, dealId_, address(token), LOCK, lockCommit, changeNote, nullBond, vault.bondRoot()),
             wallet,
-            dealId_,
-            subject,
-            address(token),
-            LOCK,
-            lockCommit,
-            changeNote,
-            nullBond,
-            vault.bondRoot(),
             deadline,
-            ok(true),
             _sig(address(vault), pk, dealId_, subject, deadline)
         );
     }
@@ -178,7 +200,7 @@ contract PrivateVaultTest is Test {
     function test_constructor_rejectsZeroAddresses() public {
         vm.expectRevert(PrivateBondVault.ZeroAddress.selector);
         new PrivateBondVault(
-            IPassport(address(0)), gating, SINK, address(this), depositProof, bondProof, reabsorbProof, withdrawProof
+            IPassport(address(0)), gating, SINK, address(this), depositProof, bundle, reabsorbProof, withdrawProof
         );
         vm.expectRevert(PrivateBondVault.ZeroAddress.selector);
         new PrivateBondVault(
@@ -187,17 +209,17 @@ contract PrivateVaultTest is Test {
             SINK,
             address(this),
             depositProof,
-            bondProof,
+            bundle,
             reabsorbProof,
             withdrawProof
         );
         vm.expectRevert(PrivateBondVault.ZeroAddress.selector);
         new PrivateBondVault(
-            deadPassport, gating, address(0), address(this), depositProof, bondProof, reabsorbProof, withdrawProof
+            deadPassport, gating, address(0), address(this), depositProof, bundle, reabsorbProof, withdrawProof
         );
         vm.expectRevert(PrivateBondVault.ZeroAddress.selector);
         new PrivateBondVault(
-            deadPassport, gating, SINK, address(0), depositProof, bondProof, reabsorbProof, withdrawProof
+            deadPassport, gating, SINK, address(0), depositProof, bundle, reabsorbProof, withdrawProof
         );
         vm.expectRevert(PrivateBondVault.ZeroAddress.selector);
         new PrivateBondVault(
@@ -206,7 +228,7 @@ contract PrivateVaultTest is Test {
             SINK,
             address(this),
             IDepositVerifier(address(0)),
-            bondProof,
+            bundle,
             reabsorbProof,
             withdrawProof
         );
@@ -217,7 +239,7 @@ contract PrivateVaultTest is Test {
             SINK,
             address(this),
             depositProof,
-            IPrepareBondVerifier(address(0)),
+            IBundleVerifier(address(0)),
             reabsorbProof,
             withdrawProof
         );
@@ -228,7 +250,7 @@ contract PrivateVaultTest is Test {
             SINK,
             address(this),
             depositProof,
-            bondProof,
+            bundle,
             IReabsorbVerifier(address(0)),
             withdrawProof
         );
@@ -239,7 +261,7 @@ contract PrivateVaultTest is Test {
             SINK,
             address(this),
             depositProof,
-            bondProof,
+            bundle,
             reabsorbProof,
             IWithdrawVerifier(address(0))
         );
@@ -289,22 +311,15 @@ contract PrivateVaultTest is Test {
     }
 
     function test_bondPrepare_badProofIsAtomic() public {
+        bundle.setAnswer(false); // nobody proved this side (§3.15.4: "bad proof" is "no ticket")
         _deposit(holder, PRINCIPAL, NOTE_H);
         bytes32 root = vault.bondRoot();
         bytes memory sig = _sig(address(vault), holderPk, DEAL_ID, SUBJECT_H, deadline);
         vm.expectRevert(PrivateBondVault.BondProofFailed.selector);
         vault.prepare(
+            _bondIn(SUBJECT_H, DEAL_ID, address(token), LOCK, LOCKCOMMIT_H, CHANGE_H, NULLBOND_H1, root),
             holder,
-            DEAL_ID,
-            SUBJECT_H,
-            address(token),
-            LOCK,
-            LOCKCOMMIT_H,
-            CHANGE_H,
-            NULLBOND_H1,
-            root,
             deadline,
-            ok(false),
             sig
         );
         assertFalse(vault.notesTree().isSpent(NULLBOND_H1));
@@ -319,17 +334,9 @@ contract PrivateVaultTest is Test {
         bytes memory sig = _sig(address(vault), holderPk, DEAL_ID, SUBJECT_H, deadline);
         vm.expectRevert(PrivateBondVault.UnknownRoot.selector);
         vault.prepare(
+            _bondIn(SUBJECT_H, DEAL_ID, address(token), LOCK, LOCKCOMMIT_H, CHANGE_H, NULLBOND_H1, FAKE_ROOT),
             holder,
-            DEAL_ID,
-            SUBJECT_H,
-            address(token),
-            LOCK,
-            LOCKCOMMIT_H,
-            CHANGE_H,
-            NULLBOND_H1,
-            FAKE_ROOT,
             deadline,
-            ok(true),
             sig
         );
     }
@@ -341,17 +348,9 @@ contract PrivateVaultTest is Test {
         bytes memory sig = _sig(address(vault), holderPk, DEAL_ID, SUBJECT_H, deadline);
         vm.expectRevert(PrivateBondVault.PrepareExpired.selector);
         vault.prepare(
+            _bondIn(SUBJECT_H, DEAL_ID, address(token), LOCK, LOCKCOMMIT_H, CHANGE_H, NULLBOND_H1, root),
             holder,
-            DEAL_ID,
-            SUBJECT_H,
-            address(token),
-            LOCK,
-            LOCKCOMMIT_H,
-            CHANGE_H,
-            NULLBOND_H1,
-            root,
             deadline,
-            ok(true),
             sig
         );
     }
@@ -362,17 +361,9 @@ contract PrivateVaultTest is Test {
         bytes memory sig = _sig(address(vault), providerPk, DEAL_ID, SUBJECT_H, deadline);
         vm.expectRevert(PrivateBondVault.InvalidWalletSignature.selector);
         vault.prepare(
+            _bondIn(SUBJECT_H, DEAL_ID, address(token), LOCK, LOCKCOMMIT_H, CHANGE_H, NULLBOND_H1, root),
             holder,
-            DEAL_ID,
-            SUBJECT_H,
-            address(token),
-            LOCK,
-            LOCKCOMMIT_H,
-            CHANGE_H,
-            NULLBOND_H1,
-            root,
             deadline,
-            ok(true),
             sig
         );
         assertFalse(vault.notesTree().isSpent(NULLBOND_H1));
@@ -431,17 +422,11 @@ contract PrivateVaultTest is Test {
         bytes32 root = vault.bondRoot();
         bytes memory sig = _sig(address(vault), pk, DEAL_ID, SUBJECT_H, deadline);
         vault.prepare(
+            // LOCK + 1 is not §3.14.5's lock of this principal: the vault must not write it, or a
+            // slash would pay out more than the split ever covered.
+            _bondIn(SUBJECT_H, DEAL_ID, address(token), LOCK + 1, LOCKCOMMIT_H2, CHANGE_H2, NULLBOND_H2, root),
             wallet,
-            DEAL_ID,
-            SUBJECT_H,
-            address(token),
-            LOCK + 1, // not the §3.14.5 lock of this principal
-            LOCKCOMMIT_H2,
-            CHANGE_H2,
-            NULLBOND_H2,
-            root,
             deadline,
-            ok(true),
             sig
         );
         vm.expectRevert(PrivateBondVault.PrepareMismatch.selector);

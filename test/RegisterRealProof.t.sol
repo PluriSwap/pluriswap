@@ -3,8 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {PassportDecoderMock} from "../mocks/PassportDecoderMock.sol";
-import {PreparePassportVerifierMock} from "../mocks/PreparePassportVerifierMock.sol";
-import {PrepareAdmitVerifierMock} from "../mocks/PrepareAdmitVerifierMock.sol";
+import {BundleVerifierMock} from "../mocks/BundleVerifierMock.sol";
 import {ClaimVerifierMock} from "../mocks/ClaimVerifierMock.sol";
 import {HumanityRegistry} from "../src/packages/HumanityRegistry.sol";
 import {RegistryHumanityVerifier} from "../src/packages/adapters/RegistryHumanityVerifier.sol";
@@ -21,6 +20,7 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      interface pair (IHumanityVerifier, IAccountVerifier) whose mock is gone — until V2/V3
 ///      replace theirs, those remain mocks and are marked as such.
 contract RegisterRealProofTest is Test {
+    BundleVerifierMock internal bundle;
     address internal constant FEE_TO = address(0xFEE);
 
     string internal vectors;
@@ -42,6 +42,7 @@ contract RegisterRealProofTest is Test {
     bytes32 internal leaf0;
 
     function setUp() public {
+        bundle = new BundleVerifierMock();
         // The private layer hashes through the pinned poseidon-solidity singletons, which a test
         // EVM starts without (PLURISWAP.md §5.1).
         PoseidonSingletons.install();
@@ -73,20 +74,18 @@ contract RegisterRealProofTest is Test {
         // Every remaining mock is pre-deployed BEFORE the prediction: an inline `new Mock()`
         // inside a constructor-argument list consumes a CREATE nonce of this test contract
         // and would drift the predicted address (the tree's owner must be the reputation).
-        PreparePassportVerifierMock passportProof = new PreparePassportVerifierMock(); // V2 replaces this
-        PrepareAdmitVerifierMock admitProof = new PrepareAdmitVerifierMock(); // V2 replaces this
         ClaimVerifierMock claimProof = new ClaimVerifierMock(); // V3 replaces this
 
         // The accounts tree is wired into the passport before its owner exists: the predicted
         // CREATE address pattern of PrivateRegister.t.sol (tree, passport, reputation).
         address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 2);
         accountTree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
-        passport = new PrivatePassport(accountTree, humanityVerifier, passportProof);
+        passport = new PrivatePassport(accountTree, humanityVerifier, bundle);
         reputation = new PrivateReputation(
             passport,
             accountTree,
             accountVerifier,
-            admitProof,
+            bundle,
             claimProof,
             FEE_TO,
             0,

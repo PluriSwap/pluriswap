@@ -21,11 +21,10 @@ import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
 import {PrivateBondVault} from "../src/packages/PrivateBondVault.sol";
 import {HumanityVerifierMock} from "../mocks/HumanityVerifierMock.sol";
 import {AccountVerifierMock} from "../mocks/AccountVerifierMock.sol";
-import {PreparePassportVerifierMock} from "../mocks/PreparePassportVerifierMock.sol";
-import {PrepareAdmitVerifierMock} from "../mocks/PrepareAdmitVerifierMock.sol";
+import {BundleVerifierMock} from "../mocks/BundleVerifierMock.sol";
+import {IBundleVerifier} from "../src/packages/interfaces/IBundleVerifier.sol";
 import {ClaimVerifierMock} from "../mocks/ClaimVerifierMock.sol";
 import {DepositVerifierMock} from "../mocks/DepositVerifierMock.sol";
-import {PrepareBondVerifierMock} from "../mocks/PrepareBondVerifierMock.sol";
 import {ReabsorbVerifierMock} from "../mocks/ReabsorbVerifierMock.sol";
 import {WithdrawVerifierMock} from "../mocks/WithdrawVerifierMock.sol";
 import {MockArbitratorV2} from "../mocks/MockArbitratorV2.sol";
@@ -44,6 +43,36 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      is hoisted to a local BEFORE `vm.expectRevert` — the expectation is consumed by the next
 ///      call, whatever it is.
 contract PrivateDealTest is BaseTest {
+
+    /// @dev One side's public inputs, as the merged `prepare_side` proof would carry them
+    ///      (§3.15.4). With a mock verifier nothing checks their internal consistency — what these
+    ///      tests exercise is the MODULES: that each one reads its own half out of a side that was
+    ///      proven, and refuses one that was not.
+    ///      Building a side here also PROVES it: with a mock verifier the proof is a formality, and
+    ///      these suites are about what the modules do with a side that was proven. The suites that
+    ///      care about the proof itself (`BundleVerifier.t.sol`, `PrepareRealProof.t.sol`) use the
+    ///      real adapter and the committed fixture, and one of them pins the no-ticket case.
+    function _in(bytes32 subject, bytes32 leaf, bytes32 nullifier, bytes32 root, bytes32 forDealId)
+        internal
+        view
+        returns (IBundleVerifier.BundleInputs memory)
+    {
+        return IBundleVerifier.BundleInputs({
+            dealSubject: subject,
+            dealId: forDealId,
+            token: address(token),
+            principal: PRINCIPAL,
+            repRoot: root,
+            newLeaf: leaf,
+            nullRep: nullifier,
+            pairTag: PAIR_TAG,
+            lockCommit: bytes32(0),
+            lockAmount: 0,
+            changeNote: bytes32(0),
+            nullBond: bytes32(0),
+            bondRoot: bytes32(0)
+        });
+    }
 
     /// @dev The §3.14.7 pair tag. With a mock verifier nothing checks its VALUE — what these tests
     ///      exercise is that both sides of one activation carry the SAME one, which is what the module
@@ -95,11 +124,9 @@ contract PrivateDealTest is BaseTest {
 
     HumanityVerifierMock internal humanity;
     AccountVerifierMock internal account;
-    PreparePassportVerifierMock internal passportProof;
-    PrepareAdmitVerifierMock internal admitProof;
+    BundleVerifierMock internal bundle;
     ClaimVerifierMock internal claimProof;
     DepositVerifierMock internal depositProof;
-    PrepareBondVerifierMock internal bondProof;
     ReabsorbVerifierMock internal reabsorbProof;
     WithdrawVerifierMock internal withdrawProof;
     RelayerMock internal relayer;
@@ -124,11 +151,9 @@ contract PrivateDealTest is BaseTest {
         super.setUp();
         humanity = new HumanityVerifierMock();
         account = new AccountVerifierMock();
-        passportProof = new PreparePassportVerifierMock();
-        admitProof = new PrepareAdmitVerifierMock();
+        bundle = new BundleVerifierMock();
         claimProof = new ClaimVerifierMock();
         depositProof = new DepositVerifierMock();
-        bondProof = new PrepareBondVerifierMock();
         reabsorbProof = new ReabsorbVerifierMock();
         withdrawProof = new WithdrawVerifierMock();
         relayer = new RelayerMock();
@@ -141,19 +166,19 @@ contract PrivateDealTest is BaseTest {
         // context.
         address predictedRep = vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 3);
         tree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
-        passport = new PrivatePassport(tree, humanity, passportProof);
+        passport = new PrivatePassport(tree, humanity, bundle);
         vault = new PrivateBondVault(
             passport,
             IPrivateReputation(predictedRep),
             SINK,
             address(escrow),
             depositProof,
-            bondProof,
+            bundle,
             reabsorbProof,
             withdrawProof
         );
         reputation = new PrivateReputation(
-            passport, tree, account, admitProof, claimProof, FEE_TO, 0, 0, 0, 0, address(escrow), address(vault)
+            passport, tree, account, bundle, claimProof, FEE_TO, 0, 0, 0, 0, address(escrow), address(vault)
         );
         assertEq(address(reputation), predictedRep, "predicted tree owner drifted");
 
@@ -271,8 +296,7 @@ contract PrivateDealTest is BaseTest {
         s.dealSubject = subject;
         s.newLeaf = newLeaf;
         s.nullRep = nullRep;
-        s.passportProof = ok(true);
-        s.admitProof = ok(true);
+        s.sideProof = ok(true);
         s.passportSig = _sig(address(passport), pk, forDealId, subject, forDeadline);
         s.admitSig = _sig(address(reputation), pk, forDealId, subject, forDeadline);
     }
@@ -295,7 +319,6 @@ contract PrivateDealTest is BaseTest {
         s.lockCommit = lockCommit;
         s.changeNote = changeNote;
         s.nullBond = nullBond;
-        s.bondProof = ok(true);
         s.bondSig = _sig(address(vault), pk, forDealId, subject, forDeadline);
     }
 
@@ -348,7 +371,7 @@ contract PrivateDealTest is BaseTest {
         );
         return relayer.activatePrivate(
             escrow, passport, reputation, vault, bondHa, hs, bondPa, ps, ca, "", bondMods, bondDealId, sideH, sideP,
-            PAIR_TAG
+            PAIR_TAG, bundle
         );
     }
 
@@ -377,7 +400,8 @@ contract PrivateDealTest is BaseTest {
             dealId,
             sideH,
             sideP,
-            PAIR_TAG
+            PAIR_TAG,
+            bundle
         );
     }
 
@@ -438,7 +462,8 @@ contract PrivateDealTest is BaseTest {
             dealId,
             sideH,
             sideP,
-            PAIR_TAG
+            PAIR_TAG,
+            bundle
         );
         // The failed activation reverted the prepares with it: no leaves, no nullifiers, no buffers.
         assertEq(tree.nextIndex(), 2);
@@ -484,21 +509,10 @@ contract PrivateDealTest is BaseTest {
         bytes32 root = tree.root();
         bytes memory passportSig = _sig(address(passport), holderPk, dealId, SUBJECT_H, ha.deadline);
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
-        passport.prepare(holder, dealId, SUBJECT_H, root, ha.deadline, ok(true), passportSig);
+        passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), root, dealId), holder, ha.deadline, passportSig);
         reputation.prepare(
-            holder,
-            dealId,
-            SUBJECT_H,
-            ADMIT_LEAF_H,
-            NULLREP_H1,
-            address(token),
-            PRINCIPAL,
-            bytes32(0),
-            root,
-            PAIR_TAG,
-            ha.deadline,
-            ok(true),
-            admitSig
+            PrivateReputation.Side({inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            ha.deadline
         );
         vm.expectEmit(true, true, true, true, address(reputation));
         emit PrivateReputation.Admitted(holder, SUBJECT_H, address(token), PRINCIPAL);
@@ -513,19 +527,8 @@ contract PrivateDealTest is BaseTest {
         bytes32 root = tree.root();
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
         reputation.prepare(
-            holder,
-            dealId,
-            SUBJECT_H,
-            ADMIT_LEAF_H,
-            NULLREP_H1,
-            address(token),
-            PRINCIPAL,
-            bytes32(0),
-            root,
-            PAIR_TAG,
-            ha.deadline,
-            ok(true),
-            admitSig
+            PrivateReputation.Side({inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            ha.deadline
         );
         vm.prank(address(escrow));
         vm.expectRevert(PrivateReputation.UnsupportedVault.selector);
@@ -546,21 +549,10 @@ contract PrivateDealTest is BaseTest {
         bytes32 otherSubject = bytes32(uint256(0x99));
         bytes memory passportSig = _sig(address(passport), holderPk, dealId, SUBJECT_H, ha.deadline);
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, otherSubject, ha.deadline);
-        passport.prepare(holder, dealId, SUBJECT_H, root, ha.deadline, ok(true), passportSig);
+        passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), root, dealId), holder, ha.deadline, passportSig);
         reputation.prepare(
-            holder,
-            dealId,
-            otherSubject,
-            ADMIT_LEAF_H,
-            NULLREP_H1,
-            address(token),
-            PRINCIPAL,
-            bytes32(0),
-            root,
-            PAIR_TAG,
-            ha.deadline,
-            ok(true),
-            admitSig
+            PrivateReputation.Side({inputs: _in(otherSubject, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            ha.deadline
         );
         vm.prank(address(escrow));
         vm.expectRevert(PrivateReputation.PeerMismatch.selector);
@@ -571,19 +563,8 @@ contract PrivateDealTest is BaseTest {
         bytes32 root = tree.root();
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
         reputation.prepare(
-            holder,
-            dealId,
-            SUBJECT_H,
-            ADMIT_LEAF_H,
-            NULLREP_H1,
-            address(token),
-            PRINCIPAL,
-            bytes32(0),
-            root,
-            PAIR_TAG,
-            ha.deadline,
-            ok(true),
-            admitSig
+            PrivateReputation.Side({inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            ha.deadline
         );
         vm.warp(ha.deadline + 1);
         vm.prank(address(escrow));
@@ -705,21 +686,10 @@ contract PrivateDealTest is BaseTest {
         bytes32 root = tree.root();
         bytes memory passportSig = _sig(address(passport), holderPk, dealId, SUBJECT_H, ha.deadline);
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
-        passport.prepare(holder, dealId, SUBJECT_H, root, ha.deadline, ok(true), passportSig);
+        passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), root, dealId), holder, ha.deadline, passportSig);
         reputation.prepare(
-            holder,
-            dealId,
-            SUBJECT_H,
-            ADMIT_LEAF_H,
-            NULLREP_H1,
-            address(token),
-            PRINCIPAL,
-            bytes32(0),
-            root,
-            PAIR_TAG,
-            ha.deadline,
-            ok(true),
-            admitSig
+            PrivateReputation.Side({inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            ha.deadline
         );
         vm.prank(address(escrow));
         bytes32 subject = reputation.admit(holder, _dealTag(), address(token), PRINCIPAL, address(vault));
@@ -730,21 +700,10 @@ contract PrivateDealTest is BaseTest {
         bytes32 root = tree.root();
         bytes memory passportSig = _sig(address(passport), holderPk, dealId, SUBJECT_H, ha.deadline);
         bytes memory admitSig = _sig(address(reputation), holderPk, dealId, SUBJECT_H, ha.deadline);
-        passport.prepare(holder, dealId, SUBJECT_H, root, ha.deadline, ok(true), passportSig);
+        passport.prepare(_in(SUBJECT_H, bytes32(0), bytes32(0), root, dealId), holder, ha.deadline, passportSig);
         reputation.prepare(
-            holder,
-            dealId,
-            SUBJECT_H,
-            ADMIT_LEAF_H,
-            NULLREP_H1,
-            address(token),
-            PRINCIPAL,
-            bytes32(0),
-            root,
-            PAIR_TAG,
-            ha.deadline,
-            ok(true),
-            admitSig
+            PrivateReputation.Side({inputs: _in(SUBJECT_H, ADMIT_LEAF_H, NULLREP_H1, root, dealId), wallet: holder, walletSig: admitSig}),
+            ha.deadline
         );
         // A counterparty signs a BONDS deal trusting that the lock exists: a foreign vault under
         // the same reputation would fake that protection, so the binding refuses it.
@@ -810,7 +769,7 @@ contract PrivateDealTest is BaseTest {
         vm.expectRevert(Escrow.InvalidProviderSignature.selector);
         relayer.activatePrivate(
             escrow, passport, reputation, vault, bondHa, hs, bondPa, ps, ca, "", bondMods, bondDealId, sideH, sideP,
-            PAIR_TAG
+            PAIR_TAG, bundle
         );
         // The deposits predate the bundle and survive it; the splits did not land.
         assertEq(vault.notesTree().nextIndex(), 2);
@@ -939,7 +898,7 @@ contract PrivateDealTest is BaseTest {
         );
         bytes32 id = relayer.activatePrivate(
             escrow, passport, reputation, vault, courtHa, hs, courtPa, ps, ca, "", courtMods, courtDealId, sideH, sideP,
-            PAIR_TAG
+            PAIR_TAG, bundle
         );
         assertEq(id, courtDealId);
 

@@ -8,11 +8,9 @@ import {HumanityRegistry} from "../src/packages/HumanityRegistry.sol";
 import {IReputation} from "../src/packages/interfaces/IReputation.sol";
 import {RegistryHumanityVerifier} from "../src/packages/adapters/RegistryHumanityVerifier.sol";
 import {RegistryAccountVerifier} from "../src/packages/adapters/RegistryAccountVerifier.sol";
-import {PreparePassportVerifier} from "../src/packages/adapters/PreparePassportVerifier.sol";
-import {PrepareAdmitVerifier} from "../src/packages/adapters/PrepareAdmitVerifier.sol";
+import {BundleVerifier} from "../src/packages/adapters/BundleVerifier.sol";
 import {ClaimVerifier} from "../src/packages/adapters/ClaimVerifier.sol";
 import {DepositVerifier} from "../src/packages/adapters/DepositVerifier.sol";
-import {PrepareBondVerifier} from "../src/packages/adapters/PrepareBondVerifier.sol";
 import {ReabsorbVerifier} from "../src/packages/adapters/ReabsorbVerifier.sol";
 import {WithdrawVerifier} from "../src/packages/adapters/WithdrawVerifier.sol";
 import {PrivatePassport} from "../src/packages/PrivatePassport.sol";
@@ -20,6 +18,7 @@ import {PrivateReputation} from "../src/packages/PrivateReputation.sol";
 import {PrivateBondVault} from "../src/packages/PrivateBondVault.sol";
 import {PoseidonTree, DEFAULT_ROOT_HISTORY, MIN_ROOT_HISTORY, MAX_ROOT_HISTORY} from "../src/packages/PoseidonTree.sol";
 import {PoseidonSingletons} from "./PoseidonSingletons.sol";
+import {IBundleVerifier} from "../src/packages/interfaces/IBundleVerifier.sol";
 
 /// @title The whole private lifecycle on real proofs (V3, PLURISWAP.md §3.15.4-§3.15.6, §3.15.9)
 /// @dev One deal, two trees, every proof real: register (V1's proofs) puts the genesis leaf
@@ -44,6 +43,37 @@ import {PoseidonSingletons} from "./PoseidonSingletons.sol";
 ///      token pub is that address, and its `decimals()` answers 6 for the admission
 ///      adapter's live read.
 contract VaultRealProofTest is Test {
+
+    /// One side as the merged `prepare_side` proof carries it (§3.15.4). This suite drives the whole
+    /// private lifecycle with the committed fixtures, so every field is the one the circuit committed
+    /// to — the bonded shape, because the sample deal carries a bond.
+    function side() internal view returns (IBundleVerifier.BundleInputs memory) {
+        return IBundleVerifier.BundleInputs({
+            dealSubject: dealSubject,
+            dealId: dealId,
+            token: token,
+            principal: principal,
+            repRoot: repRoot,
+            newLeaf: newLeaf,
+            nullRep: nullRep0,
+            pairTag: pairTag(),
+            lockCommit: lockCommit,
+            lockAmount: lockAmount,
+            changeNote: changeNote,
+            nullBond: nullBondNote,
+            bondRoot: bondRoot0
+        });
+    }
+
+    function proofSideBlob() internal view returns (bytes memory) {
+        return vm.parseJsonBytes(vm.readFile("test/fixtures/proofs/prepare_side.json"), ".proof_with_public_inputs");
+    }
+
+    /// @dev Every flow starts by leaving the ticket the three modules will ask for.
+    function _proveSide() internal {
+        require(bundle.verify(side(), proofSideBlob()), "the committed side proof must verify");
+    }
+
 
     /// @dev The §3.14.7 pair tag. With a mock verifier nothing checks its VALUE — what these tests
     ///      exercise is that both sides of one activation carry the SAME one, which is what the module
@@ -86,11 +116,9 @@ contract VaultRealProofTest is Test {
     HumanityRegistry internal registry;
     RegistryHumanityVerifier internal humanityVerifier;
     RegistryAccountVerifier internal accountVerifier;
-    PreparePassportVerifier internal passportVerifier;
-    PrepareAdmitVerifier internal admitVerifier;
+    BundleVerifier internal bundle;
     ClaimVerifier internal claimVerifier;
     DepositVerifier internal depositVerifier;
-    PrepareBondVerifier internal bondVerifier;
     ReabsorbVerifier internal reabsorbVerifier;
     WithdrawVerifier internal withdrawVerifier;
     address internal anchor;
@@ -200,19 +228,13 @@ contract VaultRealProofTest is Test {
         accountVerifier = new RegistryAccountVerifier(
             registry, vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/register_account.json"), ".initcode")
         );
-        passportVerifier = new PreparePassportVerifier(
-            vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/prepare_passport.json"), ".initcode")
-        );
-        admitVerifier = new PrepareAdmitVerifier(
-            vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/prepare_admit.json"), ".initcode")
+        bundle = new BundleVerifier(
+            vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/prepare_side.json"), ".initcode")
         );
         claimVerifier =
             new ClaimVerifier(vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/claim.json"), ".initcode"));
         depositVerifier =
             new DepositVerifier(vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/deposit.json"), ".initcode"));
-        bondVerifier = new PrepareBondVerifier(
-            vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/prepare_bond.json"), ".initcode")
-        );
         reabsorbVerifier =
             new ReabsorbVerifier(vm.parseJsonBytes(vm.readFile("test/fixtures/verifiers/reabsorb.json"), ".initcode"));
         withdrawVerifier =
@@ -228,12 +250,12 @@ contract VaultRealProofTest is Test {
         address predictedRep = vm.computeCreateAddress(address(this), nonce + 2);
         address predictedVault = vm.computeCreateAddress(address(this), nonce + 3);
         accountTree = new PoseidonTree(32, DEFAULT_ROOT_HISTORY, predictedRep);
-        passport = new PrivatePassport(accountTree, humanityVerifier, passportVerifier);
+        passport = new PrivatePassport(accountTree, humanityVerifier, bundle);
         reputation = new PrivateReputation(
             passport,
             accountTree,
             accountVerifier,
-            admitVerifier,
+            bundle,
             claimVerifier,
             sink, // feeRecipient (the sink doubles as it here: the fee policy is zero anyway)
             0,
@@ -244,7 +266,7 @@ contract VaultRealProofTest is Test {
             predictedVault
         );
         vault = new PrivateBondVault(
-            passport, reputation, sink, operator, depositVerifier, bondVerifier, reabsorbVerifier, withdrawVerifier
+            passport, reputation, sink, operator, depositVerifier, bundle, reabsorbVerifier, withdrawVerifier
         );
         assertEq(address(reputation), predictedRep, "predicted reputation drifted");
         assertEq(address(vault), predictedVault, "predicted vault drifted");
@@ -341,37 +363,18 @@ contract VaultRealProofTest is Test {
 
         // The activation bundle: passport, bond split, admission — all before `admit`,
         // exactly as the relayer composes them (§3.15.4).
-        passport.prepare(
-            wallet, dealId, dealSubject, repRoot, deadline, proofPassportBlob(), _walletSig(address(passport))
-        );
+        // One proof for the whole side, verified once; the three modules read the ticket (§3.15.4).
+        _proveSide();
+        passport.prepare(side(), wallet, deadline, _walletSig(address(passport)));
         vault.prepare(
+            side(),
             wallet,
-            dealId,
-            dealSubject,
-            token,
-            lockAmount,
-            lockCommit,
-            changeNote,
-            nullBondNote,
-            bondRoot0,
             deadline,
-            proofBondBlob(),
             _walletSig(address(vault))
         );
         reputation.prepare(
-            wallet,
-            dealId,
-            dealSubject,
-            newLeaf,
-            nullRep0,
-            token,
-            principal, // the deal's principal; the bond's §3.14.5 lock is exactly (principal+9)/10
-            bytes32(0), // the base cap column: the lock is proven by the vault's own record
-            repRoot,
-            pairTag(),
-            deadline,
-            proofAdmitBlob(),
-            _walletSig(address(reputation))
+            PrivateReputation.Side({inputs: side(), wallet: wallet, walletSig: _walletSig(address(reputation))}),
+            deadline
         );
         assertTrue(accountTree.root() == claimRoot, "the prepare's insert produced the claim's witness root");
 
@@ -423,37 +426,20 @@ contract VaultRealProofTest is Test {
 
     function test_vault_prepare_replayDiesOnTheNullifier() public {
         vault.deposit(token, depositAmount, depositNote, proofDepositBlob());
+        _proveSide();
         vault.prepare(
+            side(),
             wallet,
-            dealId,
-            dealSubject,
-            token,
-            lockAmount,
-            lockCommit,
-            changeNote,
-            nullBondNote,
-            bondRoot0,
             deadline,
-            proofBondBlob(),
             _walletSig(address(vault))
         );
-        // The proof is valid forever, but the source note's nullifier is spent: the split
-        // cannot be replayed — the tree rejects before it can grow.
+        // The proof is valid forever and its ticket is still good in this transaction, but the
+        // source note's nullifier is spent: the split cannot be replayed — the tree rejects before it
+        // can grow.
+        IBundleVerifier.BundleInputs memory again = side();
+        bytes memory sig = _walletSig(address(vault));
         vm.expectRevert(PoseidonTree.NullifierUsed.selector);
-        vault.prepare(
-            wallet,
-            dealId,
-            dealSubject,
-            token,
-            lockAmount,
-            lockCommit,
-            changeNote,
-            nullBondNote,
-            bondRoot0,
-            deadline,
-            proofBondBlob(),
-            _walletSig(address(vault))
-        );
+        vault.prepare(again, wallet, deadline, sig);
     }
 
     function test_withdraw_replayDiesOnTheNullifier() public {
@@ -482,37 +468,18 @@ contract VaultRealProofTest is Test {
         // §3.15.5's atomicity from the vault's side: without the delta the lock does not
         // come back, even released.
         vault.deposit(token, depositAmount, depositNote, proofDepositBlob());
-        passport.prepare(
-            wallet, dealId, dealSubject, repRoot, deadline, proofPassportBlob(), _walletSig(address(passport))
-        );
+        // One proof for the whole side, verified once; the three modules read the ticket (§3.15.4).
+        _proveSide();
+        passport.prepare(side(), wallet, deadline, _walletSig(address(passport)));
         vault.prepare(
+            side(),
             wallet,
-            dealId,
-            dealSubject,
-            token,
-            lockAmount,
-            lockCommit,
-            changeNote,
-            nullBondNote,
-            bondRoot0,
             deadline,
-            proofBondBlob(),
             _walletSig(address(vault))
         );
         reputation.prepare(
-            wallet,
-            dealId,
-            dealSubject,
-            newLeaf,
-            nullRep0,
-            token,
-            100_000_000,
-            bytes32(0),
-            repRoot,
-            pairTag(),
-            deadline,
-            proofAdmitBlob(),
-            _walletSig(address(reputation))
+            PrivateReputation.Side({inputs: side(), wallet: wallet, walletSig: _walletSig(address(reputation))}),
+            deadline
         );
         vm.prank(operator);
         vault.reserve(dealSubject, token, dealId, principal);
@@ -525,44 +492,25 @@ contract VaultRealProofTest is Test {
 
     function test_vault_prepare_rejectsBadWalletSignature() public {
         vault.deposit(token, depositAmount, depositNote, proofDepositBlob());
+        _proveSide();
         bytes memory sig = _walletSig(address(vault));
         sig[10] = sig[10] ^ 0xff; // a broken signature cannot pin a subject under a wallet
+        IBundleVerifier.BundleInputs memory s_ = side();
         vm.expectRevert(PrivateBondVault.InvalidWalletSignature.selector);
-        vault.prepare(
-            wallet,
-            dealId,
-            dealSubject,
-            token,
-            lockAmount,
-            lockCommit,
-            changeNote,
-            nullBondNote,
-            bondRoot0,
-            deadline,
-            proofBondBlob(),
-            sig
-        );
+        vault.prepare(s_, wallet, deadline, sig);
     }
 
     function test_reserve_crossChecksTheLock() public {
         // §3.14.5: the reserve recomputes the lock from the kernel's principal — a split
         // proven for another lock (or another token) cannot write a record.
         vault.deposit(token, depositAmount, depositNote, proofDepositBlob());
-        passport.prepare(
-            wallet, dealId, dealSubject, repRoot, deadline, proofPassportBlob(), _walletSig(address(passport))
-        );
+        // One proof for the whole side, verified once; the three modules read the ticket (§3.15.4).
+        _proveSide();
+        passport.prepare(side(), wallet, deadline, _walletSig(address(passport)));
         vault.prepare(
+            side(),
             wallet,
-            dealId,
-            dealSubject,
-            token,
-            lockAmount,
-            lockCommit,
-            changeNote,
-            nullBondNote,
-            bondRoot0,
             deadline,
-            proofBondBlob(),
             _walletSig(address(vault))
         );
         vm.prank(operator);
@@ -582,101 +530,6 @@ contract VaultRealProofTest is Test {
         assertFalse(depositVerifier.verifyDeposit(token, depositAmount, wrongNote, proofDepositBlob()));
     }
 
-    function test_bond_rejectsWrongArgs() public view {
-        bytes32 wrongSubject = bytes32(uint256(keccak256("other-subject")));
-        bytes32 wrongDeal = bytes32(uint256(keccak256("other-deal")));
-        address wrongToken = address(uint160(uint256(keccak256("not-the-token"))));
-        uint256 wrongLock = lockAmount + 1;
-        bytes32 wrongCommit = bytes32(uint256(keccak256("other-commit")));
-        bytes32 wrongChange = bytes32(uint256(keccak256("other-change")));
-        bytes32 wrongNull = bytes32(uint256(keccak256("other-null")));
-        bytes32 wrongRoot = bytes32(uint256(keccak256("other-root")));
-        assertTrue(
-            bondVerifier.verifyBond(
-                dealSubject, dealId, token, lockAmount, lockCommit, changeNote, nullBondNote, bondRoot0, proofBondBlob()
-            )
-        );
-        assertFalse(
-            bondVerifier.verifyBond(
-                wrongSubject,
-                dealId,
-                token,
-                lockAmount,
-                lockCommit,
-                changeNote,
-                nullBondNote,
-                bondRoot0,
-                proofBondBlob()
-            )
-        );
-        assertFalse(
-            bondVerifier.verifyBond(
-                dealSubject,
-                wrongDeal,
-                token,
-                lockAmount,
-                lockCommit,
-                changeNote,
-                nullBondNote,
-                bondRoot0,
-                proofBondBlob()
-            )
-        );
-        assertFalse(
-            bondVerifier.verifyBond(
-                dealSubject,
-                dealId,
-                wrongToken,
-                lockAmount,
-                lockCommit,
-                changeNote,
-                nullBondNote,
-                bondRoot0,
-                proofBondBlob()
-            )
-        );
-        assertFalse(
-            bondVerifier.verifyBond(
-                dealSubject, dealId, token, wrongLock, lockCommit, changeNote, nullBondNote, bondRoot0, proofBondBlob()
-            )
-        );
-        assertFalse(
-            bondVerifier.verifyBond(
-                dealSubject,
-                dealId,
-                token,
-                lockAmount,
-                wrongCommit,
-                changeNote,
-                nullBondNote,
-                bondRoot0,
-                proofBondBlob()
-            )
-        );
-        assertFalse(
-            bondVerifier.verifyBond(
-                dealSubject,
-                dealId,
-                token,
-                lockAmount,
-                lockCommit,
-                wrongChange,
-                nullBondNote,
-                bondRoot0,
-                proofBondBlob()
-            )
-        );
-        assertFalse(
-            bondVerifier.verifyBond(
-                dealSubject, dealId, token, lockAmount, lockCommit, changeNote, wrongNull, bondRoot0, proofBondBlob()
-            )
-        );
-        assertFalse(
-            bondVerifier.verifyBond(
-                dealSubject, dealId, token, lockAmount, lockCommit, changeNote, nullBondNote, wrongRoot, proofBondBlob()
-            )
-        );
-    }
 
     function test_claim_rejectsWrongArgs() public view {
         bytes32 wrongDeal = bytes32(uint256(keccak256("other-deal")));
@@ -930,14 +783,6 @@ contract VaultRealProofTest is Test {
         blob[42] = blob[42] ^ 0xff;
         assertFalse(depositVerifier.verifyDeposit(token, depositAmount, depositNote, blob));
 
-        blob = proofBondBlob();
-        blob[42] = blob[42] ^ 0xff;
-        assertFalse(
-            bondVerifier.verifyBond(
-                dealSubject, dealId, token, lockAmount, lockCommit, changeNote, nullBondNote, bondRoot0, blob
-            )
-        );
-
         blob = proofClaimBlob();
         blob[42] = blob[42] ^ 0xff;
         assertFalse(
@@ -976,11 +821,6 @@ contract VaultRealProofTest is Test {
     function test_adapters_rejectMalformedBlobs() public view {
         // Short blobs and truncated public-input sections read as false, never revert-shaped.
         assertFalse(depositVerifier.verifyDeposit(token, depositAmount, depositNote, hex"0011"));
-        assertFalse(
-            bondVerifier.verifyBond(
-                dealSubject, dealId, token, lockAmount, lockCommit, changeNote, nullBondNote, bondRoot0, hex"0011"
-            )
-        );
         assertFalse(
             claimVerifier.verifyClaim(
                 dealId,
@@ -1025,19 +865,6 @@ contract VaultRealProofTest is Test {
         // for the shape (the pub counts are 2, 3, 3, 7, 8, 8, 8, 6, 3 across the nine).
         assertFalse(depositVerifier.verifyDeposit(token, depositAmount, depositNote, proofHumanityBlob()));
         assertFalse(
-            bondVerifier.verifyBond(
-                dealSubject,
-                dealId,
-                token,
-                lockAmount,
-                lockCommit,
-                changeNote,
-                nullBondNote,
-                bondRoot0,
-                proofAdmitBlob()
-            )
-        );
-        assertFalse(
             claimVerifier.verifyClaim(
                 dealId,
                 dealSubject,
@@ -1062,19 +889,19 @@ contract VaultRealProofTest is Test {
                 token, withdrawDest, withdrawAmount, withdrawChangeNote, withdrawNull, withdrawRoot, proofDepositBlob()
             )
         );
-        assertFalse(depositVerifier.verifyDeposit(token, depositAmount, depositNote, proofClaimBlob()));
     }
 
     // ---------------------------------------------------------------- gas of the real verifies
 
     function test_verify_gas() public {
-        // Read every input BEFORE the window: `pairTag()`/`claimEpoch()` parse vectors.json through a
-        // cheatcode, and a cheatcode inside the measurement is the measurement.
+        // Read every input BEFORE the window: the fixture cheatcodes are ~1.1M of forge that the EVM
+        // never spends, and a cheatcode inside the measurement IS the measurement.
         bytes memory depositBlob = proofDepositBlob();
-        bytes memory bondBlob = proofBondBlob();
         bytes memory claimBlob = proofClaimBlob();
         bytes memory reabsorbBlob = proofReabsorbBlob();
         bytes memory withdrawBlob = proofWithdrawBlob();
+        bytes memory sideBlob = proofSideBlob();
+        IBundleVerifier.BundleInputs memory s_ = side();
         bytes32 tag = pairTag();
         uint256 epoch = claimEpoch();
 
@@ -1083,10 +910,8 @@ contract VaultRealProofTest is Test {
         emit log_named_uint("verifyDeposit gas", before - gasleft());
 
         before = gasleft();
-        bondVerifier.verifyBond(
-            dealSubject, dealId, token, lockAmount, lockCommit, changeNote, nullBondNote, bondRoot0, bondBlob
-        );
-        emit log_named_uint("verifyBond gas", before - gasleft());
+        bundle.verify(s_, sideBlob);
+        emit log_named_uint("bundle.verify gas (one whole side)", before - gasleft());
 
         before = gasleft();
         claimVerifier.verifyClaim(

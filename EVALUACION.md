@@ -284,11 +284,26 @@ necesitando su note viva.
 | gas de verificación | 4,36M | **~1,50M** |
 | tiempo de prueba por lado | ~839 ms | **~554 ms** |
 
-**Falta la integración**, que es la mitad arquitectónica: el `BundleVerifier` compartido (verifica una
-vez, deja el ticket en storage transitorio bajo el hash de los inputs, bindeado por `packageId`) y los
-tres módulos pidiéndole el ticket en vez de verificar cada uno. El diseño está en §3.15.4 con su
-análisis de confianza: la superficie no cambia de naturaleza —cada módulo ya confía en su adapter—
-pero se concentra en un contrato en vez de tres.
+**Integrado (2026-09-23).** El `BundleVerifier` verifica una vez y deja un ticket en storage
+transitorio bajo el hash de los inputs; los tres módulos piden el ticket en vez de verificar cada uno,
+y después exigen lo suyo de esos mismos inputs. Medido por lado:
+
+| | gas |
+| --- | ---: |
+| `bundle.verify` (una vez, todo el lado) | 745.008 |
+| `passport.prepare` (ticket + firma + storage) | 64.349 |
+| `reputation.prepare` (ticket + spend + insert + storage) | 1.085.634 |
+| `reputation.admit` | 29.257 |
+| **un lado, total** | **1.924.248** |
+
+El ticket repetido cuesta **3.069** contra los ~730k de una verificación, que es lo que hace viable
+que tres módulos pregunten. Y con el `passport.prepare` en 64k se ve el efecto: el módulo que antes
+pagaba una verificación entera ahora paga una consulta.
+
+Quedaron borrados los seis contratos que el merge dejó muertos (tres adapters, tres interfaces) más
+sus tres mocks y sus tres verifiers generados. Los circuitos `prepare_passport`, `prepare_admit` y
+`prepare_bond` siguen existiendo con sus tests —la afirmación de cada uno sigue siendo cierta y vale
+tenerla pineada— pero ya no se verifica ninguno on-chain.
 
 **Sigue abierto**: el `activate` del kernel no está descompuesto, y los precios de arriba son supuestos
 (ETH, gwei, blob) sobre gases medidos — el número firme sale de una chain real.

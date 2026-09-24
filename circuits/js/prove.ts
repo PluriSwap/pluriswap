@@ -278,8 +278,10 @@ const CIRCUIT_LIST: Circuit[] = [
       ]),
   },
   {
+    // Merged into `prepare_side` (§3.15.4, 2026-09-23): the statement still has a circuit of its
+    // own, and its tests still pin it, but nothing verifies it on chain any more.
     name: "prepare_passport",
-    contract: "PreparePassportVerifier",
+    offchain: true,
     pubs: 2,
     proverToml: (v) =>
       toml([
@@ -303,8 +305,10 @@ const CIRCUIT_LIST: Circuit[] = [
       ]),
   },
   {
+    // Merged into `prepare_side` (§3.15.4, 2026-09-23): the statement still has a circuit of its
+    // own, and its tests still pin it, but nothing verifies it on chain any more.
     name: "prepare_admit",
-    contract: "PrepareAdmitVerifier",
+    offchain: true,
     pubs: 9,
     proverToml: (v) =>
       toml([
@@ -391,8 +395,10 @@ const CIRCUIT_LIST: Circuit[] = [
       ]),
   },
   {
+    // Merged into `prepare_side` (§3.15.4, 2026-09-23): the statement still has a circuit of its
+    // own, and its tests still pin it, but nothing verifies it on chain any more.
     name: "prepare_bond",
-    contract: "PrepareBondVerifier",
+    offchain: true,
     pubs: 8,
     proverToml: (v) =>
       toml([
