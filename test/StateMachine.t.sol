@@ -139,12 +139,16 @@ contract StateMachineTest is BaseTest {
         assertEq(token.balanceOf(provider), PRINCIPAL);
     }
 
-    function test_CASE_CORE_14_mutualSplitFromDisputed() public {
+    function test_CASE_CORE_14_mutualSplitFromDisputed_rejects() public {
         bytes32 id = _disputed();
-        _mutualSplit(id, 4000, 10, 11);
-        assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_SPLIT));
-        assertEq(token.balanceOf(provider), PRINCIPAL * 4000 / 10_000);
-        assertEq(token.balanceOf(holder), PRINCIPAL * 6000 / 10_000);
+        vm.expectRevert(Escrow.SplitAfterDispute.selector);
+        this.splitExternally(id, 4000, 10, 11);
+        assertEq(uint8(escrow.status(id)), uint8(Status.DISPUTED));
+    }
+
+    /// External hop so `vm.expectRevert` binds to the split and not to the helper's signature reads.
+    function splitExternally(bytes32 id, uint16 bps, uint256 pn, uint256 cn) external {
+        _mutualSplit(id, bps, pn, cn);
     }
 
     function test_CASE_CORE_15_forceDisputeTimeout() public {
@@ -157,8 +161,9 @@ contract StateMachineTest is BaseTest {
         vm.prank(address(0xDEAD));
         escrow.forceDisputeTimeout(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
-        assertEq(token.balanceOf(holder), PRINCIPAL / 2);
-        assertEq(token.balanceOf(provider), PRINCIPAL - PRINCIPAL / 2);
+        assertEq(token.balanceOf(holder), 0);
+        assertEq(token.balanceOf(provider), 0);
+        assertEq(token.balanceOf(0x000000000000000000000000000000000000dEaD), PRINCIPAL, "burned");
     }
 
     function test_CASE_CORE_16_unilateralRejectedWhileDisputed() public {

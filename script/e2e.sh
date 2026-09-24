@@ -103,7 +103,7 @@ import json, sys
 NAMES = ["NONE","FUNDED","FIAT_SENT","DISPUTED","RELEASED","RESOLVED_SPLIT","STALEMATE",
          "CANCELLED","ARBITRATION_ACTIVE","RESOLVED_BY_ARBITRATION","CLAIMED","ABANDONED"]
 # CASE-CORE-03..15, as PLURISWAP.md §3.9 lists them.
-EXPECTED = {"CANCELLED": 5, "RELEASED": 3, "CLAIMED": 1, "RESOLVED_SPLIT": 2, "STALEMATE": 1}
+EXPECTED = {"CANCELLED": 6, "RELEASED": 3, "CLAIMED": 1, "RESOLVED_SPLIT": 1, "STALEMATE": 1}
 PRINCIPAL = 1_000_000
 rows = json.load(sys.stdin)
 got = {}
@@ -112,12 +112,26 @@ for row in rows:
     w = [d[i:i+64] for i in range(0, len(d), 64)]
     status, holder, provider = NAMES[int(w[1],16)], int(w[2],16), int(w[3],16)
     got[status] = got.get(status, 0) + 1
-    assert holder + provider == PRINCIPAL, f"{status} does not conserve principal: {holder}+{provider}"
     if status == "STALEMATE":
-        # Core has no tribunal: a dispute nobody settles is a deadlock, split (Parte IV, 2026-09-24).
-        assert provider == PRINCIPAL // 2, f"a Core deadlock paid the Provider {provider}, not half"
+        # Core has no tribunal: a dispute nobody settles is a deadlock and burns the principal (Parte IV,
+        # 2026-09-24). It pays nobody; the burn itself is PrincipalBurned, checked below.
+        assert holder == 0 and provider == 0, f"a Core deadlock paid {holder}/{provider}"
+        continue
+    assert holder + provider == PRINCIPAL, f"{status} does not conserve principal: {holder}+{provider}"
 assert got == EXPECTED, f"terminal histogram {got} != {EXPECTED}"
 print(f"[OK]   {len(rows)} Core terminals on chain, principal conserved in every one")
+'
+
+# The one Core terminal that conserves nothing: the deadlock's principal must have left to the burn address,
+# exactly once and whole.
+cast logs --rpc-url "$RPC" --address "$ESCROW" "PrincipalBurned(bytes32,uint256)" --from-block 0 --json \
+  | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)
+assert len(rows) == 1, f"expected one burned principal in the Core catalog, got {len(rows)}"
+amount = int(rows[0]["data"][2:], 16)
+assert amount == 1_000_000, f"the deadlock burned {amount}, not the principal"
+print("[OK]   the Core deadlock burned the principal, whole")
 '
 
 # The prover's chain reader and the recovery property, against the tree the run just put a leaf in.

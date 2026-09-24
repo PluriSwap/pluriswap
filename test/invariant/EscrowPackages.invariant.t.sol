@@ -447,6 +447,12 @@ contract EscrowPackagesInvariantTest is Test {
             if (!_terminal(s)) continue;
             assertLe(hAmt + pAmt, principal, "terminal paid out more than principal");
             uint8 kinds = escrow.kinds(id);
+            // A deadlock (a stalemate in a deal with no tribunal) burns the principal: it pays nobody and is
+            // not a fee, so it must not be counted as one (Parte IV, 2026-09-24).
+            if (s == Status.STALEMATE && (kinds & K_ARB) == 0) {
+                assertEq(hAmt + pAmt, 0, "a deadlock paid somebody");
+                continue;
+            }
             if ((kinds & (K_REP | K_ZK)) == 0) assertEq(hAmt + pAmt, principal, "fee taken without a fee package");
             // A refund is never invoiced: cancel, or the Holder winning in court, returns the whole principal.
             // `pAmt == 0` cannot stand in for "the Holder won": when the Provider wins and the completion fee

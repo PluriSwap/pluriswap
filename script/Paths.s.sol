@@ -76,9 +76,8 @@ contract Paths is Script {
         require(escrow.status(cosignedFiat) == Status.RELEASED, "10");
         require(escrow.status(mutualDisputed) == Status.CANCELLED, "12");
         require(escrow.status(cosignedDisputed) == Status.RELEASED, "13");
-        require(escrow.status(splitDisputed) == Status.RESOLVED_SPLIT, "14");
-        // CASE-CORE-15 is no longer a stalemate: the Controller opened a fight and let it expire,
-        // so the Provider takes the principal in full (§3.11 OUT-14).
+        require(escrow.status(splitDisputed) == Status.CANCELLED, "14: split rejected, then cancelled");
+        // CASE-CORE-15 in Core (no tribunal): nobody gave way before the clock, so the principal burns.
         require(escrow.status(abandoned) == Status.STALEMATE, "15: no tribunal, nobody gave way");
 
         console.log("03 cancelByProvider", vm.toString(cancelProvider));
@@ -91,7 +90,7 @@ contract Paths is Script {
         console.log("10 cosigned FIAT  ", vm.toString(cosignedFiat));
         console.log("12 mutual DISPUTED", vm.toString(mutualDisputed));
         console.log("13 cosigned DISP  ", vm.toString(cosignedDisputed));
-        console.log("14 split DISPUTED ", vm.toString(splitDisputed));
+        console.log("14 split rejected ", vm.toString(splitDisputed));
         console.log("15 deadlock       ", vm.toString(abandoned));
     }
 
@@ -162,11 +161,24 @@ contract Paths is Script {
         _broadcastCosigned(id);
     }
 
+    /// CASE-CORE-14 since 2026-09-24: after a dispute a split is not on offer (it is what the clock's threat
+    /// would extract). Checked locally — a reverting call is never broadcast — and the deal is then closed
+    /// the way a dispute can still close by agreement: all-or-nothing, here a mutual cancel.
     function _pathSplitDisputed() internal returns (bytes32 id) {
         id = _activate(_terms(3600, 100, 7200));
         _broadcastMarkFiat(id);
         _broadcastOpenDisputed(id);
-        _broadcastSplit(id, 4000);
+        uint256 deadline = block.timestamp + 1 days;
+        MutualSplit memory p = MutualSplit({dealId: id, providerBps: 4000, nonce: dualNonce++, deadline: deadline});
+        MutualSplit memory c = MutualSplit({dealId: id, providerBps: 4000, nonce: dualNonce++, deadline: deadline});
+        bytes memory pSig = _sign(Consent.hashMutualSplit(p), providerPk);
+        bytes memory cSig = _sign(Consent.hashMutualSplit(c), holderPk);
+        try escrow.mutualSplit(p, pSig, c, cSig) {
+            revert("14: a split after a dispute must be rejected");
+        } catch (bytes memory reason) {
+            require(bytes4(reason) == Escrow.SplitAfterDispute.selector, "14: wrong rejection");
+        }
+        _broadcastMutualCancel(id);
     }
 
     function _pathAbandoned() internal returns (bytes32 id) {

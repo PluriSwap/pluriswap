@@ -74,7 +74,7 @@ contract DisputeTest is BaseTest {
         escrow.forceDisputeTimeout(id);
     }
 
-    function test_forceDisputeTimeout_withoutATribunal_splits() public {
+    function test_forceDisputeTimeout_withoutATribunal_burns() public {
         DealTerms memory terms = _p2pTerms();
         terms.releaseDuration = 100;
         terms.disputeDuration = 0;
@@ -84,10 +84,11 @@ contract DisputeTest is BaseTest {
         vm.prank(holder);
         escrow.openDisputed(id);
         escrow.forceDisputeTimeout(id);
-        // No tribunal was signed and nobody gave way: a deadlock, split (Parte IV, 2026-09-24).
+        // No tribunal was signed and nobody gave way: a deadlock, burned (Parte IV, 2026-09-24).
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
-        assertEq(token.balanceOf(holder), PRINCIPAL / 2);
-        assertEq(token.balanceOf(provider), PRINCIPAL - PRINCIPAL / 2);
+        assertEq(token.balanceOf(holder), 0);
+        assertEq(token.balanceOf(provider), 0);
+        assertEq(token.balanceOf(0x000000000000000000000000000000000000dEaD), PRINCIPAL);
     }
 
     function test_forceDisputeTimeout_anyone() public {

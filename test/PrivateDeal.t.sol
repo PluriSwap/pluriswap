@@ -905,7 +905,8 @@ contract PrivateDealTest is BaseTest {
 
         assertTrue(uint8(escrow.status(bondDealId)) == uint8(Status.STALEMATE));
         assertEq(escrow.postPending(bondDealId), 0);
-        assertEq(token.balanceOf(SINK), 2 * LOCK, "both locks burned, to nobody");
+        // The private vault's sink is the same dead address the kernel burns the principal to.
+        assertEq(token.balanceOf(SINK), PRINCIPAL + 2 * LOCK, "principal and both locks burned, to nobody");
         (, uint256 amountH,,) = vault.lockOf(bondDealId, SUBJECT_H);
         (, uint256 amountP,,) = vault.lockOf(bondDealId, SUBJECT_P);
         assertEq(amountH, 0, "consumed, not released: there is nothing to reabsorb");

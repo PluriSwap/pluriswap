@@ -88,7 +88,9 @@ contract EscrowCoreInvariantTest is Test {
         assertEq(token.balanceOf(address(escrow)), live + credits, "escrow balance != live principal + credits");
     }
 
-    /// Core-only: every terminal splits the whole principal between Holder and Provider. No fee, no dust.
+    /// Core-only: every terminal splits the whole principal between Holder and Provider — except a deadlock,
+    /// which burns it (Parte IV, 2026-09-24): Core has no tribunal, so every Core STALEMATE is one, and it
+    /// pays neither side a wei. No fee, no dust.
     function invariant_terminalConservation() public view {
         uint256 n = h.idsLength();
         for (uint256 i; i < n; i++) {
@@ -99,10 +101,13 @@ contract EscrowCoreInvariantTest is Test {
                 assertEq(hAmt + pAmt, 0, "live deal has settlement amounts");
                 continue;
             }
+            if (s == Status.STALEMATE) {
+                assertEq(hAmt + pAmt, 0, "a deadlock pays nobody: the principal is burned");
+                continue;
+            }
             assertEq(hAmt + pAmt, principal, "terminal does not conserve principal");
             if (s == Status.CANCELLED) assertEq(hAmt, principal, "cancel not holder-gross");
             if (s == Status.RELEASED) assertEq(pAmt, principal, "release not provider-gross");
-            if (s == Status.STALEMATE) assertEq(pAmt, principal / 2, "stalemate not 50/50");
             if (s == Status.ABANDONED) assertEq(pAmt, principal, "abandoned dispute not provider-gross");
             if (s == Status.CLAIMED) assertEq(pAmt, principal, "claim not provider-gross");
         }
@@ -160,8 +165,11 @@ contract EscrowCoreInvariantTest is Test {
 
     /// Core moves no value to anyone but Holder, Provider and the escrow itself.
     function invariant_noLeak() public view {
+        // `0xdEaD` is inside the accounting on purpose: a deadlocked principal goes there, and burning is
+        // leaving the recinto to nobody — not leaking to somebody.
         uint256 total = token.balanceOf(address(escrow)) + token.balanceOf(h.holder()) + token.balanceOf(h.provider())
-            + token.balanceOf(h.controller()) + token.balanceOf(h.relayer());
+            + token.balanceOf(h.controller()) + token.balanceOf(h.relayer())
+            + token.balanceOf(0x000000000000000000000000000000000000dEaD);
         assertEq(total, h.ghost_minted(), "tokens leaked outside the recinto");
         assertEq(token.balanceOf(h.controller()), 0, "controller received principal");
         assertEq(token.balanceOf(h.relayer()), 0, "relayer received principal");

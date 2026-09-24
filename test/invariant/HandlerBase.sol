@@ -194,6 +194,12 @@ abstract contract HandlerBase is Test {
         return s == Status.FIAT_SENT || s == Status.DISPUTED || s == Status.ARBITRATION_ACTIVE;
     }
 
+    /// @dev Where a split is still an agreement: a live deal nobody has disputed (Parte IV, 2026-09-24).
+    function _splittable(bytes32 id) internal view returns (bool) {
+        Status s = _status(id);
+        return s == Status.FIAT_SENT || s == Status.ARBITRATION_ACTIVE;
+    }
+
     function _liveAny(bytes32 id) internal view returns (bool) {
         return _status(id) == Status.FUNDED || _liveActive(id);
     }
@@ -337,7 +343,7 @@ abstract contract HandlerBase is Test {
 
     function mutualSplit(uint256 seed, uint16 bps) external count("mutualSplit") {
         if (seed % 3 != 0) return;
-        (bytes32 id, bool ok) = _pickIf(seed, _liveActive);
+        (bytes32 id, bool ok) = _pickIf(seed, _splittable);
         if (!ok) return;
         bps = uint16(bound(bps, 0, 10_000));
         Ghost storage g = ghosts[id];

@@ -60,8 +60,8 @@ contract ZeroClocksTest is BaseTest {
     }
 
     /// `disputeDuration = 0` in a deal without a tribunal: the freeze is an instant deadlock. There is no
-    /// window to settle in, so opening the fight splits the principal in the block it is opened — the
-    /// Holder's only defence costs half of it, and with the official packages both sides are marked.
+    /// window to settle in, so opening the fight burns the principal in the block it is opened — the
+    /// Holder's only defence destroys the deal, and with the official packages both sides are marked.
     function test_zeroDisputeDuration_deadlocksInstantly() public {
         DealTerms memory t = _p2pTerms();
         t.disputeDuration = 0;
@@ -75,7 +75,7 @@ contract ZeroClocksTest is BaseTest {
 
         (Status st, uint256 holderAmt, uint256 providerAmt) = escrow.settlementOf(id);
         assertEq(uint8(st), uint8(Status.STALEMATE));
-        assertEq(holderAmt, PRINCIPAL / 2);
-        assertEq(providerAmt, PRINCIPAL - PRINCIPAL / 2, "no window to settle in: split at once");
+        assertEq(holderAmt, 0);
+        assertEq(providerAmt, 0, "no window to settle in: burned at once");
     }
 }

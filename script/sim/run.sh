@@ -2,7 +2,8 @@
 # The ecosystem simulation (script/sim/ecosystem.ts) on a throwaway anvil: deploy the kernel and the
 # packaged stack exactly as e2e.sh does, then let a population of agents trade against it.
 #
-#   script/sim/run.sh [port]        default 8546, so it never collides with an e2e run on 8545
+#   script/sim/run.sh [port]              default 8546, so it never collides with an e2e run on 8545
+#   script/sim/run.sh [port] --longrun    the evolutionary long run (script/sim/longrun.ts)
 #
 # Everything the agents do goes through the deployed contracts; the only off-chain piece is the fiat
 # leg, which is a ledger (the protocol never sees fiat, and neither should its simulation).
@@ -26,4 +27,8 @@ for step in "script/Deploy.s.sol:Deploy" "script/DeployPackages.s.sol:DeployPack
   echo "[OK]   ${step##*:}"
 done
 
-RPC="$RPC" bun script/sim/ecosystem.ts "${@:2}"
+if [ "${2:-}" = "--longrun" ]; then
+  RPC="$RPC" bun script/sim/longrun.ts
+else
+  RPC="$RPC" bun script/sim/ecosystem.ts "${@:2}"
+fi

@@ -2,15 +2,25 @@
 //
 // The unit tests prove that every transition does what it says. They cannot say whether the SYSTEM —
 // many people, some honest and some not, choosing counterparties by what the protocol shows them —
-// rewards what it claims to reward. This does: it runs the same population through four markets and
+// rewards what it claims to reward. This does: it runs the same population through several markets and
 // reports, per strategy, who ended up richer and who ended up excluded.
 //
-//   A  Core puro                      no packages: no reputation to read, no bonds, no tribunal
-//   B  Oficial sin tribunal, racional  Passport + Reputación + Bonds; a victim signs the split the cheater
-//                                      offers whenever it beats the deadlock (it always does)
-//   C  Oficial sin tribunal, firme     same market; a victim never signs with a cheater — deadlock
-//   D  Oficial con tribunal            + ARBITRATION; the wronged Holder goes to court, and the court
-//                                      (the mock, ruled here by a truthful tribunal) decides
+// The kernel rules it runs against (Parte IV, 2026-09-24): after a dispute there is no split — only
+// all-or-nothing agreements, a cancel (all to the Holder) or a co-signed release (all to the Provider) —
+// and a dispute nobody settles in a deal with no tribunal BURNS the principal. So what decides a fight is
+// each side's attitude to the burn:
+//
+//   cheater  rational   gives way once disputed: the liar signs the cancel, the extortionist the release
+//            stubborn   never gives way; waits for the victim to hand everything over, or for the burn
+//   victim   principled never hands a cheater anything: it would rather burn
+//            rational   compares: handing over costs the principal; the burn costs the principal PLUS its
+//                       bond and +10 — so it hands over
+//
+//   A  Core puro                              stubborn cheaters, principled victims
+//   B  Oficial sin tribunal · tramposo racional
+//   C  Oficial sin tribunal · terco vs víctima firme
+//   D  Oficial sin tribunal · terco vs víctima racional
+//   E  Oficial con tribunal                   the wronged Holder goes to court; a truthful tribunal decides
 //
 // Strategies. Holders sell stablecoins for fiat; Providers buy them with fiat.
 //   honest        pays when it says it paid; releases when paid (sometimes forgets: the claim path)
@@ -47,45 +57,45 @@ const ROUNDS = Number(process.env.ROUNDS ?? 12);
 const SEED = Number(process.env.SEED ?? 1);
 const OUT = process.env.SIM_OUT ?? "/tmp/pluriswap-sim.json";
 
-const UNIT = 1_000_000n; // 6 decimals
-const T = (n: number) => BigInt(Math.round(n * 1e6));
-const fmt = (x: bigint) => (Number(x) / 1e6).toFixed(2);
+export const UNIT = 1_000_000n; // 6 decimals
+export const T = (n: number) => BigInt(Math.round(n * 1e6));
+export const fmt = (x: bigint) => (Number(x) / 1e6).toFixed(2);
 
 // Market parameters. Stated, because every one of them is a judgement the result depends on.
-const CORE_DEAL = T(250); // pure Core has no caps, so it trades at the T1 size
-const MAX_DEAL = T(5000); // nobody trades the unbounded T5 column in a 12-round market
-const BOND_DEPOSIT = T(1000); // what each identity parks in the vault
-const SCREEN_PENALTY = 6; // a counterparty refuses penalty band >= 2 (§3.15.7): 6+ points
-const IDENTITY_COST = T(25); // what a fresh Passport identity costs a cheater (stamps, time)
-const FORGET_RATE = 0.2; // an honest Holder who does not release, so the Provider claims
-const FIAT_DURATION = 3600n;
-const RELEASE_DURATION = 7200n;
-const DISPUTE_DURATION = 86_400n;
-const ARBITRATION_DURATION = 7n * 86_400n;
+export const CORE_DEAL = T(250); // pure Core has no caps, so it trades at the T1 size
+export const MAX_DEAL = T(5000); // nobody trades the unbounded T5 column in a 12-round market
+export const BOND_DEPOSIT = T(1000); // what each identity parks in the vault
+export const SCREEN_PENALTY = 6; // a counterparty refuses penalty band >= 2 (§3.15.7): 6+ points
+export const IDENTITY_COST = T(25); // what a fresh Passport identity costs a cheater (stamps, time)
+export const FORGET_RATE = 0.2; // an honest Holder who does not release, so the Provider claims
+export const FIAT_DURATION = 3600n;
+export const RELEASE_DURATION = 7200n;
+export const DISPUTE_DURATION = 86_400n;
+export const ARBITRATION_DURATION = 7n * 86_400n;
 
 // ---------------------------------------------------------------- chain
 
 // anvil mines on submission, so a receipt exists the moment the hash does: poll fast, not every 4s.
-const pub = createPublicClient({ chain: foundry, transport: http(RPC), pollingInterval: 10 });
-const wallet = createWalletClient({ chain: foundry, transport: http(RPC), pollingInterval: 10 });
-const test = createTestClient({ chain: foundry, mode: "anvil", transport: http(RPC) });
+export const pub = createPublicClient({ chain: foundry, transport: http(RPC), pollingInterval: 10 });
+export const wallet = createWalletClient({ chain: foundry, transport: http(RPC), pollingInterval: 10 });
+export const test = createTestClient({ chain: foundry, mode: "anvil", transport: http(RPC) });
 
-const abi = (name: string) => JSON.parse(readFileSync(join(REPO, "out", `${name}.sol`, `${name}.json`), "utf8")).abi;
-const ESCROW = abi("Escrow");
-const TOKEN = abi("TestToken");
-const PASSPORT = abi("PassportMock");
-const REPUTATION = abi("Reputation");
-const VAULT = abi("BondVault");
-const COURT = abi("ArbitrationMock");
+export const abi = (name: string) => JSON.parse(readFileSync(join(REPO, "out", `${name}.sol`, `${name}.json`), "utf8")).abi;
+export const ESCROW = abi("Escrow");
+export const TOKEN = abi("TestToken");
+export const PASSPORT = abi("PassportMock");
+export const REPUTATION = abi("Reputation");
+export const VAULT = abi("BondVault");
+export const COURT = abi("ArbitrationMock");
 
-const dep = JSON.parse(readFileSync(join(REPO, "deployments/31337-packages.json"), "utf8"));
-const escrow = dep.escrow as Address;
-const token = dep.testToken as Address;
-const admin = privateKeyToAccount("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
+export const dep = JSON.parse(readFileSync(join(REPO, "deployments/31337-packages.json"), "utf8"));
+export const escrow = dep.escrow as Address;
+export const token = dep.testToken as Address;
+export const admin = privateKeyToAccount("0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80");
 
-const gasByVerb = new Map<string, { n: number; gas: bigint }>();
+export const gasByVerb = new Map<string, { n: number; gas: bigint }>();
 
-async function send(account: PrivateKeyAccount | Address, address: Address, a: unknown, fn: string, args: unknown[]) {
+export async function send(account: PrivateKeyAccount | Address, address: Address, a: unknown, fn: string, args: unknown[]) {
   const { request } = await pub.simulateContract({ account, address, abi: a as never, functionName: fn, args } as never);
   const hash = await wallet.writeContract(request as never);
   const receipt = await pub.waitForTransactionReceipt({ hash });
@@ -95,10 +105,10 @@ async function send(account: PrivateKeyAccount | Address, address: Address, a: u
   return receipt;
 }
 
-const read = (address: Address, a: unknown, fn: string, args: unknown[] = []) =>
+export const read = (address: Address, a: unknown, fn: string, args: unknown[] = []) =>
   pub.readContract({ address, abi: a as never, functionName: fn, args } as never) as Promise<never>;
 
-async function warp(seconds: bigint) {
+export async function warp(seconds: bigint) {
   await test.increaseTime({ seconds: Number(seconds) });
   await test.mine({ blocks: 1 });
 }
@@ -106,7 +116,7 @@ async function warp(seconds: bigint) {
 // ---------------------------------------------------------------- determinism
 
 let rng = SEED >>> 0;
-function rand(): number {
+export function rand(): number {
   // mulberry32
   rng = (rng + 0x6d2b79f5) >>> 0;
   let t = rng;
@@ -114,7 +124,7 @@ function rand(): number {
   t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
-const shuffle = <X>(xs: X[]) => {
+export const shuffle = <X>(xs: X[]) => {
   const a = [...xs];
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(rand() * (i + 1));
@@ -122,19 +132,19 @@ const shuffle = <X>(xs: X[]) => {
   }
   return a;
 };
-const nonce = () => BigInt(keccak256(toHex(`nonce:${rand()}:${Date.now()}:${Math.random()}`))) >> 64n;
+export const nonce = () => BigInt(keccak256(toHex(`nonce:${rand()}:${Date.now()}:${Math.random()}`))) >> 64n;
 
 // ---------------------------------------------------------------- agents
 
-type Strategy = "honest" | "liar" | "extortionist";
-type Role = "holder" | "provider";
+export type Strategy = "honest" | "liar" | "extortionist";
+export type Role = "holder" | "provider";
 
-interface Identity {
+export interface Identity {
   account: PrivateKeyAccount;
   subject: Hex;
 }
 
-interface Agent {
+export interface Agent {
   name: string;
   role: Role;
   strategy: Strategy;
@@ -148,21 +158,23 @@ interface Agent {
   outcomes: Record<string, number>;
 }
 
-const cur = (a: Agent) => a.ids[a.ids.length - 1];
+export const cur = (a: Agent) => a.ids[a.ids.length - 1];
 
-interface Scenario {
+export interface Scenario {
   key: string;
   name: string;
   packaged: boolean;
   tribunal: boolean;
-  rational: boolean; // does a victim sign the split a cheater offers?
+  stubborn: boolean; // does a cheater hold out once disputed?
+  victimYields: boolean; // does a victim hand a stubborn cheater everything to avoid the burn?
 }
 
 const SCENARIOS: Scenario[] = [
-  { key: "A", name: "Core puro", packaged: false, tribunal: false, rational: true },
-  { key: "B", name: "Oficial sin tribunal, víctima racional", packaged: true, tribunal: false, rational: true },
-  { key: "C", name: "Oficial sin tribunal, víctima firme", packaged: true, tribunal: false, rational: false },
-  { key: "D", name: "Oficial con tribunal", packaged: true, tribunal: true, rational: true },
+  { key: "A", name: "Core puro · terco vs víctima firme", packaged: false, tribunal: false, stubborn: true, victimYields: false },
+  { key: "B", name: "Oficial sin tribunal · tramposo racional", packaged: true, tribunal: false, stubborn: false, victimYields: false },
+  { key: "C", name: "Oficial sin tribunal · terco vs víctima firme", packaged: true, tribunal: false, stubborn: true, victimYields: false },
+  { key: "D", name: "Oficial sin tribunal · terco vs víctima racional", packaged: true, tribunal: false, stubborn: true, victimYields: true },
+  { key: "E", name: "Oficial con tribunal", packaged: true, tribunal: true, stubborn: true, victimYields: false },
 ];
 
 const POPULATION: [Role, Strategy, number][] = [
@@ -172,7 +184,7 @@ const POPULATION: [Role, Strategy, number][] = [
   ["provider", "liar", 2],
 ];
 
-async function newIdentity(scn: Scenario, a: Agent): Promise<Identity> {
+export async function newIdentity(scn: Scenario, a: Agent): Promise<Identity> {
   const n = a.ids.length;
   const key = keccak256(toHex(`pluriswap-sim:${SEED}:${scn.key}:${a.name}:${n}`));
   const account = privateKeyToAccount(key);
@@ -189,14 +201,14 @@ async function newIdentity(scn: Scenario, a: Agent): Promise<Identity> {
   return { account, subject };
 }
 
-async function mint(a: Agent, to: Address, amount: bigint) {
+export async function mint(a: Agent, to: Address, amount: bigint) {
   await send(admin, token, TOKEN, "mint", [to, amount]);
   a.minted += amount;
 }
 
 /// What an agent is worth right now, across every identity it ever used: tokens in wallets and in the
 /// vault, less what it was minted, plus the fiat ledger, less what its identities cost.
-async function worth(scn: Scenario, a: Agent): Promise<bigint> {
+export async function worth(scn: Scenario, a: Agent): Promise<bigint> {
   let crypto = 0n;
   for (const id of a.ids) {
     crypto += (await read(token, TOKEN, "balanceOf", [id.account.address])) as bigint;
@@ -210,25 +222,25 @@ async function worth(scn: Scenario, a: Agent): Promise<bigint> {
 
 // ---------------------------------------------------------------- reputation, as a counterparty sees it
 
-async function penaltyOf(scn: Scenario, id: Identity): Promise<number> {
+export async function penaltyOf(scn: Scenario, id: Identity): Promise<number> {
   if (!scn.packaged) return 0;
   const [, penalty] = (await read(dep.reputation, REPUTATION, "stats", [id.subject, token])) as [number, number, bigint];
   return Number(penalty);
 }
 
-async function capOf(scn: Scenario, id: Identity): Promise<bigint> {
+export async function capOf(scn: Scenario, id: Identity): Promise<bigint> {
   if (!scn.packaged) return CORE_DEAL;
   const c = (await read(dep.reputation, REPUTATION, "cap", [id.subject, token, true])) as bigint;
   return c > MAX_DEAL ? MAX_DEAL : c;
 }
 
-async function acceptable(scn: Scenario, id: Identity) {
+export async function acceptable(scn: Scenario, id: Identity) {
   return (await penaltyOf(scn, id)) < SCREEN_PENALTY; // Core shows nothing, so it accepts everyone
 }
 
 // ---------------------------------------------------------------- the deal
 
-const TYPES = {
+export const TYPES = {
   DealTerms: [
     { name: "holder", type: "address" },
     { name: "controller", type: "address" },
@@ -252,17 +264,21 @@ const TYPES = {
     { name: "nonce", type: "uint256" },
     { name: "deadline", type: "uint256" },
   ],
-  MutualSplit: [
+  MutualCancel: [
     { name: "dealId", type: "bytes32" },
-    { name: "providerBps", type: "uint16" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint256" },
+  ],
+  CoSignedRelease: [
+    { name: "dealId", type: "bytes32" },
     { name: "nonce", type: "uint256" },
     { name: "deadline", type: "uint256" },
   ],
 } as const;
 
-const domain = { name: "PluriSwap", version: "2", chainId: 31337, verifyingContract: escrow };
+export const domain = { name: "PluriSwap", version: "2", chainId: 31337, verifyingContract: escrow };
 
-function packages(scn: Scenario): { ids: Hex[]; mods: Record<string, Address> } {
+export function packages(scn: Scenario): { ids: Hex[]; mods: Record<string, Address> } {
   if (!scn.packaged) {
     return { ids: [], mods: { passport: zeroAddress, reputation: zeroAddress, bonds: zeroAddress, zk: zeroAddress, court: zeroAddress } };
   }
@@ -280,7 +296,7 @@ function packages(scn: Scenario): { ids: Hex[]; mods: Record<string, Address> } 
   };
 }
 
-interface Deal {
+export interface Deal {
   id: Hex;
   holder: Agent;
   provider: Agent;
@@ -292,7 +308,7 @@ interface Deal {
   court: boolean;
 }
 
-async function activate(scn: Scenario, h: Agent, p: Agent, principal: bigint): Promise<Deal> {
+export async function activate(scn: Scenario, h: Agent, p: Agent, principal: bigint): Promise<Deal> {
   const H = cur(h);
   const P = cur(p);
   const { ids, mods } = packages(scn);
@@ -333,19 +349,22 @@ async function activate(scn: Scenario, h: Agent, p: Agent, principal: bigint): P
   return { id, holder: h, provider: p, principal, paid: false, disputed: false, forgot: false, split: false, court: false };
 }
 
-async function split(d: Deal, providerBps: number) {
+/// The two all-or-nothing agreements a dispute leaves open, signed by both sides: `toHolder` is the mutual
+/// cancel, otherwise the co-signed release.
+export async function allOrNothing(d: Deal, toHolder: boolean) {
   const H = cur(d.holder);
   const P = cur(d.provider);
   const deadline = (await pub.getBlock()).timestamp + 3600n;
-  const pm = { dealId: d.id, providerBps, nonce: nonce(), deadline };
-  const cm = { dealId: d.id, providerBps, nonce: nonce(), deadline };
-  const psig = await P.account.signTypedData({ domain, types: TYPES, primaryType: "MutualSplit", message: pm as never });
-  const csig = await H.account.signTypedData({ domain, types: TYPES, primaryType: "MutualSplit", message: cm as never });
-  await send(admin, escrow, ESCROW, "mutualSplit", [pm, psig, cm, csig]);
-  d.split = true;
+  const type = toHolder ? "MutualCancel" : "CoSignedRelease";
+  const pm = { dealId: d.id, nonce: nonce(), deadline };
+  const cm = { dealId: d.id, nonce: nonce(), deadline };
+  const psig = await P.account.signTypedData({ domain, types: TYPES, primaryType: type, message: pm as never });
+  const csig = await H.account.signTypedData({ domain, types: TYPES, primaryType: type, message: cm as never });
+  await send(admin, escrow, ESCROW, toHolder ? "mutualCancel" : "coSignedRelease", [pm, psig, cm, csig]);
+  d.split = true; // reused as "settled by agreement after a dispute"
 }
 
-const STATUS = ["NONE", "FUNDED", "FIAT_SENT", "DISPUTED", "RELEASED", "RESOLVED_SPLIT", "STALEMATE", "CANCELLED", "ARBITRATION_ACTIVE", "RESOLVED_BY_ARBITRATION", "CLAIMED", "ABANDONED"];
+export const STATUS = ["NONE", "FUNDED", "FIAT_SENT", "DISPUTED", "RELEASED", "RESOLVED_SPLIT", "STALEMATE", "CANCELLED", "ARBITRATION_ACTIVE", "RESOLVED_BY_ARBITRATION", "CLAIMED", "ABANDONED"];
 
 // ---------------------------------------------------------------- one market
 
@@ -446,12 +465,15 @@ async function runScenario(scn: Scenario): Promise<Result> {
       }
       await send(H.account, escrow, ESCROW, "openDisputed", [d.id]);
       d.disputed = true;
-      // The cheater offers 50/50. A rational victim signs whenever it beats what refusing leads to:
-      // without a tribunal that is the deadlock (half, bond burned, +10), so it always signs; with one,
-      // refusing leads to a verdict or to the extortionist's abandonment, so it never does.
-      const bothCheat = d.holder.strategy !== "honest" && d.provider.strategy !== "honest";
-      const victimSigns = !scn.tribunal && (scn.rational || bothCheat);
-      if (victimSigns) await split(d, 5000);
+      // Who gives way. The honest outcome is the cancel when the Holder was not paid, the release when
+      // it was. A rational cheater concedes it; a stubborn one waits — and a victim that yields hands it
+      // the opposite outcome instead of facing the burn. With a tribunal, the extortionist (who never
+      // escalates) simply runs into the clock and loses the pot: nobody signs anything.
+      if (scn.tribunal) continue;
+      const cheaterYields = !scn.stubborn;
+      const honest = wronged; // wronged => the honest outcome is the cancel (all back to the Holder)
+      if (cheaterYields) await allOrNothing(d, honest);
+      else if (scn.victimYields) await allOrNothing(d, !honest);
     }
 
     // Phase 3: a truthful tribunal rules the cases in front of it.
@@ -515,6 +537,7 @@ function group(r: Result, role: Role, strategy: Strategy) {
 
 async function main() {
   console.log(`\nPluriSwap — simulación de ecosistema · ${ROUNDS} rondas · seed ${SEED}`);
+  console.log(`reglas: sin split tras disputa · deadlock sin tribunal quema el principal`);
   console.log(`población: 6 Holders honestos, 2 extorsionadores · 6 Providers honestos, 2 mentirosos\n`);
   const results: Result[] = [];
   for (const scn of SCENARIOS) {
@@ -532,11 +555,11 @@ async function main() {
   ];
   console.log("\nResultado neto por agente (tokens, fiat incluido), y penalty final de su identidad vigente\n");
   const header = ["", ...results.map((r) => r.scenario.key)];
-  console.log(header.map((h, i) => (i === 0 ? h.padEnd(24) : h.padStart(22))).join(""));
+  console.log(header.map((h, i) => (i === 0 ? h.padEnd(24) : h.padStart(24))).join(""));
   for (const [role, strat, label] of rows) {
     const cells = results.map((r) => {
       const g = group(r, role, strat);
-      return `${fmt(g.perAgent)} (pen ${g.pen.toFixed(0)}, id ${g.ids / g.n})`.padStart(22);
+      return `${fmt(g.perAgent)} (pen ${g.pen.toFixed(0)}, id ${g.ids / g.n})`.padStart(24);
     });
     console.log(label.padEnd(24) + cells.join(""));
   }
@@ -576,7 +599,10 @@ async function main() {
   console.log(`\nwrote ${OUT}`);
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Run only when executed directly: `longrun.ts` imports the machinery above.
+if (import.meta.main) {
+  main().catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });
+}

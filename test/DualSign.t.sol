@@ -167,17 +167,20 @@ contract DualSignTest is BaseTest {
         assertEq(token.balanceOf(holder), PRINCIPAL * 7500 / 10_000);
     }
 
-    function test_mutualSplit_fromDisputed() public {
+    /// Once somebody disputes, the only agreements left are all-or-nothing: cancel or release (Parte IV,
+    /// 2026-09-24). A split after a dispute is what a cheater extracts by threatening the clock — "half, or
+    /// we both lose it all" — so the kernel does not offer it.
+    function test_mutualSplit_fromDisputed_rejects() public {
         bytes32 id = _disputed();
         uint256 deadline = block.timestamp + 1 days;
         MutualSplit memory p = MutualSplit({dealId: id, providerBps: 4000, nonce: 30, deadline: deadline});
         MutualSplit memory c = MutualSplit({dealId: id, providerBps: 4000, nonce: 31, deadline: deadline});
         bytes memory pSig = _signSplit(p, providerPk);
         bytes memory cSig = _signSplit(c, holderPk);
+        vm.expectRevert(Escrow.SplitAfterDispute.selector);
         escrow.mutualSplit(p, pSig, c, cSig);
-        assertEq(uint8(escrow.status(id)), uint8(Status.RESOLVED_SPLIT));
-        assertEq(token.balanceOf(provider), PRINCIPAL * 4000 / 10_000);
-        assertEq(token.balanceOf(holder), PRINCIPAL * 6000 / 10_000);
+        assertEq(uint8(escrow.status(id)), uint8(Status.DISPUTED));
+        assertFalse(escrow.used(provider, 30), "a rejected split consumes no nonce");
     }
 
     function test_mutualSplit_revertsIfBpsMismatch() public {

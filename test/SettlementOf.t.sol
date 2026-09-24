@@ -34,7 +34,7 @@ contract SettlementOfTest is BaseTest {
         assertEq(p, 0);
     }
 
-    function test_settlementOf_deadlockSplits() public {
+    function test_settlementOf_deadlockPaysNobody() public {
         bytes32 id = _activateP2P(1, 1);
         vm.prank(provider);
         escrow.markFiat(id);
@@ -44,7 +44,7 @@ contract SettlementOfTest is BaseTest {
         escrow.forceDisputeTimeout(id);
         (Status st, uint256 h, uint256 p) = escrow.settlementOf(id);
         assertEq(uint8(st), uint8(Status.STALEMATE));
-        assertEq(h, PRINCIPAL / 2);
-        assertEq(p, PRINCIPAL - PRINCIPAL / 2);
+        assertEq(h, 0);
+        assertEq(p, 0, "the principal was burned, not settled");
     }
 }

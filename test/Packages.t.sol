@@ -222,10 +222,11 @@ contract PackagesTest is BaseTest {
         assertEq(vault.available(SUB_H, address(token)), BOND);
     }
 
-    /// No tribunal, no agreement, no verdict: a deadlock (Parte IV, 2026-09-24). Both sides pay it — half of
-    /// the principal each way, both locks to the sink, and +10 on both scores, a mark stronger than a
-    /// tribunal's refusal (+5, not the parties' fault) and weaker than a proven loss (+15). The locks go to
-    /// the SINK and not to the counterparty: nobody may profit from letting the clock run out.
+    /// No tribunal, no agreement, no verdict: a deadlock (Parte IV, 2026-09-24). Both sides pay it — the
+    /// principal burned, both locks to the sink, and +10 on both scores, a mark stronger than a tribunal's
+    /// refusal (+5, not the parties' fault) and weaker than a proven loss (+15). Nothing goes to the
+    /// counterparty: nobody may profit from letting the clock run out. (The bond sink here is the same dead
+    /// address the kernel burns the principal to, so its balance carries both.)
     function test_deadlock_burnsBothLocksAndMarksBothSides() public {
         _fundBonds();
         bytes32 id = _activateTrio(1, 1);
@@ -234,7 +235,7 @@ contract PackagesTest is BaseTest {
         vm.warp(block.timestamp + 7200);
         escrow.forceDisputeTimeout(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
-        assertEq(token.balanceOf(sink), 2 * BOND, "both locks burned, to nobody");
+        assertEq(token.balanceOf(sink), PRINCIPAL + 2 * BOND, "principal and both locks burned, to nobody");
         assertEq(vault.lockOf(SUB_H, id), 0);
         assertEq(vault.lockOf(SUB_P, id), 0);
         assertEq(vault.available(SUB_H, address(token)), 0);
@@ -282,10 +283,10 @@ contract PackagesTest is BaseTest {
         vm.warp(block.timestamp + 7200);
         escrow.forceDisputeTimeout(id);
         assertEq(token.balanceOf(feeRecipient), ACT_FEE + CONTEST_FLOOR, "activation + contest-open, nothing else");
-        assertEq(token.balanceOf(provider), PRINCIPAL - PRINCIPAL / 2);
+        assertEq(token.balanceOf(provider), 0, "the principal burned");
         // `_fundContest` mints for both possible contest invoices; this deal carries no court, so the
-        // court's share was never pulled and stays with the opener, next to its half.
-        assertEq(token.balanceOf(holder), COURT_CONTEST + PRINCIPAL / 2);
+        // court's share was never pulled and stays with the opener — all it has left.
+        assertEq(token.balanceOf(holder), COURT_CONTEST);
     }
 
     /// Decision: CLAIMED is its own terminal. The trade happened: fee on the pot, Provider credited, Holder silent.
@@ -828,7 +829,7 @@ contract PackagesTest is BaseTest {
         vm.warp(block.timestamp + 7200);
         escrow.forceDisputeTimeout(id);
         assertEq(uint8(escrow.status(id)), uint8(Status.STALEMATE));
-        assertEq(token.balanceOf(sink), 0);
+        assertEq(token.balanceOf(sink), PRINCIPAL, "only the kernel's own burn: no lock reached it");
         assertEq(token.balanceOf(address(0xBADD1)), 0, "the swapped-in sink gets nothing either");
         assertTrue(driftVault.lockOf(SUB_H, id) != 0);
         assertEq(escrow.postPending(id), 0, "drifted vault abandoned, not left pending");

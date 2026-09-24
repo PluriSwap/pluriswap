@@ -15,13 +15,13 @@ import {Status} from "../src/libraries/Types.sol";
 ///      2. In a deal WITH a tribunal, opening a fight and abandoning it loses it (`Packages.t.sol`):
 ///         the Controller had a court and did not use it.
 ///      3. In a deal WITHOUT one — Core included — nobody can escalate, because the two parties chose
-///         not to have a tribunal. A fight nobody settles is a deadlock, and a deadlock costs both:
-///         the principal split, and with the official packages both scores marked and both bonds
-///         burned. The freeze is worth what it is for: time to settle.
+///         not to have a tribunal. After a dispute only all-or-nothing agreements remain (cancel,
+///         co-signed release), and a fight nobody settles burns the principal: nobody profits from a
+///         freeze, so a cheater's best reply is always to give way (`DisputeDeadlock.t.sol`).
 ///
-///      Stated rather than hidden: in pure Core, with no packages, a deadlock is only the split. Core
-///      cannot tell the two stories apart and does not pretend to; the split caps what either lie
-///      pays at half, where the 2026-09-22 forfeit paid an unpaid Provider the whole pot.
+///      Stated rather than hidden: facing a spiteful cheater, or an honest partner in a genuine
+///      disagreement, the principal is lost. Core cannot tell the stories apart, so it makes sure no
+///      story pays.
 contract DisputeIncentivesTest is BaseTest {
     /// Settled and not reopened: the Provider's protection is the clock, not a verb of their own.
     function test_providerNeedsNoDispute_whenTheControllerIsAbsent() public {
@@ -46,8 +46,8 @@ contract DisputeIncentivesTest is BaseTest {
         escrow.openCourt(id);
     }
 
-    /// Freezing is not free and not a win: a frozen trade that nobody settles ends split, where leaving it
-    /// alone would have paid the Provider in full. Both sides end worse than if they had agreed.
+    /// Freezing is never a win: a frozen trade that nobody settles pays nobody, where leaving it alone would
+    /// have paid the Provider in full. Both sides end worse than with any agreement.
     function test_aFreezeNobodySettles_costsBothSides() public {
         bytes32 frozen = _activateP2P(5, 6);
         _markFiat(frozen);
@@ -58,13 +58,13 @@ contract DisputeIncentivesTest is BaseTest {
         (Status st, uint256 hFrozen, uint256 pFrozen) = escrow.settlementOf(frozen);
 
         assertEq(uint8(st), uint8(Status.STALEMATE));
-        assertEq(hFrozen, PRINCIPAL / 2, "the Holder recovers half, not all");
-        assertEq(pFrozen, PRINCIPAL - PRINCIPAL / 2, "the Provider collects half, not all");
+        assertEq(hFrozen, 0, "the Holder recovers nothing");
+        assertEq(pFrozen, 0, "the Provider collects nothing");
     }
 
-    /// Core cannot tell the two stories apart, so it does not pick one: a Provider who never paid and
-    /// refuses every settlement takes half — not the whole pot, and not nothing.
-    function test_coreCannotTellTheTwoStoriesApart_andSplits() public {
+    /// Core cannot tell the two stories apart, so it makes sure neither pays: a Provider who never paid and
+    /// refuses every settlement takes nothing.
+    function test_coreCannotTellTheTwoStoriesApart_soNoStoryPays() public {
         bytes32 id = _activateP2P(9, 10);
         _markFiat(id); // no fiat was sent; `markFiat` authenticates nothing (§3.11)
         vm.prank(holder);
@@ -73,8 +73,8 @@ contract DisputeIncentivesTest is BaseTest {
         escrow.forceDisputeTimeout(id);
 
         (, uint256 holderAmt, uint256 providerAmt) = escrow.settlementOf(id);
-        assertEq(providerAmt, PRINCIPAL - PRINCIPAL / 2, "a lie pays at most half in pure Core");
-        assertEq(holderAmt, PRINCIPAL / 2, "a deal that must not lose half selects ARBITRATION");
+        assertEq(providerAmt, 0, "a lie pays nothing");
+        assertEq(holderAmt, 0, "and costs the victim the principal: a deal that matters selects ARBITRATION");
     }
 
     /// Core charges nothing to open one. The official reputation package prices it (§3.14.6).

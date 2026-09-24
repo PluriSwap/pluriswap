@@ -38,9 +38,9 @@ contract KernelFuzzTest is BaseTest {
         assertEq(token.balanceOf(address(escrow)), 0, "escrow keeps dust after split");
     }
 
-    /// A deal without a tribunal: every dispute nobody settles is a deadlock, split, conserving every wei —
-    /// the odd one, if any, stays with the Holder (the Provider's half is floored, as in any split).
-    function testFuzz_forceDisputeTimeout_withoutATribunal_splits(uint256 principal, uint256 disputeDuration) public {
+    /// A deal without a tribunal: every dispute nobody settles is a deadlock, and every wei of it is burned —
+    /// none to either party, none left in custody.
+    function testFuzz_forceDisputeTimeout_withoutATribunal_burns(uint256 principal, uint256 disputeDuration) public {
         principal = bound(principal, 1, MAX_PRINCIPAL);
         disputeDuration = bound(disputeDuration, 0, MAX_DURATION);
         DealTerms memory t = _p2pTerms();
@@ -55,9 +55,9 @@ contract KernelFuzzTest is BaseTest {
 
         (Status s, uint256 h, uint256 p) = escrow.settlementOf(id);
         assertEq(uint8(s), uint8(Status.STALEMATE));
-        assertEq(p, principal / 2, "the Provider's half, floored");
-        assertEq(h, principal - principal / 2, "the Holder keeps the rest");
-        assertEq(h + p, principal, "a deadlock does not conserve principal");
+        assertEq(h + p, 0, "a deadlock pays nobody");
+        assertEq(token.balanceOf(0x000000000000000000000000000000000000dEaD), principal, "every wei burned");
+        assertEq(token.balanceOf(address(escrow)), 0, "nothing left in custody");
     }
 
     function testFuzz_everyTerminal_paysExactlyPrincipal(uint256 principal, uint8 path) public {

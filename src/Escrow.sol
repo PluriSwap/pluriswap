@@ -46,6 +46,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     error EdgeOff();
     error NotRuled();
     error NothingPending();
+    error SplitAfterDispute();
 
     event Activated(
         bytes32 dealId, address holder, address provider, address controller, address token, uint256 principal
@@ -60,9 +61,15 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     ///      reputation bits are deliberately never abandoned (EXT-12), so a module that never comes back
     ///      leaves them set forever -- that is a subject's capacity leaking, and it should be visible.
     event PostTerminalPending(bytes32 indexed dealId, uint8 pending);
+    /// @dev A deadlock in a deal with no tribunal (Parte IV, 2026-09-24): the principal left custody to
+    ///      `BURN` and reached neither party. `Settled` reports 0/0 for it; this is where the rest went.
+    event PrincipalBurned(bytes32 indexed dealId, uint256 amount);
 
     uint16 internal constant ALL = 10_000;
     uint16 internal constant HALF = 5_000;
+    /// @dev Where a deadlocked principal goes: an address nobody controls. Never the DAO, never a package,
+    ///      never anyone who could profit from a deadlock happening.
+    address internal constant BURN = 0x000000000000000000000000000000000000dEaD;
 
     /// @dev How a terminal splits the pot and what it tells the packages.
     struct Outcome {
@@ -291,18 +298,21 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     }
 
     /// @dev A dispute that ran out its clock. What it means depends on whether the parties gave
-    ///      themselves a tribunal (Parte IV, 2026-09-24, over 2026-09-22):
+    ///      themselves a tribunal (Parte IV, 2026-09-24):
     ///
     ///      * With ARBITRATION selected, the Controller who opened the fight had a court and did not use
     ///        it. Abandoning a fight you could have escalated is losing it: `ABANDONED`, the principal to
     ///        the Provider in full, the locks back (assumed fault, not a verdict), +5 to the opener.
     ///
-    ///      * Without it, nobody asked anyone to decide — the two parties signed a deal with no tribunal,
-    ///        and neither gave way before the clock. The kernel does not pretend to know who was right: a
-    ///        deadlock. `STALEMATE`, the principal split, both locks burned to the sink and a `Deadlock`
-    ///        close (+10) on both sides. A reasonable detriment to each, whose whole purpose is to make an
-    ///        agreement inside the window — split, cancel, co-signed release — better than the clock. The
-    ///        locks go to the sink, never to the counterparty: nobody may profit from letting it run out.
+    ///      * Without it, nobody asked anyone to decide, and neither side gave way — not with a cancel
+    ///        (all to the Holder) nor with a co-signed release (all to the Provider), the only agreements
+    ///        a dispute leaves open. A deadlock: the principal to `BURN`, both locks to the sink, a
+    ///        `Deadlock` close (+10) on both sides. Mutually assured destruction, on purpose: it is what
+    ///        makes surrender every cheater's best reply — a liar gets 0 by cancelling and loses his bond
+    ///        by waiting; an extortionist gets 0 by releasing and loses hers by waiting — so that trying
+    ///        to cheat never pays, even at the price of an honest partner in a genuine disagreement.
+    ///        The principal goes credit-first like any payout, so a token that refuses the transfer
+    ///        leaves it credited to `BURN` — owned by nobody, which is the same thing.
     function forceDisputeTimeout(bytes32 dealId) external nonReentrant {
         Deal storage d = deals[dealId];
         if (d.status != Status.DISPUTED) revert WrongStatus();
@@ -321,7 +331,10 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
                 )
             );
         } else {
-            _close(dealId, d, d.terms.principal, _stalemate(BondAction.Burn, IReputation.Close.Deadlock));
+            uint256 principal = d.terms.principal;
+            emit PrincipalBurned(dealId, principal);
+            Settlement.creditThenTryPush(settlement, d.terms.token, BURN, principal);
+            _close(dealId, d, 0, _stalemate(BondAction.Burn, IReputation.Close.Deadlock));
         }
     }
 
@@ -380,6 +393,9 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
         if (providerMsg.providerBps > ALL) revert BpsMismatch();
         Deal storage d = deals[providerMsg.dealId];
         _assertDualSignFromActive(d.status);
+        // After a dispute the only agreements are all-or-nothing (cancel, co-signed release). A split there is
+        // what the clock's threat extracts — "half, or we both lose it all" — so it is not on offer.
+        if (d.status == Status.DISPUTED) revert SplitAfterDispute();
         _consumeDualSign(
             d.terms.provider,
             _hashTypedDataV4(Consent.hashMutualSplit(providerMsg)),

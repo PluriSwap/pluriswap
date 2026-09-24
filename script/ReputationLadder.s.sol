@@ -168,7 +168,7 @@ contract ReputationLadder is Script {
         escrow.forceDisputeTimeout(id); // disputeDuration 0: deadlocked in the block it was opened
         vm.stopBroadcast();
         require(escrow.status(id) == Status.STALEMATE, "deadlock");
-        console.log("  the principal split in half, and both sides carry +10");
+        console.log("  the principal burned, both bonds to the sink, and both sides carry +10");
         console.log("  score before", before);
         _state();
         (, uint32 penaltyAfter,) = rep.stats(SUB_H, address(token));

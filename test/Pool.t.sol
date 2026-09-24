@@ -1207,11 +1207,11 @@ contract PoolTest is BaseTest {
         vm.warp(block.timestamp + 7200);
         escrow.forceDisputeTimeout(id);
         pool.reconcile(1);
-        // The deal carries no tribunal, so a fight nobody settled is a deadlock: half the principal comes
-        // back to the pool (Parte IV, 2026-09-24). The reimbursement policy is unchanged: the vault
-        // still covers the contest the Controller paid from their own wallet.
+        // The deal carries no tribunal, so a fight nobody settled is a deadlock: the principal is burned
+        // (Parte IV, 2026-09-24). The reimbursement policy is unchanged: the vault still covers the
+        // contest the Controller paid from their own wallet.
         assertEq(token.balanceOf(controller), floor_, "pool reimburses the opener");
-        assertEq(pool.consumed(), PRINCIPAL / 2 + floor_, "half the principal, plus the reimbursed contest");
+        assertEq(pool.consumed(), PRINCIPAL + floor_, "the whole principal, plus the reimbursed contest");
     }
 
     /// Fight never opened: the contest reserve returns to idle, LPs are not charged.
