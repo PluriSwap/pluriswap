@@ -25,6 +25,11 @@ contract PaymentVerifierMock is IPaymentVerifier {
         paymentNullifier = nullifier;
     }
 
+    /// @dev A mock has no keys to rotate: it never sets.
+    function sunset() external pure returns (uint64) {
+        return type(uint64).max;
+    }
+
     /// @dev The blob a proof of `claim` would be — what a test or a test-chain script submits.
     function proofFor(PaymentClaim memory claim, bytes32 nullifier) external pure returns (bytes memory) {
         return abi.encode(claim, nullifier);
