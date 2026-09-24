@@ -15,15 +15,15 @@ import {Terms} from "./Terms.sol";
 
 library Consent {
     bytes32 internal constant HOLDER_AUTHORIZATION_TYPEHASH = keccak256(
-        "HolderAuthorization(DealTerms terms,uint256 nonce,uint256 deadline)DealTerms(address holder,address controller,address provider,address token,uint256 principal,uint256 fiatDuration,uint256 releaseDuration,uint256 disputeDuration,uint256 arbitrationDuration,bytes32[] packageIds)"
+        "HolderAuthorization(DealTerms terms,uint256 nonce,uint256 deadline)DealTerms(address holder,address controller,address provider,address token,uint256 principal,uint256 fiatDuration,uint256 releaseDuration,uint256 disputeDuration,uint256 arbitrationDuration,bytes32 fiatCommit,bytes32[] packageIds)"
     );
 
     bytes32 internal constant PROVIDER_AGREEMENT_TYPEHASH = keccak256(
-        "ProviderAgreement(DealTerms terms,uint256 nonce,uint256 deadline)DealTerms(address holder,address controller,address provider,address token,uint256 principal,uint256 fiatDuration,uint256 releaseDuration,uint256 disputeDuration,uint256 arbitrationDuration,bytes32[] packageIds)"
+        "ProviderAgreement(DealTerms terms,uint256 nonce,uint256 deadline)DealTerms(address holder,address controller,address provider,address token,uint256 principal,uint256 fiatDuration,uint256 releaseDuration,uint256 disputeDuration,uint256 arbitrationDuration,bytes32 fiatCommit,bytes32[] packageIds)"
     );
 
     bytes32 internal constant CONTROLLER_ACCEPTANCE_TYPEHASH = keccak256(
-        "ControllerAcceptance(DealTerms terms,uint256 nonce,uint256 deadline)DealTerms(address holder,address controller,address provider,address token,uint256 principal,uint256 fiatDuration,uint256 releaseDuration,uint256 disputeDuration,uint256 arbitrationDuration,bytes32[] packageIds)"
+        "ControllerAcceptance(DealTerms terms,uint256 nonce,uint256 deadline)DealTerms(address holder,address controller,address provider,address token,uint256 principal,uint256 fiatDuration,uint256 releaseDuration,uint256 disputeDuration,uint256 arbitrationDuration,bytes32 fiatCommit,bytes32[] packageIds)"
     );
 
     function hashHolderAuthorization(HolderAuthorization memory a) public pure returns (bytes32) {

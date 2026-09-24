@@ -5,7 +5,7 @@ import {DealTerms} from "./Types.sol";
 
 library Terms {
     bytes32 internal constant DEAL_TERMS_TYPEHASH = keccak256(
-        "DealTerms(address holder,address controller,address provider,address token,uint256 principal,uint256 fiatDuration,uint256 releaseDuration,uint256 disputeDuration,uint256 arbitrationDuration,bytes32[] packageIds)"
+        "DealTerms(address holder,address controller,address provider,address token,uint256 principal,uint256 fiatDuration,uint256 releaseDuration,uint256 disputeDuration,uint256 arbitrationDuration,bytes32 fiatCommit,bytes32[] packageIds)"
     );
 
     error UnsortedPackageIds();
@@ -36,6 +36,7 @@ library Terms {
                 t.releaseDuration,
                 t.disputeDuration,
                 t.arbitrationDuration,
+                t.fiatCommit,
                 keccak256(abi.encodePacked(t.packageIds))
             )
         );

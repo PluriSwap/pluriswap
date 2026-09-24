@@ -121,6 +121,7 @@ contract Deal is Script {
         terms.provider = provider;
         terms.token = address(token);
         terms.principal = PRINCIPAL;
+        terms.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
         terms.packageIds = new bytes32[](0);
 
         HolderAuthorization memory ha =

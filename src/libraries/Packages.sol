@@ -45,11 +45,17 @@ library Packages {
     error PeerMismatch();
     error PackageDrift();
     error SameSubject();
+    error FiatCommitRequired();
 
     // --- activation ----------------------------------------------------------------------------------
 
     /// @dev Every module the relayer names must hash to a signed id, and every signed id must be matched.
-    function resolve(bytes32[] memory ids, PackageMods memory mods) public view returns (uint8 pkgs) {
+    ///      `PAYMENT_PROOF` proves a payment against the signed fiat leg, so it cannot run without one.
+    function resolve(bytes32[] memory ids, bytes32 fiatCommit, PackageMods memory mods)
+        public
+        view
+        returns (uint8 pkgs)
+    {
         uint256 matched;
         if (mods.passport != address(0)) {
             _requireNamed(ids, PackageId.passport(mods.passport));
@@ -95,6 +101,7 @@ library Packages {
         }
         if (matched != ids.length) revert UnknownPackage();
         if ((pkgs & (ZK | ARB)) == (ZK | ARB)) revert IncompatiblePackages();
+        if ((pkgs & ZK) != 0 && fiatCommit == bytes32(0)) revert FiatCommitRequired();
         if ((pkgs & REP) != 0 && (pkgs & PASSPORT) == 0) revert PackageRequired();
         if ((pkgs & BONDS) != 0 && (pkgs & (PASSPORT | REP)) != (PASSPORT | REP)) revert PackageRequired();
     }

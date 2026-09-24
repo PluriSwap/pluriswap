@@ -235,6 +235,7 @@ contract ArbitrationPaths is Script {
         t.fiatDuration = fiatD;
         t.releaseDuration = releaseD;
         t.disputeDuration = disputeD;
+        t.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
         t.arbitrationDuration = arbD;
         t.packageIds = _sorted4(passport.packageId(), rep.packageId(), vault.packageId(), court.packageId());
     }

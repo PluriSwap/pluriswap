@@ -78,7 +78,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
     mapping(bytes32 dealId => Deal) internal deals;
     Settlement.Store internal settlement;
 
-    constructor() EIP712("PluriSwap", "1") {}
+    constructor() EIP712("PluriSwap", "2") {}
 
     // --- read ------------------------------------------------------------------------------------------
 
@@ -202,7 +202,7 @@ contract Escrow is EIP712, ReentrancyGuardTransient, IEscrow {
 
         if (used[t.holder][ha.nonce] || used[t.provider][pa.nonce]) revert NonceUsed();
 
-        uint8 pkgs = Packages.resolve(t.packageIds, mods);
+        uint8 pkgs = Packages.resolve(t.packageIds, t.fiatCommit, mods);
         id = Consent.dealId(_domainSeparatorV4(), t, ha.nonce, pa.nonce, controllerNonce);
         if (deals[id].status != Status.NONE) revert DealExists();
 

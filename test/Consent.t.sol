@@ -53,6 +53,7 @@ contract ConsentTest is Test {
         t.fiatDuration = 3600;
         t.releaseDuration = 1800;
         t.disputeDuration = 7200;
+        t.fiatCommit = keccak256("fiat leg");
         t.packageIds = new bytes32[](0);
     }
 
@@ -141,5 +142,31 @@ contract ConsentTest is Test {
         assertTrue(a != Consent.dealId(domain, t, 1, 3, 0));
         DealTerms memory distinct = _terms(holder, controller, provider);
         assertTrue(Consent.dealId(domain, distinct, 1, 2, 5) != Consent.dealId(domain, distinct, 1, 2, 6));
+    }
+
+    /// A deal is one agreement on both legs: same crypto terms, different fiat commitment, different id.
+    function test_dealId_bindsFiatCommit() public view {
+        DealTerms memory a = _terms(holder, holder, provider);
+        DealTerms memory b = _terms(holder, holder, provider);
+        b.fiatCommit = keccak256("another fiat leg");
+        bytes32 domain = harness.domainSeparator();
+        assertTrue(Consent.dealId(domain, a, 1, 2, 0) != Consent.dealId(domain, b, 1, 2, 0));
+    }
+
+    function test_activationTypehashes_carryFiatCommit() public pure {
+        string memory terms =
+            "DealTerms(address holder,address controller,address provider,address token,uint256 principal,uint256 fiatDuration,uint256 releaseDuration,uint256 disputeDuration,uint256 arbitrationDuration,bytes32 fiatCommit,bytes32[] packageIds)";
+        assertEq(
+            Consent.HOLDER_AUTHORIZATION_TYPEHASH,
+            keccak256(abi.encodePacked("HolderAuthorization(DealTerms terms,uint256 nonce,uint256 deadline)", terms))
+        );
+        assertEq(
+            Consent.PROVIDER_AGREEMENT_TYPEHASH,
+            keccak256(abi.encodePacked("ProviderAgreement(DealTerms terms,uint256 nonce,uint256 deadline)", terms))
+        );
+        assertEq(
+            Consent.CONTROLLER_ACCEPTANCE_TYPEHASH,
+            keccak256(abi.encodePacked("ControllerAcceptance(DealTerms terms,uint256 nonce,uint256 deadline)", terms))
+        );
     }
 }

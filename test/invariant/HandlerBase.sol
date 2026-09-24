@@ -365,6 +365,7 @@ abstract contract HandlerBase is Test {
         t.fiatDuration = bound(fiatDur, 0, MAX_DURATION);
         t.releaseDuration = bound(relDur, 0, MAX_DURATION);
         t.disputeDuration = bound(dispDur, 0, MAX_DURATION);
+        t.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
         t.arbitrationDuration = t.disputeDuration;
         t.packageIds = new bytes32[](0);
     }

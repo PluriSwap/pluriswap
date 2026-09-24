@@ -103,6 +103,33 @@ contract PackagesTest is BaseTest {
         assertFalse(escrow.used(holder, 1));
     }
 
+    /// `PAYMENT_PROOF` is the one package that consumes the fiat leg: a proof is checked against the
+    /// payment the parties committed to. Without a commitment there is nothing to check it against, so
+    /// the deal could only ever end in `CANCELLED` — reject it before any custody exists.
+    function test_zkRequiresFiatCommit() public {
+        DealTerms memory terms = _p2pTerms();
+        terms.fiatCommit = bytes32(0);
+        terms.packageIds = _one(zkMod.packageId());
+        HolderAuthorization memory ha = _holderAuth(terms, 1);
+        ProviderAgreement memory pa = _providerAuth(terms, 1);
+        ControllerAcceptance memory ca;
+        bytes memory hs = _signHolder(ha);
+        bytes memory ps = _signProvider(pa);
+        uint256 before = token.balanceOf(holder);
+        vm.expectRevert(Packages.FiatCommitRequired.selector);
+        escrow.activate(ha, hs, pa, ps, ca, "", _zkMods());
+        assertFalse(escrow.used(holder, 1));
+        assertEq(token.balanceOf(holder), before);
+    }
+
+    /// The rule is ZK's, not the kernel's: a Core deal may leave the fiat leg undeclared.
+    function test_coreAcceptsZeroFiatCommit() public {
+        DealTerms memory terms = _p2pTerms();
+        terms.fiatCommit = bytes32(0);
+        bytes32 id = _activateP2PWith(terms, 1, 1);
+        assertEq(uint8(escrow.status(id)), uint8(Status.FUNDED));
+    }
+
     function test_zkAndArbIncompatible() public {
         DealTerms memory terms = _p2pTerms();
         terms.packageIds = _sorted2(zkMod.packageId(), court.packageId());

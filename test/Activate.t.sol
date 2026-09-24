@@ -232,4 +232,28 @@ contract ActivateTest is BaseTest {
             escrow.activate(ha, hex"", pa, hex"", ca, "");
         }
     }
+
+    /// The Holder commits to receiving one payment, the Provider signs a different one: those are two
+    /// deals, and neither signature can fund the other.
+    function test_activate_revertsIfFiatLegsDiffer() public {
+        DealTerms memory hTerms = _p2pTerms();
+        DealTerms memory pTerms = _p2pTerms();
+        pTerms.fiatCommit = keccak256("a cheaper payment");
+        HolderAuthorization memory ha = _holderAuth(hTerms, 1);
+        ProviderAgreement memory pa = _providerAuth(pTerms, 1);
+        bytes memory hs = _signHolder(ha);
+        bytes memory ps = _signProvider(pa);
+        ControllerAcceptance memory ca;
+        vm.expectRevert(Escrow.TermsMismatch.selector);
+        escrow.activate(ha, hs, pa, ps, ca, "");
+        assertFalse(escrow.used(holder, 1));
+    }
+
+    /// A new Core field is a new kernel (§3.13): the domain version moves with the typehash, so a
+    /// signature made for version 1 can never be replayed against this one.
+    function test_domain_isVersion2() public view {
+        (, string memory name, string memory version,,,,) = escrow.eip712Domain();
+        assertEq(name, "PluriSwap");
+        assertEq(version, "2");
+    }
 }

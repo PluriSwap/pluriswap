@@ -362,7 +362,7 @@ contract Pool is ReentrancyGuardTransient {
         // The kernel's own resolution, run before anything is reserved. Every signed id must be matched to a
         // named module, so `mods.reputation == address(0)` on a deal that carries REPUTATION reverts here
         // instead of becoming an unpriced reservation. Fail closed while nothing has moved yet.
-        Packages.resolve(t.packageIds, mods);
+        Packages.resolve(t.packageIds, t.fiatCommit, mods);
 
         uint256 fee = t.principal * uint256(controllerFeeBps) / BPS_DENOM;
         uint256 actFee = mods.reputation == address(0) ? 0 : _activationFee(t, mods.reputation);

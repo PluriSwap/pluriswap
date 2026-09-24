@@ -19,6 +19,9 @@ import {TestToken} from "../mocks/TestToken.sol";
 
 contract BaseTest is Test {
     uint256 internal constant PRINCIPAL = 1_000_000;
+    /// Stand-in for `Poseidon(TAG_FIAT, rail, currency, amount, payee, salt)`: the kernel treats it as
+    /// opaque, so any non-zero value is a declared fiat leg.
+    bytes32 internal constant FIAT_COMMIT = keccak256("fiat leg");
 
     uint256 internal holderPk = 0xA11CE;
     uint256 internal providerPk = 0xB0B;
@@ -50,6 +53,7 @@ contract BaseTest is Test {
         t.fiatDuration = 3600;
         t.releaseDuration = 1800;
         t.disputeDuration = 7200;
+        t.fiatCommit = FIAT_COMMIT;
         t.packageIds = new bytes32[](0);
     }
 

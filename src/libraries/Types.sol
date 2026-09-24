@@ -29,6 +29,10 @@ struct DealTerms {
     uint256 releaseDuration;
     uint256 disputeDuration;
     uint256 arbitrationDuration;
+    /// The fiat leg, hidden: `Poseidon(TAG_FIAT, rail, currency, amount, payee, salt)` (§3.13). The kernel
+    /// never reads it; it is signed so both parties agree on the payment, and `PAYMENT_PROOF` proves
+    /// against it. Zero = undeclared, which only a Core deal may be.
+    bytes32 fiatCommit;
     bytes32[] packageIds;
 }
 

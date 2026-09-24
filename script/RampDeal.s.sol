@@ -107,6 +107,7 @@ contract RampDeal is Script {
         terms.fiatDuration = 3600;
         terms.releaseDuration = 1800;
         terms.disputeDuration = 7200;
+        terms.fiatCommit = keccak256("fiat leg"); // opaque to the kernel; any non-zero value declares it
         terms.packageIds = new bytes32[](0);
 
         HolderAuthorization memory ha =

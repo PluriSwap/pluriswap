@@ -15,6 +15,7 @@ contract EscrowViewTest is BaseTest {
         PackageMods memory m = view_.modules(id);
         assertEq(uint8(view_.status(id)), uint8(Status.NONE));
         assertEq(t.principal, 0);
+        assertEq(t.fiatCommit, bytes32(0));
         assertEq(t.packageIds.length, 0);
         assertEq(c.activatedAt, 0);
         assertEq(h, bytes32(0));
@@ -32,6 +33,7 @@ contract EscrowViewTest is BaseTest {
         assertEq(t.holder, holder);
         assertEq(t.provider, provider);
         assertEq(t.principal, PRINCIPAL);
+        assertEq(t.fiatCommit, FIAT_COMMIT);
         assertEq(t.packageIds.length, 0);
         assertEq(c.activatedAt, t0);
         assertEq(c.fiatSentAt, 0);

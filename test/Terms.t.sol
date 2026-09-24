@@ -20,6 +20,7 @@ contract TermsTest is Test {
         t.releaseDuration = 1800;
         t.disputeDuration = 7200;
         t.arbitrationDuration = 0;
+        t.fiatCommit = keccak256("fiat leg");
         t.packageIds = new bytes32[](0);
     }
 
@@ -64,5 +65,33 @@ contract TermsTest is Test {
         t.principal = 0;
         vm.expectRevert();
         Terms.hashTerms(t);
+    }
+
+    /// The fiat leg is part of the agreement: the kernel never reads it, but two parties who committed
+    /// to different payments have not agreed on the same deal, and cannot produce the same hash.
+    function test_hashTerms_bindsFiatCommit() public view {
+        DealTerms memory a = _validTerms();
+        DealTerms memory b = _validTerms();
+        b.fiatCommit = keccak256("another fiat leg");
+        assertTrue(Terms.hashTerms(a) != Terms.hashTerms(b), "fiatCommit must enter the hash");
+    }
+
+    /// A Core deal may leave the fiat leg undeclared: the kernel does not interpret it, and only
+    /// `PAYMENT_PROOF` consumes it (rejected at activation, not at hashing — see Packages.t.sol).
+    function test_hashTerms_acceptsZeroFiatCommit() public view {
+        DealTerms memory t = _validTerms();
+        t.fiatCommit = bytes32(0);
+        assertTrue(Terms.hashTerms(t) != bytes32(0));
+    }
+
+    /// The typehash is what a wallet renders. Pinned as a literal so a reorder is a failing test, not a
+    /// silent change of every signature in flight.
+    function test_typehash_pinned() public pure {
+        assertEq(
+            Terms.DEAL_TERMS_TYPEHASH,
+            keccak256(
+                "DealTerms(address holder,address controller,address provider,address token,uint256 principal,uint256 fiatDuration,uint256 releaseDuration,uint256 disputeDuration,uint256 arbitrationDuration,bytes32 fiatCommit,bytes32[] packageIds)"
+            )
+        );
     }
 }
